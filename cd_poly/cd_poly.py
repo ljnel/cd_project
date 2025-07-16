@@ -5,7 +5,7 @@ import numpy as np
 
 class CDPolynomial():
 
-    def __init__(self, data, degree=2, eps=0.):
+    def __init__(self, data, degree=2, method='qr', eps=0., verbose=False):
         """
         Initialize the CD polynomial based on data.
         Degree is the degree of the basis (half that of the moment matrix).
@@ -13,35 +13,70 @@ class CDPolynomial():
         a basis - e.g. for a function space, the coordinates with respect to
         the Chebyshev basis. Eps is a regularization parameter which ensures
         that the moment matrix is nonsingular.
+
+        Cholesky and Gaussian elimination via the moment matrix are
+        implemented for completeness, but aren't numerically accurate.
+        Least squares and QR decomposition without the moment matrix are 
+        accurate, with QR being noticeably faster.
         """
-        self.alg_deg = degree  # algebraic degree (highest deg of a monomial)
-        _, self.harm_deg = data.shape  # harmonic degree (number of variables)
+        self.deg = degree  # highest degree of the monomial basis
+        self.n_data, self.n_vars = data.shape  # number of variables
+        self.verbose = verbose
 
-        poly = PolynomialFeatures(degree=degree).fit_transform(data)
-        _, self.n_monomials = poly.shape
-        self.moments = np.einsum('bi,bj->bij', poly, poly).mean(axis=0)
+        assert method in ['chol', 'lstsq', 'solve', 'qr']
+        self.method = method
+
+        self.X = PolynomialFeatures(degree=degree).fit_transform(data)
+        _, self.n_monomials = self.X.shape
+        assert self.n_monomials <= self.n_data
+
+        self.moments = (self.X.T @ self.X) / self.n_data
         self.moments += eps * np.eye(self.n_monomials, self.n_monomials)
-        self.L = np.linalg.cholesky(self.moments)
 
-        self.maxval = self(data).max()
+        self.mean = self(data).mean()
+        
+        if verbose:
+            print(f'Data monomials shape: {self.X.shape}')
+            print(f'Moment matrix cond num: {np.linalg.cond(self.moments):e}')
+            print(f'Empirical mean of CD poly: {self.mean}')
 
     def __call__(self, z):
         """
         Evaluate the CD polynomial at an array of points
         (also represented by coords).
         """
-        poly = PolynomialFeatures(degree=self.alg_deg).fit_transform(z)
-        y = solve_triangular(self.L, poly.T, lower=True)  # (n_data, batch)
-        z = solve_triangular(self.L.T, y, lower=False)  # (n_data, batch)
-        return np.einsum('bi,ib->b', poly, z)
-        # return np.einsum('bi,ib->b', poly,
-        #                  np.linalg.solve(self.moments, poly.T))
+        poly = PolynomialFeatures(degree=self.deg).fit_transform(z)  # (batch, n_monomials)
+
+        if self.method == 'chol':
+            # Cholesky decomposition of the moment matrix
+            L = np.linalg.cholesky(self.moments)          
+            y = solve_triangular(L, poly.T, lower=True).T  # (batch, n_monomials)
+            return np.einsum('bi,bi->b', y, y)
+
+        if self.method == 'solve':
+            # Gaussian elimination with the moment matrix
+            y = np.linalg.solve(self.moments, poly.T).T  # (batch, n_monomials)
+            return np.einsum('bi,bi->b', poly, y)
+
+        if self.method == 'lstsq':
+            # Least squares without computing the moment matrix
+            y, res, _, _ = np.linalg.lstsq(self.X.T / np.sqrt(self.n_data),
+                                           poly.T, rcond=0)
+            if res.size != 0 and self.verbose:
+                print(f'LS had residuals {res}')
+            return np.einsum('ib,ib->b', y, y)
+
+        if self.method == 'qr':
+            # QR decomposition without computing the moment matrix
+            _, R = np.linalg.qr(self.X / np.sqrt(self.n_data))
+            y = solve_triangular(R.T, poly.T, lower=True).T  # (batch, n_monomials)
+            return np.einsum('bi,bi->b', y, y)
 
     def plot(self, ax, multiplier=1., **plot_kwargs):
         """
         Plot the contours of this CD polynomial.
         """
-        levels = [multiplier * self.maxval * 10 ** i for i in range(10)]
+        levels = [multiplier * self.mean * 10 ** i for i in range(10)]
         plot_contours(self, ax, levels=levels, **plot_kwargs)
 
 

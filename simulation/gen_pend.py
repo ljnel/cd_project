@@ -2,12 +2,9 @@ import pinocchio as pin
 import numpy as np
 
 
-def create_model():
+def create_model(mass, length):
     "Create a Pinocchio model for an inverted pendulum."
     model = pin.Model()
-
-    mass = 1.0   # kg
-    length = 1.0  # meters
 
     joint_id = model.addJoint(0,
                               pin.JointModelRX(),
@@ -50,15 +47,21 @@ def simulate_inverted_pendulum(model, t, steps, params):
     return np.array(trajectory).T
 
 
-def gen_trajs(n_simulations, t, steps, param_dists):
-    "Simulate multiple trajectories with given param distributions."
+def gen_trajs(n_simulations, t, steps, param_dists, mass=1.0, length=1.0):
+    """
+    Simulate multiple trajectories with given param distributions.
+    
+    param_dists: a dictionary containing, for each desired parameter, either
+    a scipy.stats distribution or a number.
+    """
     qs = param_dists['q'].rvs(n_simulations)
     vs = param_dists['v'].rvs(n_simulations)
     bs = param_dists['b'].rvs(n_simulations)
 
     times = np.linspace(0., t, steps)
     trajs = np.zeros((n_simulations, 2, steps))
-    model = create_model()
+
+    model = create_model(mass, length)
 
     for i in range(n_simulations):
 
