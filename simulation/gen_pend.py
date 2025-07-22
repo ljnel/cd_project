@@ -19,7 +19,7 @@ def create_model(mass, length):
     model.appendBodyToJoint(joint_id,
                             inertia,
                             pin.SE3.Identity())
-    model.gravity.linear[2] = -9.81
+    model.gravity.linear[2] = -9.81 # not needed?
 
     return model
 

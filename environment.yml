@@ -1,0 +1,24 @@
+name: cd_project
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  # because matplotlib>10 installs pyside6 which seems to have
+  # compatibility problems with vscode plotting
+  - matplotlib<3.10
+  - scikit-learn
+  - scipy
+  - pinocchio
+  - meshcat-python
+  - matplotlib
+  - pandas
+  - seaborn
+  - aligator=0.12
+  - pytorch
+  - ipykernel
+  - gymnasium
+  - pip:
+    - stable-baselines3
