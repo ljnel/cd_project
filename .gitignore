@@ -3,3 +3,5 @@ __pycache__/
 pinocchio/
 .DS_Store
 .ipynb_checkpoints/
+cd_project/egg_info
+.vscode/launch.json

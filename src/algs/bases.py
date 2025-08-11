@@ -1,9 +1,9 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
-import jax
 import jax.numpy as jnp
 from jax import lax
 
@@ -63,13 +63,14 @@ class Basis(ABC):
         self.n_vars = spec.n_vars
         self.degree = spec.degree
         self.domain = spec.domain
-        self._index_set: List[MultiIndex] = total_degree_index_set(self.n_vars, self.degree)
+        self._index_set: List[MultiIndex] = total_degree_index_set(
+            self.n_vars, self.degree
+        )
 
     # ---- Hooks for subclasses ----
 
     @abstractmethod
-    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
-        ...
+    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray: ...
 
     def _preprocess_var(self, x: jnp.ndarray, dim: int) -> jnp.ndarray:
         return x
@@ -96,7 +97,9 @@ class Basis(ABC):
         values: List[jnp.ndarray] = []
         for dim in range(d):
             x = self._preprocess_var(X[:, dim], dim)
-            Vd = jnp.stack([self._eval_1d(k, x, dim) for k in range(self.degree + 1)], axis=1)
+            Vd = jnp.stack(
+                [self._eval_1d(k, x, dim) for k in range(self.degree + 1)], axis=1
+            )
             values.append(Vd)
 
         # Assemble multivariate products for each multi-index alpha
@@ -123,14 +126,28 @@ class Basis(ABC):
 
     def __repr__(self) -> str:
         cls = self.__class__.__name__
-        return f"{cls}(n_vars={self.n_vars}, degree={self.degree}, n_terms={self.n_terms})"
+        return (
+            f"{cls}(n_vars={self.n_vars}, degree={self.degree}, n_terms={self.n_terms})"
+        )
 
 
 # ------------------------ Concrete bases ------------------------
 
+
 class MonomialBasis(Basis):
     """Multivariate monomials: x^k per coordinate."""
+
     def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+        if k == 0:
+            return jnp.ones_like(x)
+        return jnp.power(x, k)
+
+
+class MonomialBasisScaled(Basis):
+    """Multivariate monomials: x^k per coordinate."""
+
+    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+        # TODO(FD): use the funtionalities in monomials.py to add the correct scaling factors.
         if k == 0:
             return jnp.ones_like(x)
         return jnp.power(x, k)
@@ -141,6 +158,7 @@ class ChebyshevBasis(Basis):
     First-kind Chebyshev polynomials T_k on [-1, 1], with optional affine
     scaling from a per-variable domain (a_j, b_j).
     """
+
     def _preprocess_var(self, x: jnp.ndarray, dim: int) -> jnp.ndarray:
         if self.domain is None:
             return x
