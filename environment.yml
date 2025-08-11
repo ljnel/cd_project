@@ -18,7 +18,10 @@ dependencies:
   - seaborn
   - aligator=0.12
   - pytorch
+  - torchvision
   - ipykernel
   - gymnasium
+  - jax
   - pip:
     - stable-baselines3
+    - pytest
