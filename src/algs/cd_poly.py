@@ -1,26 +1,17 @@
+from algs.bases import *
 import jax
 import jax.numpy as jnp
 import numpy as np
+from utils.plotting import plot_contours, plot_map
 from scipy.linalg import solve_triangular
 from sklearn.kernel_approximation import PolynomialCountSketch as PCS
 
-from algs.bases import *
-from algs.monomials import get_monomial
 from utils.plotting import plot_contours, plot_map
 
+class CDPolynomial():
 
-class CDPolynomial:
-
-    def __init__(
-        self,
-        data,
-        degree: int,
-        basis="mon",
-        method="qr",
-        eps=0.0,
-        verbose=False,
-        n_components=100,
-    ):
+    def __init__(self, data, degree: int, basis='mon',
+                 method='qr', eps=0., verbose=False, n_components=100):
         """
         Initialize the CD polynomial based on data.
         Degree is the degree of the basis (half that of the moment matrix).
@@ -36,32 +27,25 @@ class CDPolynomial:
         self.n_data, self.n_vars = data.shape  # number of variables
         self.verbose = verbose
 
-        assert method in ["chol", "lstsq", "solve", "qr"]
+        assert method in ['chol', 'lstsq', 'solve', 'qr']
         self.method = method
 
-        assert basis in ["mon", "mons", "cheb", "rf"]
+        assert basis in ['mon', 'cheb', 'rf']
         bs = BasisSpec(n_vars=self.n_vars, degree=degree)
-        if basis == "mon":
+        self.basis = None
+        if basis == 'mon':
             self.basis = MonomialBasis(bs)
             self.X = self.basis.transform(data)
-        elif basis == "cheb":
+        elif basis == 'cheb':
             self.basis = ChebyshevBasis(bs)
             self.X = self.basis.transform(data)
-        elif basis == "rf":
+        elif basis == 'rf':
             assert n_components is not None
             # NB: random state should probably be dealt with somehow
-            self.basis = PCS(
-                degree=degree, n_components=n_components, coef0=1, random_state=0
-            )
+            self.basis = PCS(degree=degree, n_components=n_components, coef0=1., random_state=0)
             self.X = self.basis.fit_transform(data)
-        # elif basis == "mons":
-        #    # TODO(FD) will be cleaner to move to this but needs to be implemented.
-        #    # self.basis = MonomialBasisScaled(bs)
-        #    # self.X = self.basis.transform(data)
-        #    self.X = self.get_features(data)  # K x n_data
-        #    self.basis = None
         else:
-            raise ValueError(f"Unknown basis {basis}")
+            raise ValueError(f'Unknown basis {basis}')
 
         _, self.n_terms = self.X.shape
         # assert self.n_terms <= self.n_data
@@ -70,11 +54,11 @@ class CDPolynomial:
         self.M += eps * jnp.eye(self.n_terms)
 
         self.mean = self(data).mean()
-
+        
         if verbose:
-            print(f"Feature matrix shape: {self.X.shape}")
-            print(f"Moment matrix cond num: {jnp.linalg.cond(self.M):e}")
-            print(f"Empirical mean of CD poly: {self.mean}")
+            print(f'Feature matrix shape: {self.X.shape}')
+            print(f'Moment matrix cond num: {jnp.linalg.cond(self.M):e}')
+            print(f'Empirical mean of CD poly: {self.mean}')
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """
@@ -86,42 +70,32 @@ class CDPolynomial:
         else:
             v = self.basis.transform(x)  # type: ignore # (batch, n_terms)
 
-        if self.method == "chol":
+        if self.method == 'chol':
             # Cholesky decomposition of the moment matrix
-            L = jnp.linalg.cholesky(self.M)
-            y = jax.scipy.linalg.solve_triangular(
-                L, v.T, lower=True
-            ).T  # (batch, n_terms)
-            return jnp.einsum("bi,bi->b", y, y)
+            L = jnp.linalg.cholesky(self.M)          
+            y = jax.scipy.linalg.solve_triangular(L, v.T, lower=True).T  # (batch, n_terms)
+            return jnp.einsum('bi,bi->b', y, y)
 
-        elif self.method == "solve":
+        if self.method == 'solve':
             # Gaussian elimination with the moment matrix
             y = jnp.linalg.solve(self.M, v.T).T  # (batch, n_terms)
-            return jnp.einsum("bi,bi->b", v, y)
+            return jnp.einsum('bi,bi->b', v, y)
 
-        elif self.method == "lstsq":
+        if self.method == 'lstsq':
             # Least squares without computing the moment matrix
-            y, res, _, _ = jnp.linalg.lstsq(
-                self.X.T / jnp.sqrt(self.n_data), v.T, rcond=0
-            )
+            y, res, _, _ = jnp.linalg.lstsq(self.X.T / jnp.sqrt(self.n_data),
+                                           v.T, rcond=0)
             if res.size != 0 and self.verbose:
-                print(f"LS had residuals {res}")
-            return jnp.einsum("ib,ib->b", y, y)
+                print(f'LS had residuals {res}')
+            return jnp.einsum('ib,ib->b', y, y)
 
-        elif self.method == "qr":
+        if self.method == 'qr':
             # QR decomposition without computing the moment matrix
             _, R = jnp.linalg.qr(self.X / jnp.sqrt(self.n_data))
-            y = jax.scipy.linalg.solve_triangular(
-                R.T, v.T, lower=True
-            ).T  # (batch, n_terms)
-            return jnp.einsum("bi,bi->b", y, y)
-        else:
-            raise ValueError("Unknown method")
+            y = jax.scipy.linalg.solve_triangular(R.T, v.T, lower=True).T  # (batch, n_terms)
+            return jnp.einsum('bi,bi->b', y, y)
 
-    def get_features(self, z):
-        return np.vstack([get_monomial(xi, d=self.deg) for xi in z])
-
-    def plot(self, ax, multiplier=1.0, **plot_kwargs):
+    def plot(self, ax, multiplier=1., **plot_kwargs):
         """
         Plot the contours of this CD polynomial.
         """
@@ -173,8 +147,7 @@ class CDPolynomialKernel(CDPolynomial):
         return self.kernel(self.data, z).T  # N x
 
     def __call__(self, z):
-
-        k = self.get_features(z).T  # D y N
+        k = self.get_features(z).T
         if self.method == "chol":
             # K = LL'
             # w = K^-1k= L^-T(L^-1k)
@@ -192,11 +165,3 @@ class CDPolynomialKernel(CDPolynomial):
             raise ValueError("Unknown method")
 
         return self.M.shape[0] * value
-
-    def plot(self, ax, multiplier=1.0, **plot_kwargs):
-        """
-        Plot the contours of this CD polynomial.
-        """
-        # levels must be increasing
-        levels = multiplier * self.mean * np.logspace(-3, 2, 10)
-        return plot_contours(self, ax, levels=levels, **plot_kwargs)
