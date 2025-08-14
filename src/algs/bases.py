@@ -143,16 +143,6 @@ class MonomialBasis(Basis):
         return jnp.power(x, k)
 
 
-class MonomialBasisScaled(Basis):
-    """Multivariate monomials: x^k per coordinate."""
-
-    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
-        # TODO(FD): use the funtionalities in monomials.py to add the correct scaling factors.
-        if k == 0:
-            return jnp.ones_like(x)
-        return jnp.power(x, k)
-
-
 class ChebyshevBasis(Basis):
     """
     First-kind Chebyshev polynomials T_k on [-1, 1], with optional affine

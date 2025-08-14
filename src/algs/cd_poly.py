@@ -54,12 +54,14 @@ class CDPolynomial:
                 degree=degree, n_components=n_components, coef0=1, random_state=0
             )
             self.X = self.basis.fit_transform(data)
-        elif basis == "mons":
-            # TODO(FD) will be cleaner to move to this but needs to be implemented.
-            # self.basis = MonomialBasisScaled(bs)
-            # self.X = self.basis.transform(data)
-            self.X = self.get_features(data)  # K x n_data
-            self.basis = None
+        # elif basis == "mons":
+        #    # TODO(FD) will be cleaner to move to this but needs to be implemented.
+        #    # self.basis = MonomialBasisScaled(bs)
+        #    # self.X = self.basis.transform(data)
+        #    self.X = self.get_features(data)  # K x n_data
+        #    self.basis = None
+        else:
+            raise ValueError(f"Unknown basis {basis}")
 
         _, self.n_terms = self.X.shape
         # assert self.n_terms <= self.n_data

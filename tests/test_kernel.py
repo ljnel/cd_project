@@ -29,7 +29,7 @@ def test_polynomial_kernel():
 
                 cd_poly = CDPolynomial(
                     train_data,
-                    basis="mons",
+                    basis="mon",
                     degree=deg,
                     method=method,
                     verbose=True,
