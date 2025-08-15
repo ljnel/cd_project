@@ -14,7 +14,6 @@ BasisName = Literal["mon", "cheb"]
 @dataclass
 class CDState:
     """All the arrays needed to evaluate a fitted CD polynomial."""
-
     # basis info
     basis_name: BasisName
     degree: int
@@ -168,6 +167,3 @@ class CDPolynomial:
     def plot(self, ax, multiplier: float = 1.0, **plot_kwargs):
         levels = [multiplier * self.mean * 10**i for i in range(10)]
         return plot_contours(self, ax, levels=levels, **plot_kwargs)
-
-    def plot_map(self, ax, **plot_kwargs):
-        return plot_map(self, ax, **plot_kwargs)

@@ -22,6 +22,9 @@ dependencies:
   - ipykernel
   - gymnasium
   - jax
+  - flax
+  - optax
+  - tensorboardX
   - pip:
     - stable-baselines3
     - pytest

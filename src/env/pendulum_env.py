@@ -1,13 +1,17 @@
+from .pendulum_model import create
 import gymnasium as gym
 import numpy as np
 import pinocchio as pin
 from pinocchio.visualize import MeshcatVisualizer
 
-from .pendulum_model import create
-
 
 class PendulumEnv(gym.Env):
-    "Create a gym wrapper for a pendulum in Pinocchio. Eventually: reset should sample physical params"
+    """
+    Create a gym wrapper for a pendulum simulated in pinocchio.
+    Right now, this samples damping in [b_lo, b_hi], but eventually it should sample more params.
+
+    NB: right now 200 steps are used
+    """
 
     def __init__(self, time, freq, b_lo=0., b_hi=.1, n_pend=1):
         super().__init__()
