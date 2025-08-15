@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 

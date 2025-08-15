@@ -5,7 +5,7 @@ from algs.cd_poly import CDPolynomial
 
 
 class CDPolynomialKernel(CDPolynomial):
-    def __init__(self, data, kernel, method="chol", eps=0.0, verbose=False):
+    def __init__(self, data, kernel, method: str = "chol", eps=0.0, verbose=False):
         """
         Initialize the CD polynomial based on data.
         Degree is the degree of the basis (half that of the moment matrix).

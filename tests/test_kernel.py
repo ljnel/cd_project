@@ -14,19 +14,24 @@ from sklearn.metrics.pairwise import laplacian_kernel, polynomial_kernel, rbf_ke
 matplotlib.use("QtAgg")
 
 from algs.cd_kernel import CDPolynomialKernel
-from algs.cd_poly import CDPolynomial
+from algs.cd_poly import CDPolynomial, Method
 
 
 def test_polynomial_kernel():
-    for method in ["chol"]:
+    methods: list[Method] = ["chol"]
+    for method in methods:
         np.random.seed(2)
+        key = jax.random.PRNGKey(2)
         for n in range(2, 5):
             for deg in range(1, 4):
                 D = comb(n + deg, deg)
 
                 # for N = D we expect that both give the same results.
                 N = D
-                train_data = np.random.uniform(low=-1, high=2, size=(N, n))
+                key, subkey = jax.random.split(key)
+                train_data = jax.random.uniform(
+                    subkey, shape=(N, n), minval=-1.0, maxval=2.0
+                )
 
                 cd_poly = CDPolynomial(
                     train_data,
@@ -44,7 +49,9 @@ def test_polynomial_kernel():
 
                 # do a certain number of random tests to verify
                 for _ in range(10):
-                    train_point = np.random.uniform(low=-1, high=2, size=(1, n))
+                    train_point = jax.random.uniform(
+                        subkey, shape=(1, n), minval=-1.0, maxval=2.0
+                    )
 
                     kernel_eval = kernel(train_point, train_data)
                     for i, xi in enumerate(train_data):
@@ -63,9 +70,13 @@ def plot_kernels(factor=1.0):
     D = comb(n + deg, deg)
 
     N = int(D * factor)
-    data = np.random.uniform(low=-1, high=2, size=(N, 2))
 
-    poly = CDPolynomial(data, degree=deg, method="chol", verbose=True)
+    key = jax.random.PRNGKey(2)
+    key, subkey = jax.random.split(key)
+    data = jax.random.uniform(subkey, shape=(N, 2), minval=-1.0, maxval=2.0)
+
+    method: Method = "chol"
+    poly = CDPolynomial(data, degree=deg, method=method, verbose=True)
     fig, axs = plt.subplots(1, 4)
     fig.set_size_inches(16, 4)
     ax = axs[0]
