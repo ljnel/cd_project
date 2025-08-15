@@ -1,167 +1,174 @@
-from algs.bases import *
+from dataclasses import dataclass
+from typing import Literal, Optional
+
 import jax
 import jax.numpy as jnp
-import numpy as np
-from utils.plotting import plot_contours, plot_map
-from scipy.linalg import solve_triangular
-from sklearn.kernel_approximation import PolynomialCountSketch as PCS
+import jax.scipy as jsp
 
+from algs.bases import BasisSpec, ChebyshevBasis, MonomialBasis
 from utils.plotting import plot_contours, plot_map
 
-class CDPolynomial():
+Method = Literal["chol", "qr"]
+BasisName = Literal["mon", "cheb"]
 
-    def __init__(self, data, degree: int, basis='mon',
-                 method='qr', eps=0., verbose=False, n_components=100):
-        """
-        Initialize the CD polynomial based on data.
-        Degree is the degree of the basis (half that of the moment matrix).
-        Basis can be 'mon' (standard monomial basis), 'cheb' (Chebyshev), or 'rf' (random features).
-        In the case of 'rf', n_components specifies how many random features to use.
-        Eps is a regularization parameter which ensures that the moment matrix is nonsingular.
 
-        Cholesky and Gaussian elimination on the moment matrix are
-        implemented for completeness, but Least Squares or QR on the design
-        matrix seems to be better.
-        """
-        self.deg = degree  # highest degree of the monomial basis
-        self.n_data, self.n_vars = data.shape  # number of variables
+@dataclass
+class CDState:
+    """All the arrays needed to evaluate a fitted CD polynomial."""
+
+    # basis info
+    basis_name: BasisName
+    degree: int
+    n_vars: int
+
+    # design / moment info
+    n_data: int
+    n_terms: int
+    eps: float
+
+    # factorization cache (one of these is used depending on `method`)
+    method: Method
+    L: Optional[jnp.ndarray]  # Cholesky factor of M (lower-triangular)
+    R: Optional[jnp.ndarray]  # R from reduced QR of X_bar
+
+    # We re-create the basis from (basis_name, degree, n_vars) when needed.
+
+
+def _make_basis(basis_name: BasisName, n_vars: int, degree: int):
+    """Factory for the basis object (kept small to avoid surprises under JIT)."""
+    bs = BasisSpec(n_vars=n_vars, degree=degree)
+    if basis_name == "mon":
+        return MonomialBasis(bs)
+    elif basis_name == "cheb":
+        return ChebyshevBasis(bs)
+    else:
+        raise ValueError(f"Unsupported basis: {basis_name!r}")
+
+
+def fit_cd(
+    data: jnp.ndarray,
+    degree: int,
+    basis: BasisName = "mon",
+    method: Method = "qr",
+    eps: float = 0.0,
+    verbose: bool = False,
+) -> CDState:
+    """
+    Functional 'fit': returns a CDState that contains everything needed to evaluate P(x).
+    Differentiable w.r.t. `data` (provided basis.transform is JAX-only).
+    """
+    data = jnp.asarray(data)
+    n_data, n_vars = data.shape
+    basis_impl = _make_basis(basis, n_vars, degree)
+
+    # Feature / design matrix
+    X = jnp.asarray(basis_impl.transform(data))  # (n_data, n_terms)
+    _, n_terms = X.shape
+
+    # Keep the original contract: we expect n_terms <= n_data.
+    # assert (
+    #     n_terms <= n_data
+    # ), "Require n_terms <= n_data (increase data or reduce degree)."
+
+    # Normalized design and moment matrix
+    X_bar = X / jnp.sqrt(n_data)
+    M = X_bar.T @ X_bar
+    if eps:
+        M = M + eps * jnp.eye(n_terms, dtype=M.dtype)
+
+    # Precompute factorization for the chosen method
+    if method == "chol":
+        L = jnp.linalg.cholesky(M)  # M = L L^T (PD if eps>0)
+        R = None
+    elif method == "qr":
+        # Reduced QR of X_bar: X_bar = Q R, M = R^T R.
+        # NOTE: This corresponds to eps == 0 in theory. With eps>0, prefer 'chol'.
+        _, R = jnp.linalg.qr(X_bar, mode="reduced")
+        L = None
+    else:
+        raise ValueError(f"Unsupported method: {method!r}")
+
+    if verbose:
+        try:
+            cond = jnp.linalg.cond(M)
+        except Exception:
+            cond = jnp.nan
+        print(
+            f"[fit_cd] X shape={X.shape}, M cond={cond:e}, method={method}, eps={eps}"
+        )
+
+    return CDState(
+        basis_name=basis,
+        degree=degree,
+        n_vars=n_vars,
+        n_data=n_data,
+        n_terms=n_terms,
+        eps=eps,
+        method=method,
+        L=L,
+        R=R,
+    )
+
+
+def evaluate_cd(state: CDState, x: jnp.ndarray) -> jnp.ndarray:
+    """
+    Functional 'evaluate': returns vector P(x) (one scalar per row in x).
+    Differentiable w.r.t. x (and w.r.t. state if state came from `fit_cd(data)` inside the trace).
+    """
+    x = jnp.asarray(x)
+    basis_impl = _make_basis(state.basis_name, state.n_vars, state.degree)
+    v = jnp.asarray(basis_impl.transform(x))  # (batch, n_terms)
+
+    if state.method == "chol":
+        # P(x) = || L^{-T} v ||^2, where M = L L^T
+        assert state.L is not None
+        y = jsp.linalg.solve_triangular(state.L, v.T, lower=True).T  # (batch, n_terms)
+        return jnp.einsum("bi,bi->b", y, y)
+
+    # state.method == "qr"
+    # P(x) = || R^{-T} v ||^2 since M = R^T R  (best used with eps=0)
+    assert state.R is not None
+    y = jsp.linalg.solve_triangular(state.R.T, v.T, lower=True).T  # (batch, n_terms)
+    return jnp.einsum("bi,bi->b", y, y)
+
+
+class CDPolynomial:
+    """
+    Notes for training:
+      • JAX's grad needs a scalar; wrap calls with a reduction at the loss site.
+      • For ∂/∂x: grad(lambda xi: evaluate_cd(state, xi[None]).mean())(xi)
+      • For ∂/∂data: grad(lambda D: evaluate_cd(fit_cd(D, ...), X_query).mean())(data)
+    """
+
+    def __init__(
+        self,
+        data: jnp.ndarray,
+        degree: int,
+        basis: BasisName = "mon",
+        method: Method = "qr",
+        eps: float = 0.0,
+        verbose: bool = False,
+    ):
+        self.deg = degree
         self.verbose = verbose
-
-        assert method in ['chol', 'lstsq', 'solve', 'qr']
-        self.method = method
-
-        assert basis in ['mon', 'cheb', 'rf']
-        bs = BasisSpec(n_vars=self.n_vars, degree=degree)
-        self.basis = None
-        if basis == 'mon':
-            self.basis = MonomialBasis(bs)
-            self.X = self.basis.transform(data)
-        elif basis == 'cheb':
-            self.basis = ChebyshevBasis(bs)
-            self.X = self.basis.transform(data)
-        elif basis == 'rf':
-            assert n_components is not None
-            # NB: random state should probably be dealt with somehow
-            self.basis = PCS(degree=degree, n_components=n_components, coef0=1., random_state=0)
-            self.X = self.basis.fit_transform(data)
-        else:
-            raise ValueError(f'Unknown basis {basis}')
-
-        _, self.n_terms = self.X.shape
-        # assert self.n_terms <= self.n_data
-
-        self.M = (self.X.T @ self.X) / self.n_data
-        self.M += eps * jnp.eye(self.n_terms)
-
+        self.state = fit_cd(
+            data=data,
+            degree=degree,
+            basis=basis,
+            method=method,
+            eps=eps,
+            verbose=verbose,
+        )
+        self.n_terms = self.state.n_terms
+        self.n_vars = self.state.n_vars
         self.mean = self(data).mean()
-        
-        if verbose:
-            print(f'Feature matrix shape: {self.X.shape}')
-            print(f'Moment matrix cond num: {jnp.linalg.cond(self.M):e}')
-            print(f'Empirical mean of CD poly: {self.mean}')
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Evaluate the CD polynomial at an array of points
-        (also represented by coords).
-        """
-        if self.basis is None:
-            v = self.get_features(x)  # D y N
-        else:
-            v = self.basis.transform(x)  # type: ignore # (batch, n_terms)
+        return evaluate_cd(self.state, x)
 
-        if self.method == 'chol':
-            # Cholesky decomposition of the moment matrix
-            L = jnp.linalg.cholesky(self.M)          
-            y = jax.scipy.linalg.solve_triangular(L, v.T, lower=True).T  # (batch, n_terms)
-            return jnp.einsum('bi,bi->b', y, y)
-
-        if self.method == 'solve':
-            # Gaussian elimination with the moment matrix
-            y = jnp.linalg.solve(self.M, v.T).T  # (batch, n_terms)
-            return jnp.einsum('bi,bi->b', v, y)
-
-        if self.method == 'lstsq':
-            # Least squares without computing the moment matrix
-            y, res, _, _ = jnp.linalg.lstsq(self.X.T / jnp.sqrt(self.n_data),
-                                           v.T, rcond=0)
-            if res.size != 0 and self.verbose:
-                print(f'LS had residuals {res}')
-            return jnp.einsum('ib,ib->b', y, y)
-
-        if self.method == 'qr':
-            # QR decomposition without computing the moment matrix
-            _, R = jnp.linalg.qr(self.X / jnp.sqrt(self.n_data))
-            y = jax.scipy.linalg.solve_triangular(R.T, v.T, lower=True).T  # (batch, n_terms)
-            return jnp.einsum('bi,bi->b', y, y)
-
-    def plot(self, ax, multiplier=1., **plot_kwargs):
-        """
-        Plot the contours of this CD polynomial.
-        """
+    def plot(self, ax, multiplier: float = 1.0, **plot_kwargs):
         levels = [multiplier * self.mean * 10**i for i in range(10)]
         return plot_contours(self, ax, levels=levels, **plot_kwargs)
 
     def plot_map(self, ax, **plot_kwargs):
-        """
-        Plot the contours of this CD polynomial.
-        """
         return plot_map(self, ax, **plot_kwargs)
-
-
-class CDPolynomialKernel(CDPolynomial):
-    def __init__(self, data, kernel, method="qr", eps=0.0, verbose=False):
-        """
-        Initialize the CD polynomial based on data.
-        Degree is the degree of the basis (half that of the moment matrix).
-        We assume that the data points are represented by their coordinates in
-        a basis - e.g. for a function space, the coordinates with respect to
-        the Chebyshev basis. Eps is a regularization parameter which ensures
-        that the moment matrix is nonsingular.
-
-        Cholesky and Gaussian elimination via the moment matrix are
-        implemented for completeness, but aren't numerically accurate.
-        Least squares and QR decomposition without the moment matrix are
-        accurate, with QR being noticeably faster.
-
-        kernel is a callable from sklearn.metrics.pairwise
-        """
-        self.data = data
-        self.n_data, self.n_vars = data.shape  # number of variables
-        self.verbose = verbose
-
-        assert method in ["chol", "solve"]
-        self.method = method
-        self.kernel = kernel
-
-        self.K = self.kernel(data, data)
-        self.M = self.K @ self.K
-        self.L = None
-        self.mean = self(data).mean()
-
-        if verbose:
-            print(f"Kernel matrix cond num: {np.linalg.cond(self.K):e}")
-            print(f"Empirical mean of CD poly: {self.mean}")
-
-    def get_features(self, z):
-        return self.kernel(self.data, z).T  # N x
-
-    def __call__(self, z):
-        k = self.get_features(z).T
-        if self.method == "chol":
-            # K = LL'
-            # w = K^-1k= L^-T(L^-1k)
-            L = np.linalg.cholesky(self.K)
-            y = solve_triangular(L, k, lower=True)  # (batch, n_monomials)
-            w = solve_triangular(L.T, y, lower=False)
-            value = np.einsum("ib,ib->b", w, w)
-
-        elif self.method == "solve":
-            # Gaussian elimination with the moment matrix
-            w = np.linalg.solve(self.K, k)  # (batch, n_monomials)
-            value = np.einsum("ib,ib->b", w, w)
-
-        else:
-            raise ValueError("Unknown method")
-
-        return self.M.shape[0] * value

@@ -13,11 +13,12 @@ from sklearn.metrics.pairwise import laplacian_kernel, polynomial_kernel, rbf_ke
 
 matplotlib.use("QtAgg")
 
-from algs.cd_poly import CDPolynomial, CDPolynomialKernel
+from algs.cd_kernel import CDPolynomialKernel
+from algs.cd_poly import CDPolynomial
 
 
 def test_polynomial_kernel():
-    for method in ["chol", "solve"]:
+    for method in ["chol"]:
         np.random.seed(2)
         for n in range(2, 5):
             for deg in range(1, 4):
@@ -64,7 +65,7 @@ def plot_kernels(factor=1.0):
     N = int(D * factor)
     data = np.random.uniform(low=-1, high=2, size=(N, 2))
 
-    poly = CDPolynomial(data, degree=deg, method="solve", verbose=True)
+    poly = CDPolynomial(data, degree=deg, method="chol", verbose=True)
     fig, axs = plt.subplots(1, 4)
     fig.set_size_inches(16, 4)
     ax = axs[0]
@@ -76,8 +77,6 @@ def plot_kernels(factor=1.0):
     ax.scatter(*data.T, color="black", marker="x")
     # ax.set_aspect("equal")
     ax.set_title("Original CD")
-
-    assert poly.M.shape[0] == D
 
     kernel_laplace = lambda x, data: laplacian_kernel(x, data, gamma=2.0)
     kernel_gauss = lambda x, data: rbf_kernel(x, data, gamma=2.0)
