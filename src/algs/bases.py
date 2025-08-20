@@ -1,17 +1,20 @@
+"""
+Code for computing with arbitrary polynomial bases that can be used with numpy or pytorch.
+Right now, only monomial basis and chebyshev basis are implemented.
+"""
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
-import jax
-import jax.numpy as jnp
-from jax import lax
+import torch
 
+Tensor = torch.Tensor
 MultiIndex = Tuple[int, ...]
 
-
-def _validate_shape(X: jnp.ndarray, n_vars: int) -> jnp.ndarray:
-    X = jnp.asarray(X, dtype=float)
+def _validate_shape(X: Tensor, n_vars: int) -> Tensor:
+    X = torch.as_tensor(X, dtype=torch.get_default_dtype())
     if X.ndim != 2:
         raise ValueError(f"X must be 2D (n_samples, n_vars); got {X.ndim}D.")
     if X.shape[1] != n_vars:
@@ -21,8 +24,7 @@ def _validate_shape(X: jnp.ndarray, n_vars: int) -> jnp.ndarray:
 
 def total_degree_index_set(n_vars: int, degree: int) -> List[MultiIndex]:
     """
-    All multi-indices alpha in N^n_vars with |alpha|_1 <= degree, graded-lex order.
-    (Python-side list is fine; it’s static for JIT.)
+    All multi-indices in n_vars variables with sum <= degree, in graded-lex order.
     """
     if degree < 0:
         raise ValueError("degree must be >= 0")
@@ -56,7 +58,7 @@ class Basis(ABC):
     Abstract multivariate polynomial basis up to a given total degree.
 
     Subclasses define `_eval_1d(k, x, dim)`, evaluating the k-th 1D basis
-    on a 1D array `x` for a single variable (dimension `dim`).
+    on a 1D tensor `x` for a single variable (dimension `dim`).
     """
 
     def __init__(self, spec: BasisSpec):
@@ -68,10 +70,10 @@ class Basis(ABC):
     # ---- Hooks for subclasses ----
 
     @abstractmethod
-    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+    def _eval_1d(self, k: int, x: Tensor, dim: int) -> Tensor:
         ...
 
-    def _preprocess_var(self, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+    def _preprocess_var(self, x: Tensor, dim: int) -> Tensor:
         return x
 
     # ---- Public API ----
@@ -84,7 +86,7 @@ class Basis(ABC):
     def n_terms(self) -> int:
         return len(self._index_set)
 
-    def transform(self, X: jnp.ndarray, include_intercept: bool = True) -> jnp.ndarray:
+    def transform(self, X: Tensor, include_intercept: bool = True) -> Tensor:
         """
         Return feature matrix Phi: shape (n_samples, n_terms)
         Phi[i, j] = prod_d phi_{alpha_j[d]}( X[i, d] )
@@ -93,21 +95,23 @@ class Basis(ABC):
         n, d = X.shape
 
         # Per-dimension tables V_d: shape (n, degree+1)
-        values: List[jnp.ndarray] = []
+        values: List[Tensor] = []
         for dim in range(d):
             x = self._preprocess_var(X[:, dim], dim)
-            Vd = jnp.stack([self._eval_1d(k, x, dim) for k in range(self.degree + 1)], axis=1)
+            Vd = torch.stack(
+                [self._eval_1d(k, x, dim) for k in range(self.degree + 1)],
+                dim=1,
+            )  # (n, degree+1)
             values.append(Vd)
 
         # Assemble multivariate products for each multi-index alpha
-        cols: List[jnp.ndarray] = []
+        cols: List[Tensor] = []
         for alpha in self._index_set:
-            # gather per-dim columns and multiply across dims
-            per_dim = [values[dim][:, alpha[dim]] for dim in range(d)]
-            v = jnp.prod(jnp.stack(per_dim, axis=1), axis=1)
+            per_dim = [values[dim][:, alpha[dim]] for dim in range(d)]  # each (n,)
+            v = torch.prod(torch.stack(per_dim, dim=1), dim=1)  # (n,)
             cols.append(v)
 
-        Phi = jnp.stack(cols, axis=1)
+        Phi = torch.stack(cols, dim=1)  # (n, n_terms)
         if not include_intercept:
             Phi = Phi[:, 1:]  # drop alpha=(0,...,0)
         return Phi
@@ -130,10 +134,10 @@ class Basis(ABC):
 
 class MonomialBasis(Basis):
     """Multivariate monomials: x^k per coordinate."""
-    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+    def _eval_1d(self, k: int, x: Tensor, dim: int) -> Tensor:
         if k == 0:
-            return jnp.ones_like(x)
-        return jnp.power(x, k)
+            return torch.ones_like(x)
+        return x.pow(k)
 
 
 class ChebyshevBasis(Basis):
@@ -141,28 +145,24 @@ class ChebyshevBasis(Basis):
     First-kind Chebyshev polynomials T_k on [-1, 1], with optional affine
     scaling from a per-variable domain (a_j, b_j).
     """
-    def _preprocess_var(self, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+    def _preprocess_var(self, x: Tensor, dim: int) -> Tensor:
         if self.domain is None:
             return x
         a, b = self.domain[dim]
-        # Map [a, b] -> [-1, 1]
-        return 2.0 * (x - a) / (b - a) - 1.0
+        a_t = torch.as_tensor(a, dtype=x.dtype, device=x.device)
+        b_t = torch.as_tensor(b, dtype=x.dtype, device=x.device)
+        return 2.0 * (x - a_t) / (b_t - a_t) - 1.0  # map [a, b] -> [-1, 1]
 
-    def _eval_1d(self, k: int, x: jnp.ndarray, dim: int) -> jnp.ndarray:
+    def _eval_1d(self, k: int, x: Tensor, dim: int) -> Tensor:
         # T_0 = 1, T_1 = x, T_{k+1} = 2x T_k - T_{k-1}
         if k == 0:
-            return jnp.ones_like(x)
+            return torch.ones_like(x)
         if k == 1:
             return x
 
-        T0 = jnp.ones_like(x)
-        T1 = x
-
-        def body(i, carry):
-            tkm1, tk = carry
-            tkp1 = 2.0 * x * tk - tkm1
-            return (tk, tkp1)
-
-        # Runs for i = 1, ..., k-1 (inclusive of start, exclusive of stop)
-        _, Tk = lax.fori_loop(1, k, body, (T0, T1))
+        Tkm1 = torch.ones_like(x)
+        Tk = x
+        for _ in range(1, k):  # runs for i = 1, ..., k-1
+            Tkp1 = 2.0 * x * Tk - Tkm1
+            Tkm1, Tk = Tk, Tkp1
         return Tk

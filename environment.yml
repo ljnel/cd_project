@@ -21,10 +21,9 @@ dependencies:
   - torchvision
   - ipykernel
   - gymnasium
-  - jax
-  - flax
-  - optax
-  - tensorboardX
+  - lightning
   - pip:
     - stable-baselines3
     - pytest
+    - tensorboard
+    - tensorboardX
