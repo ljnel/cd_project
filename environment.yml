@@ -20,7 +20,7 @@ dependencies:
   - pytorch
   - torchvision
   - ipykernel
-  - gymnasium
+  - gymnasium[mujoco]
   - lightning
   - pip:
     - stable-baselines3

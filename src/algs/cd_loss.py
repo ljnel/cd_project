@@ -5,15 +5,14 @@ from algs.bases import *
 class CDLoss(nn.Module):
     "CD polynomial implemented in pytorch so that it can be differentiated and updated in batches."
 
-    def __init__(self, degree, bufsize, n_vars, eps, basis='mon'):
+    def __init__(self, degree, n_vars, beta=.1, eps=1e-3, basis='mon'):
         """
         n_data: number of data points used to compute the moment matrix
         """
         super().__init__()
-        self.bufsize = bufsize
         self.n_vars = n_vars
+        self.beta = beta
         self.eps = eps
-        self.register_buffer("buf", torch.empty(0, n_vars))
 
         bs = BasisSpec(n_vars=self.n_vars, degree=degree)
         assert basis in ["mon", "cheb"]
@@ -22,35 +21,48 @@ class CDLoss(nn.Module):
         if basis == "cheb":
             self.basis = ChebyshevBasis(bs)
 
-    def is_ready(self):
-        return len(self.buf) == self.bufsize
+        self.register_buffer("M_buf", torch.zeros(self.basis.n_terms, self.basis.n_terms))
+        self.count = 0
 
     @torch.no_grad()
     def update_buffer(self, x):
-        "Update the buffer based on new inliers. Inliers added to the buffer will not compute to the gradients."
-        x_detached = x.detach()
-        if self.buf.numel() == 0:
-            self.buf = x_detached[-self.bufsize:]
-        else:
-            self.buf = torch.cat([self.buf, x_detached], dim=0)[-self.bufsize:]
+        "Update the buffer based on new inliers."
+        V = self.basis.transform(x.detach())
+        M_batch = (V.T @ V) / len(x)
+        I = torch.eye(V.shape[1], device=V.device)
+        M = (1 - self.beta) * self.M_buf + self.beta * M_batch + self.eps * I
+        self.M_buf.copy_(M)
 
     def forward(self, x_in, x_out):
-        "Compute the CD poly loss based on new inlier and outlier data."
-        assert self.is_ready()
+        "Compute the CD poly loss based on new inlier and outlier data. Also updates the buffer."
 
-        X = torch.cat([self.buf, x_in])  # Does this make sense?
-        V = self.basis.transform(X)
-
+        V = self.basis.transform(x_in)
         v = self.basis.transform(x_out)
 
+        M_batch = (V.T @ V) / len(x_in)
         I = torch.eye(V.shape[1], device=V.device)
-        M = (V.T @ V) / (self.bufsize + len(x_in)) + self.eps * I # moving average
+        if self.count == 0:
+            M = M_batch + self.eps * I
+        else:
+            M = (1 - self.beta) * self.M_buf + self.beta * M_batch + self.eps * I
+
         L = torch.linalg.cholesky(M)
         y = torch.linalg.solve_triangular(L, v.T, upper=False).T
         p_vals =  torch.einsum('bi,bi->b', y, y)
         assert p_vals.shape == (x_out.shape[0],)
+
+        self.M_buf.copy_(M.detach())
+        self.count += 1
+
         return p_vals
     
     @torch.no_grad()
     def predict(self, x):
-        return self.forward(self.buf[:0], x)
+        assert not self.training
+        v = self.basis.transform(x)
+        L = torch.linalg.cholesky(self.M_buf)
+        y = torch.linalg.solve_triangular(L, v.T, upper=False).T
+        p_vals =  torch.einsum('bi,bi->b', y, y)
+        assert p_vals.shape == (x.shape[0],)
+
+        return p_vals

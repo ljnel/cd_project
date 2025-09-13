@@ -1,0 +1,2 @@
+{"method": null, "env": null, "lat": 10, "deg": 3, "tpr": 0.2915082382762991, "tnr": 1.0, "bal_acc": 0.6457541191381495, "weight_acc": 0.8505082382762992, "ttd": 8.986255924170617}
+{"method": "cd", "env": "hopper", "lat": 10, "deg": 3, "tpr": 1.0, "tnr": 1.0, "bal_acc": 1.0, "weight_acc": 1.0, "ttd": 3.5218009478672982}
