@@ -12,34 +12,39 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--digit", type=int, default=0)
+    #parser.add_argument("--digit", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--lat", type=int, default=10)
     parser.add_argument("--mu", type=float, default=0.)
     parser.add_argument("--deg", type=int, default=3)
-    parser.add_argument("--eps", type=float, default=1e-5)
+    parser.add_argument("--eps", type=float, default=1e-3)
     parser.add_argument("--bs", type=int, default=128)
+    parser.add_argument("--beta", type=float, default=.1)
     args = parser.parse_args()
 
     ds = datasets.MNIST(root=str(get_project_root() / "data"), 
                         train=True, download=True, transform=transforms.ToTensor())
     tr_ds, val_ds = random_split(ds, lengths=(0.8, 0.2))
-    tr_dl = make_contrastive_loader(tr_ds, digit=args.digit, batch_size=args.bs, seed=0)
-    val_dl = make_contrastive_loader(val_ds, digit=args.digit, batch_size=args.bs, seed=0)
-
-    trainer = L.Trainer(default_root_dir=get_project_root() / "outputs", max_epochs=5)
-    model = AE_CD(lr=args.lr,
-                  mu=args.mu,
-                  deg=args.deg,
-                  eps=args.eps,
-                  latent_dim=args.lat,
-                  bs=args.bs
-                )
     
-    trainer.fit(model, tr_dl, val_dl)
+    for mu in [0., 0.01]:
+        for digit in range(10):
+            tr_dl = make_contrastive_loader(tr_ds, digit=digit, batch_size=args.bs, seed=0)
+            val_dl = make_contrastive_loader(val_ds, digit=digit, batch_size=args.bs, seed=0)
+
+            trainer = L.Trainer(default_root_dir=get_project_root() / "outputs/mnist/", max_epochs=5)
+            model = AE_CD(lr=args.lr,
+                        mu=mu,
+                        deg=args.deg,
+                        eps=args.eps,
+                        latent_dim=args.lat,
+                        bs=args.bs,
+                        beta=args.beta
+                        )
+            
+            trainer.fit(model, tr_dl, val_dl)
 
     # check some image reconstructions
-    for xb, _ in tr_dl:
+"""     for xb, _ in tr_dl:
         batch = torch.cat((xb[:4], xb[-4:]))
         break
     rec, _ = model.ae(batch)
@@ -50,4 +55,4 @@ if __name__ == "__main__":
         axs[1, i].imshow(recons[i, 0], cmap="gray"); axs[1, i].axis("off")
         if i == 0:
             axs[0, i].set_title("orig"); axs[1, i].set_title("recon")
-    fig.show()
+    fig.show() """
