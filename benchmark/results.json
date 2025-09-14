@@ -1,0 +1,5 @@
+{"method": "cd_rp", "env": "hopper", "enc": null, "no_fail": null, "deg": 3, "tpr": 1.0, "tnr": 0.9962406015037594, "bal_acc": 0.9981203007518797, "weight_acc": 0.9970000000000001, "ttd": 1.3155940594059405, "edr": 0.8762376237623762}
+{"method": "ae_rec", "env": "hopper", "enc": "version_1", "no_fail": true, "deg": 3, "tpr": 1.0, "tnr": 1.0, "bal_acc": 1.0, "weight_acc": 1.0, "ttd": 2.147277227722772, "edr": 1.0}
+{"method": "cd_ae", "env": "hopper", "enc": "version_1", "no_fail": true, "deg": 4, "tpr": 0.9900990099009901, "tnr": 0.993734335839599, "bal_acc": 0.9919166728702946, "weight_acc": 0.9930000000000001, "ttd": 0.775, "edr": 0.635}
+{"method": "cd_ae", "env": "hopper", "enc": "version_0", "no_fail": false, "deg": 4, "tpr": 1.0, "tnr": 0.9949874686716792, "bal_acc": 0.9974937343358397, "weight_acc": 0.996, "ttd": 3.285891089108911, "edr": 1.0}
+{"method": "cd", "env": "hopper", "enc": null, "no_fail": null, "deg": 3, "tpr": 1.0, "tnr": 0.981203007518797, "bal_acc": 0.9906015037593985, "weight_acc": 0.9850000000000001, "ttd": 5.577970297029703, "edr": 1.0}

@@ -9,8 +9,10 @@ AE for (state, action) pairs.
 """
 
 class PairAE(L.LightningModule):
-    def __init__(self, state_dim, action_dim, latent_dim, lr, hidden_dim=64):
+    def __init__(self, state_dim, action_dim, latent_dim, lr, hidden_dim, no_fail):
         super().__init__()
+        self.save_hyperparameters()
+
         self.input_dim = state_dim + action_dim
         self.latent_dim = latent_dim
         self.lr = lr
