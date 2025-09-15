@@ -1,4 +1,5 @@
 import numpy as np
+from time import perf_counter
 
 def sample_ball_unif(n_samples, rad, dim=2):
     "Sample uniformly from a Euclidean ball."
@@ -20,3 +21,14 @@ def closest_indices(x, y, sorter=None):
     right_dist = np.abs(x[right_idx] - y)
 
     return np.where(left_dist <= right_dist, left_idx, right_idx)
+
+
+def time_call(fn, *args, warmup=2, repeat=5):
+    for _ in range(warmup):
+        fn(*args)
+    times = []
+    for _ in range(repeat):
+        t0 = perf_counter()
+        fn(*args)
+        times.append(perf_counter() - t0)
+    return float(np.mean(times))

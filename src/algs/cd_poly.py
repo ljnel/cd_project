@@ -45,6 +45,12 @@ class CDPolynomial():
         assert self.n_terms <= self.n_data
 
         self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
+
+        if self.method == 'chol':
+            self.L = np.linalg.cholesky(self.M)
+        elif self.method == 'qr':
+            _, self.R = np.linalg.qr(self.V / np.sqrt(self.n_data))
+
         self.mean = self(data).mean()
         
         if verbose:
@@ -57,9 +63,10 @@ class CDPolynomial():
         v = self.basis.transform(z)  # (B, n_terms)
 
         if self.method == 'chol':
-            # Cholesky decomposition of the moment matrix
-            L = np.linalg.cholesky(self.M)          
-            y = solve_triangular(L, v.T, lower=True).T  # (B, n_terms)
+            y = solve_triangular(self.L, v.T, lower=True).T  # (B, n_terms)
+            return np.einsum('bi,bi->b', y, y)
+        elif self.method == 'qr':
+            y = solve_triangular(self.R.T, v.T, lower=True).T  # (B, n_terms)
             return np.einsum('bi,bi->b', y, y)
         elif self.method == 'solve':
             # Gaussian elimination with the moment matrix
@@ -72,11 +79,7 @@ class CDPolynomial():
             if res.size != 0 and self.verbose:
                 print(f'LS had residuals {res}')
             return np.einsum('ib,ib->b', y, y)
-        elif self.method == 'qr':
-            # QR decomposition without computing the moment matrix
-            _, R = np.linalg.qr(self.V / np.sqrt(self.n_data))
-            y = solve_triangular(R.T, v.T, lower=True).T  # (B, n_terms)
-            return np.einsum('bi,bi->b', y, y)
+        
         else:
             raise AssertionError("Invalid method.")
 

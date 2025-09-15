@@ -57,6 +57,6 @@ if __name__ == "__main__":
                  no_fail=args.no_fail)
     
     logger = TensorBoardLogger(dir)
-    trainer = L.Trainer(max_epochs=10, logger=logger)
+    trainer = L.Trainer(max_epochs=20, logger=logger)
 
     trainer.fit(pae, dl)
