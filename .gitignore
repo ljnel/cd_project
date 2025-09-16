@@ -4,3 +4,4 @@ pinocchio/
 .DS_Store
 .ipynb_checkpoints/
 notes/
+.vscode/

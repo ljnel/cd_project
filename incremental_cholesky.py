@@ -276,7 +276,15 @@ def run_time_study(n_list, degree_list):
 
             # sanity check
             for k, v in time_dict.items():
-                data.append({"n": n, "degree": degree, "method": k, "time_ms": v})
+                data.append(
+                    {
+                        "n": n,
+                        "degree": degree,
+                        "method": k,
+                        "time_ms": v,
+                        "m": L_d_test.shape[0],
+                    }
+                )
 
     df = pd.DataFrame(data)
     return df
@@ -290,7 +298,7 @@ if __name__ == "__main__":
     if os.path.exists(fname) and not overwrite:
         df = pd.read_csv(fname)
     else:
-        n_list = np.arange(5, 21, step=5)
+        n_list = np.arange(3, 20, step=1)
         degree_list = [2, 3, 4]
         # for debugging
         # n_list = [15]
@@ -305,4 +313,9 @@ if __name__ == "__main__":
         ax.set_yscale("log")
         ax.set_title(f"Degree {d}")
 
+    fig, ax = plt.subplots()
+    sns.lineplot(df, y="time_ms", x="m", hue="method", style="degree")
+    ax.set_yscale("log")
+
+    plt.show()
     print("Done evaluating.")
