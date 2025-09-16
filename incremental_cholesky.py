@@ -160,9 +160,9 @@ def resurive_choleksky(L_1, u_1, A_2, B_2, b_2):
           | C_2 D_2 |           | e_2 |
     """
     # solve C_2 L_1.T = A_2
-    C_2 = scl.solve_triangular(L_1, A_2.T, lower=True).T
-    D_2 = scl.cholesky(B_2 - C_2 @ C_2.T, lower=True)
-    e_2 = scl.solve_triangular(D_2, b_2 - C_2 @ u_1, lower=True)
+    C_2 = scl.solve_triangular(L_1, A_2.T, lower=True, overwrite_b=True).T
+    D_2 = scl.cholesky(B_2 - C_2 @ C_2.T, lower=True, overwrite_a=True)
+    e_2 = scl.solve_triangular(D_2, b_2 - C_2 @ u_1, lower=True, overwrite_b=True)
     return C_2, D_2, e_2
 
 
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     import os
 
     fname = "incremental_cholesky_benchmark.csv"
-    overwrite = False
+    overwrite = True
     if os.path.exists(fname) and not overwrite:
         df = pd.read_csv(fname)
     else:
@@ -312,10 +312,13 @@ if __name__ == "__main__":
         sns.lineplot(df_here, y="time_ms", x="n", hue="method")
         ax.set_yscale("log")
         ax.set_title(f"Degree {d}")
+        ax.grid()
 
     fig, ax = plt.subplots()
     sns.lineplot(df, y="time_ms", x="m", hue="method", style="degree")
     ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.grid()
 
     plt.show()
     print("Done evaluating.")
