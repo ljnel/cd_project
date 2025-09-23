@@ -1,0 +1,5 @@
+hidden_dim: 64
+latent_dim: 8
+lr: 0.001
+state_dim: 11
+window_len: 5

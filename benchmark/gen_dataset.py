@@ -95,12 +95,48 @@ def gen_data(env, policy, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric
     return sa, rew, param, fail
 
 
+def visualize(env, policy, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi):
+    cheetah = True if env == 'HalfCheetah-v5' else False
+    gym_env = gym.make(env, render_mode='human')
+    env = DomainRandomizer(gym_env, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
+    model = SAC.load(policy, env=env)
+
+    for episode in range(3):
+        obs, _ = env.reset()
+        terminated = False
+        print(env.damp)
+
+        for i in range(1000):
+            action, _states = model.predict(obs, deterministic=True)
+            next_obs, r, terminated, truncated, info = env.step(action)
+            
+            # overlay BEFORE rendering so it shows up this frame
+            if hasattr(gym_env.unwrapped, "viewer") and gym_env.unwrapped.viewer is not None:
+                gym_env.unwrapped.viewer.add_overlay(
+                    kind=1,  # upper-left
+                    text1=f"Episode {episode} Step {i}",
+                    text2=f"Param: {env.damp:.2f}"
+                )
+
+            # now render with overlay applied
+            gym_env.render()
+
+            # define a failure condition for half cheetah
+            if cheetah and abs(obs[1]) > 1.0: # fail if too much tilt
+                terminated = True
+
+            obs = next_obs
+
+    env.close()
+
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
     from pathlib import Path
 
     parser = ArgumentParser()
     parser.add_argument('--env')
+    parser.add_argument('--viz', action='store_true')
     args = parser.parse_args()
 
     if args.env == 'inv_pend':
@@ -141,28 +177,30 @@ if __name__ == "__main__":
         fric_lo, fric_hi = .8, 1.2
     dir = Path(f'./{args.env}')
 
-    np.random.seed(0)
-    start = time.time()
-    sa, rew, param, fail = gen_data(env, dir / model, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
-    end = time.time()
-    np.savez(dir / 'train.npz',
-             sa=sa,
-             rew=rew,
-             param=param,
-             fail=fail
-    )
-    print(f'Created train data with {np.mean(fail > 0)} fails in {end - start} seconds.')
+    if args.viz:
+        visualize(env, dir/model, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
 
-    np.random.seed(1)
-    start = time.time()
-    sa, rew, param, fail = gen_data(env, dir / model, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
-    end = time.time()
-    np.savez(dir / 'test.npz',
-             sa=sa,
-             rew=rew,
-             param=param,
-             fail=fail
-    )
-    print(f'Created test data with {np.mean(fail > 0)} fails in {end - start} seconds.')
+    else:
+        np.random.seed(0)
+        start = time.time()
+        sa, rew, param, fail = gen_data(env, dir / model, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
+        end = time.time()
+        np.savez(dir / 'train.npz',
+                sa=sa,
+                rew=rew,
+                param=param,
+                fail=fail
+        )
+        print(f'Created train data with {np.mean(fail > 0)} fails in {end - start} seconds.')
 
-    
+        np.random.seed(1)
+        start = time.time()
+        sa, rew, param, fail = gen_data(env, dir / model, dof_damping_lo, dof_damping_hi, mass_lo, mass_hi, fric_lo, fric_hi)
+        end = time.time()
+        np.savez(dir / 'test.npz',
+                sa=sa,
+                rew=rew,
+                param=param,
+                fail=fail
+        )
+        print(f'Created test data with {np.mean(fail > 0)} fails in {end - start} seconds.')

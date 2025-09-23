@@ -9,6 +9,7 @@ from utils.misc import time_call
 import glob
 from sklearn.metrics import precision_recall_curve, auc
 from algs.cd_poly import CDPolynomial
+from algs.state_window_ae import StateSeqAutoencoder  # or wherever you place it
 from algs.pair_ae import PairAE
 import lightning as L
 from torch.utils.data import DataLoader
@@ -50,6 +51,10 @@ def process_data(file: str, s_dim, a_dim):
 
     df['fail'] = (fail[df['ep']] > 0).astype(bool)
     df['fail_step'] = np.concatenate([[fail[i]] * n_steps for i in range(n_eps)])
+
+    #df[cols] = np.sin(df[cols])
+    #df['s1'] = np.sin(df['s1'])
+
     return df
 
 
@@ -160,6 +165,118 @@ def cd_rp(df_tr, df_cal, df_te, args):
 
     return np.full(n_steps, thresh), t
 
+def log_reg(df_tr, df_cal, df_te, args):
+    from sklearn.linear_model import LogisticRegression
+    X_tr = get_tsa(df_tr)
+    model = LogisticRegression().fit(X_tr, df_tr['fail'])
+    df_te['score'] = model.predict_proba(get_tsa(df_te))[:,1]
+    return np.full(n_steps, 0.5), 0.
+
+def state_seq_recon(df_tr, df_cal, df_te, args):
+    # load trained GRU model
+    ckpt_dir = Path(f'./{args.env}/state_window/lightning_logs/{args.enc}/checkpoints')
+    ae_file = glob.glob(str(ckpt_dir/'*.ckpt'))[-1]
+    model = StateSeqAutoencoder.load_from_checkpoint(ae_file).to('cpu')
+    model.eval()
+
+    window_len = model.hparams.window_len
+    state_cols = [f's{i}' for i in range(s_dim)]  # only states
+
+    def compute_scores(df):
+        scores = np.zeros(len(df))
+        for ep in df['ep'].unique():
+            ep_states = df[df['ep'] == ep][state_cols].to_numpy().astype(np.float32)
+            ep_scores = np.zeros(len(ep_states))
+            # slide window
+            for i in range(len(ep_states) - window_len + 1):
+                window = torch.tensor(ep_states[i:i+window_len]).unsqueeze(0)
+                with torch.no_grad():
+                    recon = model(window).squeeze(0).numpy()
+                mse = ((recon - ep_states[i:i+window_len])**2).mean()
+                ep_scores[i+window_len-1] = mse  # assign to last step of window
+            scores[df['ep'] == ep] = ep_scores
+        return scores
+
+    df_tr['score'] = compute_scores(df_tr)
+    df_cal['score'] = compute_scores(df_cal)
+    t = time_call(lambda: compute_scores(df_te))
+    df_te['score'] = compute_scores(df_te)
+
+    # threshold from calibration successes
+    thresh = np.quantile(df_cal[~df_cal['fail']]['score'], q)
+    return np.full(n_steps, thresh), t
+
+
+def state_seq_cd(df_tr, df_cal, df_te, args):
+    # ---- load trained GRU state-sequence autoencoder ----
+    ckpt_dir = Path(f'./{args.env}/state_window/lightning_logs/{args.enc}/checkpoints')
+    ae_file = glob.glob(str(ckpt_dir/'*.ckpt'))[-1]
+    model = StateSeqAutoencoder.load_from_checkpoint(ae_file).to('cpu')
+    model.eval()
+
+    window_len = model.hparams.window_len
+    state_cols = [f's{i}' for i in range(s_dim)]
+
+    # ---- helper: make all sliding windows in one array ----
+    def make_windows(ep_states, window_len):
+        n = len(ep_states) - window_len + 1
+        return np.stack([ep_states[i:i+window_len] for i in range(n)], axis=0)
+
+    # ---- helper: encode windows in batch ----
+    def encode_windows(model, ep_states, window_len):
+        windows = make_windows(ep_states, window_len)   # (n_win, L, state_dim)
+        windows = torch.tensor(windows, dtype=torch.float32)
+        with torch.no_grad():
+            _, h = model.encoder(windows)               # h: (1, n_win, hidden_dim)
+            z = model.fc_enc(h[-1])                     # (n_win, latent_dim)
+        return z.numpy()                                # np array
+
+    # ---- fit CD polynomial on training successes ----
+    Z = []
+    for ep in df_tr[~df_tr['fail']]['ep'].unique():
+        ep_df = df_tr[df_tr['ep'] == ep]
+        ep_states = ep_df[state_cols].to_numpy().astype(np.float32)
+        if len(ep_states) < window_len:
+            continue
+        Z.append(encode_windows(model, ep_states, window_len))
+    X_succ = np.vstack(Z)
+    print(X_succ.shape)
+    p = CDPolynomial(X_succ, degree=args.deg, verbose=True, basis='cheb', eps=0)
+
+    # ---- scoring function ----
+    def score_df(df):
+        scores = np.zeros(len(df))
+        for ep in df['ep'].unique():
+            ep_df = df[df['ep'] == ep]
+            ep_states = ep_df[state_cols].to_numpy().astype(np.float32)
+
+            if len(ep_states) < window_len:
+                continue
+
+            # batch encode all windows
+            z_all = encode_windows(model, ep_states, window_len)  # (n_win, latent_dim)
+            s_all = np.log(p(z_all)).astype(float).ravel()        # (n_win,)
+
+            ep_scores = np.zeros(len(ep_states))
+            ep_scores[window_len-1:] = s_all
+
+            # fill early steps with first valid score
+            if window_len > 1:
+                ep_scores[:window_len-1] = ep_scores[window_len-1]
+
+            scores[df['ep'] == ep] = ep_scores
+        return scores
+
+    # ---- assign scores ----
+    df_tr['score'] = score_df(df_tr)
+    df_cal['score'] = score_df(df_cal)
+    t = time_call(lambda: score_df(df_te))
+    df_te['score'] = score_df(df_te)
+
+    # ---- threshold from calibration successes ----
+    thresh = np.quantile(df_cal[~df_cal['fail']]['score'], q)
+    return np.full(n_steps, thresh), t
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -185,7 +302,7 @@ if __name__ == "__main__":
     sa_cols = [f's{i}' for i in range(s_dim)] + [f'a{i}' for i in range(a_dim)]    
     dir = Path(f'./{args.env}')
 
-    if args.enc is not None:
+    if args.enc is not None and args.method != 'state_seq_cd':
         ckpt_dir = dir/'lightning_logs'/args.enc/'checkpoints'
         ae_file = glob.glob(str(ckpt_dir/'*.ckpt'))[-1]
         ae = PairAE.load_from_checkpoint(ae_file).to('cpu')
@@ -210,7 +327,7 @@ if __name__ == "__main__":
             return df[['t'] + sa_cols].to_numpy()
     
     def get_sa(df):
-        return df[[f's{i}' for i in range(s_dim)] + [f'a{i}' for i in range(a_dim)]].to_numpy()
+        return df[sa_cols].to_numpy()
 
     #------- process data --------#
     df_tr = process_data(dir/'train.npz', s_dim, a_dim)
@@ -231,6 +348,13 @@ if __name__ == "__main__":
         thresh, t = ae_recon(df_tr, df_cal, df_te, args)
     elif args.method == 'cd_rp':
         thresh, t = cd_rp(df_tr, df_cal, df_te, args)
+    elif args.method == 'log_reg':
+        thresh, t = log_reg(df_tr, df_cal, df_te, args)
+    elif args.method == 'state_seq_ae':
+        thresh, t = state_seq_recon(df_tr, df_cal, df_te, args)
+    elif args.method == 'state_seq_cd':
+        thresh, t = state_seq_cd(df_tr, df_cal, df_te, args)
+
 
     df_te['thresh'] = df_te['step'].map(dict(enumerate(thresh)))
     df_te['pred'] = df_te['score'] >= df_te['thresh']
@@ -276,9 +400,9 @@ if __name__ == "__main__":
         'method': args.method,
         'env': args.env,
         'enc': args.enc,
-        'no_fail': no_fail,
-        'hid': hid_dim,
-        'lat': lat_dim,
+        #'no_fail': no_fail,
+        #'hid': hid_dim,
+        #'lat': lat_dim,
         'proj': args.proj,
         'deg': args.deg,
         'tpr': tpr,

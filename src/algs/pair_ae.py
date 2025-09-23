@@ -23,9 +23,9 @@ class PairAE(L.LightningModule):
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Linear(hidden_dim // 2, latent_dim),
-            #nn.BatchNorm1d(num_features=latent_dim) # ?
+            nn.BatchNorm1d(num_features=latent_dim) # ?
             #nn.LayerNorm(latent_dim, elementwise_affine=False)
-            nn.Tanh()
+            #nn.Tanh()
         )
 
         self.decoder = nn.Sequential(
@@ -40,7 +40,7 @@ class PairAE(L.LightningModule):
         z = self.encoder(x)
         x_hat = self.decoder(z)
         return x_hat, z
-
+    
     @torch.no_grad
     def encode(self, x):
         return self.encoder(x)
