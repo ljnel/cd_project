@@ -5,15 +5,15 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - numpy
+  - pytest
   # because matplotlib>10 installs pyside6 which seems to have
   # compatibility problems with vscode plotting
   - matplotlib<3.10
+  - numpy
   - scikit-learn
   - scipy
   - pinocchio
   - meshcat-python
-  - matplotlib
   - pandas
   - seaborn
   - aligator=0.12
