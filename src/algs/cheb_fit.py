@@ -2,7 +2,7 @@
 
 from scipy.fft import dct
 from numpy.polynomial.chebyshev import chebval
-from utils.misc import closest_indices
+from utils.paths import closest_indices
 import numpy as np
 from numpy import ndarray
 

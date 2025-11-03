@@ -20,11 +20,10 @@ dependencies:
   - pytorch
   - torchvision
   - ipykernel
-  - gymnasium
-  - jax
-  - flax
-  - optax
-  - tensorboardX
+  - gymnasium[mujoco]
+  - lightning
   - pip:
     - stable-baselines3
     - pytest
+    - tensorboard
+    - tensorboardX

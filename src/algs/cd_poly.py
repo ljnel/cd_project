@@ -149,20 +149,33 @@ class CDPolynomial:
     ):
         self.deg = degree
         self.verbose = verbose
-        self.state = fit_cd(
-            data=data,
-            degree=degree,
-            basis=basis,
-            method=method,
-            eps=eps,
-            verbose=verbose,
-        )
-        self.n_terms = self.state.n_terms
-        self.n_vars = self.state.n_vars
-        self.mean = self(data).mean()
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        return evaluate_cd(self.state, x)
+        assert method in ['chol', 'lstsq', 'solve', 'qr']
+        self.method = method
+
+        bs = BasisSpec(n_vars=self.n_vars, degree=self.deg)
+        if basis == 'mon':
+            self.basis = MonomialBasis(bs)
+            self.V = self.basis.transform(data)
+        elif basis == 'cheb':
+            self.basis = ChebyshevBasis(bs)
+            self.V = self.basis.transform(data)
+        elif basis == 'rf':  # more experiments needed
+            self.basis = PolynomialCountSketch(degree=degree, coef0=1, 
+                                               n_components=100, random_state=0)  # ???
+            self.V = self.basis.fit_transform(data)
+        else:
+            raise AssertionError("Invalid basis.")
+
+        self.n_terms = self.V.shape[1]
+        assert self.n_terms <= self.n_data
+
+        self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
+
+        if self.method == 'chol':
+            self.L = np.linalg.cholesky(self.M)
+        elif self.method == 'qr':
+            _, self.R = np.linalg.qr(self.V / np.sqrt(self.n_data))
 
     def plot(self, ax, multiplier: float = 1.0, **plot_kwargs):
         levels = [multiplier * self.mean * 10**i for i in range(10)]

@@ -6,3 +6,9 @@ pinocchio/
 cd_project/egg_info
 .vscode/launch.json
 notes/
+benchmark/**/lightning_logs/
+benchmark/**/*.npz
+outputs/
+*.ckpt
+*.prof
+*.npz
