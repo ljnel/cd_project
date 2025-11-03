@@ -1,6 +1,0 @@
-action_dim: 8
-hidden_dim: 128
-latent_dim: 30
-lr: 0.001
-no_fail: true
-state_dim: 105

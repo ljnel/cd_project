@@ -3,3 +3,9 @@ __pycache__/
 pinocchio/
 .DS_Store
 .ipynb_checkpoints/
+benchmark/**/lightning_logs/
+benchmark/**/*.npz
+outputs/
+*.ckpt
+*.prof
+*.npz

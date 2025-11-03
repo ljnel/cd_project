@@ -1,30 +1,7 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 import lightning as L
-
-
-class EpisodeWindowDataset(Dataset):
-    def __init__(self, data, window_len):
-        """
-        data: numpy array of shape (n_episodes, n_steps, state_dim)
-        window_len: int
-        """
-        self.data = torch.tensor(data, dtype=torch.float32)
-        self.window_len = window_len
-        self.n_episodes, self.n_steps, self.state_dim = self.data.shape
-
-    def __len__(self):
-        # total number of valid windows across all episodes
-        return self.n_episodes * (self.n_steps - self.window_len + 1)
-
-    def __getitem__(self, idx):
-        # map flat idx → (episode_idx, start_step)
-        ep_idx = idx // (self.n_steps - self.window_len + 1)
-        step_idx = idx % (self.n_steps - self.window_len + 1)
-        window = self.data[ep_idx, step_idx:step_idx + self.window_len]
-        return window  # (window_len, state_dim)
 
 
 class StateSeqAutoencoder(L.LightningModule):

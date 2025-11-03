@@ -35,17 +35,17 @@ if __name__ == "__main__":
     dir = Path(f'./{args.env}')
 
     npz = np.load(dir/'train.npz')
-    sa, fail = npz['sa'].astype(np.float32), npz['fail']
+    s, fail = npz['states'].astype(np.float32), npz['fail']
     
 
     if args.no_fail:  # train only on success data
         ds = []
         for i, val in enumerate(fail):
             if val == 0.:
-                ds.append(sa[n_steps*i:n_steps*(i+1)])
-        ds = np.stack(ds, axis=0)
+                ds.append(s[i])
+        ds = np.concatenate(ds, axis=0)
     else:
-        ds = sa.reshape((n_eps, n_steps, -1))
+        ds = s.reshape(-1, s_dim)
 
     print(f'Training on {len(ds)} samples.')
     ds = ds[:, :, :s_dim]  # keep only states

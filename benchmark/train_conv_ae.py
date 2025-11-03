@@ -1,10 +1,17 @@
 import numpy as np
-from algs.pair_ae import PairAE
+from algs.state_window_ae import EpisodeWindowDataset
+from algs.conv_ae import Conv1dStateSeqAutoencoder
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from pathlib import Path
+
+n_eps = 1000
+ep_len = 1000
+skip = 1
+n_steps = ep_len // skip
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -12,7 +19,8 @@ if __name__ == "__main__":
     parser.add_argument('--lat', type=int)
     parser.add_argument('--hid', type=int)
     parser.add_argument('--no_fail', action='store_true')
-    parser.add_argument('--lr', default=1e-3)
+    parser.add_argument('--window', type=int)
+    parser.add_argument('--lr', default=3e-4, type=float)
     args = parser.parse_args()
 
     s_dim, a_dim = 0, 0
@@ -30,29 +38,32 @@ if __name__ == "__main__":
 
     npz = np.load(dir/'train.npz')
     s, fail = npz['states'].astype(np.float32), npz['fail']
-
+    s = s[:, ::skip]
+    print(s.shape)
+    
     if args.no_fail:  # train only on success data
         ds = []
         for i, val in enumerate(fail):
             if val == 0.:
                 ds.append(s[i])
-        ds = np.concatenate(ds, axis=0)
+        ds = np.stack(ds, axis=0)
     else:
-        ds = s.reshape(-1, s_dim)
+        ds = s
 
     print(f'Training on {len(ds)} samples.')
 
-    dl = DataLoader(ds, batch_size=128, shuffle=True, num_workers=4)
+    dataset = EpisodeWindowDataset(ds, args.window)
+    dl = DataLoader(dataset, batch_size=128, shuffle=True)
 
-    pae = PairAE(state_dim=s_dim, 
-                 action_dim=0, 
-                 latent_dim=args.lat, 
-                 hidden_dim=args.hid,
-                 lr=args.lr,
-                 no_fail=args.no_fail)
+    model = Conv1dStateSeqAutoencoder(
+        state_dim=s_dim,
+        latent_dim=args.lat,
+        hidden_dim=args.hid,
+        lr=args.lr,
+        window_len=args.window,
+    )
     
+    logger = TensorBoardLogger(dir/'conv')
+    trainer = L.Trainer(max_epochs=3, logger=logger)
 
-    logger = TensorBoardLogger(dir/'ae')
-    trainer = L.Trainer(max_epochs=5, logger=logger)
-
-    trainer.fit(pae, dl)
+    trainer.fit(model, dl)
