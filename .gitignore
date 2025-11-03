@@ -12,3 +12,4 @@ outputs/
 *.ckpt
 *.prof
 *.npz
+cd_project.egg-info/
