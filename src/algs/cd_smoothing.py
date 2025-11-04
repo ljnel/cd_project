@@ -111,11 +111,16 @@ def ball_moment_numeric(gamma, p, epsilon):
         ]
 
     # note that the order here is crucial. see nquad documentation.
-    ranges = [
-        limits_x_given_y(p),  # calcualte x as a function of y.
-        limits_y(p),  # choose y in the right window
-    ]
-    integral, _ = integrate.nquad(monomial_integrand(gamma), ranges)  # type: ignore
+    if len(p) == 2:
+        ranges = [
+            limits_x_given_y(p),  # calcualte x as a function of y.
+            limits_y(p),  # choose y in the right window
+        ]
+        integral, _ = integrate.nquad(monomial_integrand(gamma), ranges)  # type: ignore
+    else:
+        ranges = [p[0] - epsilon, p[0] + epsilon]
+        integral, _ = integrate.quad(monomial_integrand(gamma), *ranges)  # type: ignore
+
     return integral
 
 
