@@ -23,7 +23,7 @@ import os
 import glob
 
 
-test_ds = datasets.MNIST(root=str(get_project_root() / "data"), 
+test_ds = datasets.MNIST(root=str(get_root() / "data"), 
                          train=False, download=True, transform=transforms.ToTensor())
 
 def test_torch_model(name: str, digit: int):
@@ -53,13 +53,13 @@ def test_torch_model(name: str, digit: int):
 if __name__ == "__main__":
 
     # evaluate models without cd loss
-    names = [get_project_root() / f"outputs/mnist/lightning_logs/version_{i}" for i in range(10)]
+    names = [get_root() / f"outputs/mnist/lightning_logs/version_{i}" for i in range(10)]
     basic_accs = np.zeros((10, 10))
     for i, name in enumerate(names):
         basic_accs[i] = test_torch_model(name, i)
 
     # evaluate models with cd loss
-    names = [get_project_root() / f"outputs/mnist/lightning_logs/version_{i}" for i in range(10, 20)]
+    names = [get_root() / f"outputs/mnist/lightning_logs/version_{i}" for i in range(10, 20)]
     cd_accs = np.zeros((10, 10))
     for i, name in enumerate(names):
         cd_accs[i] = test_torch_model(name, i)

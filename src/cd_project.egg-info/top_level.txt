@@ -1,4 +1,8 @@
 algs
+config
+envs
 models
-simulation
+policies
+scripts
+tests
 utils

@@ -1,11 +1,12 @@
 __pycache__/
 *.pyc
+*.egg-info/
 pinocchio/
 .DS_Store
 .ipynb_checkpoints/
 benchmark/**/lightning_logs/
-benchmark/**/*.npz
 outputs/
 *.ckpt
 *.prof
 *.npz
+*.mp4
