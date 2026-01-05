@@ -4,7 +4,7 @@ from datetime import datetime
 import inspect
 import matplotlib.pyplot as plt
 
-def get_project_root() -> Path:
+def get_root() -> Path:
     path = Path(__file__).resolve()
     for parent in [path] + list(path.parents):
         if parent.name == "cd_project" and (parent / "pyproject.toml").exists():
@@ -12,11 +12,11 @@ def get_project_root() -> Path:
     raise FileNotFoundError("Could not find cd_project root with pyproject.toml")
 
 def get_log_dir() -> str:
-    root = get_project_root()
+    root = get_root()
     return str(root / "outputs" / "logs")
 
 def get_ckpt_dir() -> str:
-    root = get_project_root()
+    root = get_root()
     return str(root / "outputs" / "checkpoints")
 
 def save_plot(
@@ -31,7 +31,7 @@ def save_plot(
     caller_stem = Path(inspect.stack()[1].filename).stem
     base_stem   = f"{caller_stem}_{name}"
 
-    project_root = get_project_root()
+    project_root = get_root()
 
     output_dir = project_root / subfolder
     output_dir.mkdir(parents=True, exist_ok=True)

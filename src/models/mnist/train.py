@@ -1,6 +1,6 @@
 from models.mnist.ae_cd import AE_CD
 from models.mnist.contrastive_dl import make_contrastive_loader
-from utils.paths import get_project_root
+from utils.paths import get_root
 
 import torch
 import lightning as L
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--beta", type=float, default=.1)
     args = parser.parse_args()
 
-    ds = datasets.MNIST(root=str(get_project_root() / "data"), 
+    ds = datasets.MNIST(root=str(get_root() / "data"), 
                         train=True, download=True, transform=transforms.ToTensor())
     tr_ds, val_ds = random_split(ds, lengths=(0.8, 0.2))
     
@@ -31,7 +31,7 @@ if __name__ == "__main__":
             tr_dl = make_contrastive_loader(tr_ds, digit=digit, batch_size=args.bs, seed=0)
             val_dl = make_contrastive_loader(val_ds, digit=digit, batch_size=args.bs, seed=0)
 
-            trainer = L.Trainer(default_root_dir=get_project_root() / "outputs/mnist/", max_epochs=5)
+            trainer = L.Trainer(default_root_dir=get_root() / "outputs/mnist/", max_epochs=5)
             model = AE_CD(lr=args.lr,
                         mu=mu,
                         deg=args.deg,

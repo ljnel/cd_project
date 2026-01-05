@@ -168,7 +168,7 @@ class CDPolynomial:
             raise AssertionError("Invalid basis.")
 
         self.n_terms = self.V.shape[1]
-        assert self.n_terms <= self.n_data
+        #assert self.n_terms <= self.n_data
 
         self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
 
@@ -177,6 +177,44 @@ class CDPolynomial:
         elif self.method == 'qr':
             _, self.R = np.linalg.qr(self.V / np.sqrt(self.n_data))
 
-    def plot(self, ax, multiplier: float = 1.0, **plot_kwargs):
-        levels = [multiplier * self.mean * 10**i for i in range(10)]
-        return plot_contours(self, ax, levels=levels, **plot_kwargs)
+        self.mean = self(data).mean()
+        
+        if verbose:
+            print(f'Data monomials shape: {self.V.shape}')
+            print(f'Moment matrix cond num: {np.linalg.cond(self.M):e}')
+            print(f'Empirical mean of CD poly: {self.mean}')
+
+    def __call__(self, z: np.ndarray) -> np.ndarray: 
+        "Evaluate the CD polynomial at an array of points."
+        v = self.basis.transform(z)  # (B, n_terms)
+
+        if self.method == 'chol':
+            y = solve_triangular(self.L, v.T, lower=True).T  # (B, n_terms)
+            return np.einsum('bi,bi->b', y, y)
+        elif self.method == 'qr':
+            y = solve_triangular(self.R.T, v.T, lower=True).T  # (B, n_terms)
+            return np.einsum('bi,bi->b', y, y)
+        elif self.method == 'solve':
+            # Gaussian elimination with the moment matrix
+            y = np.linalg.solve(self.M, v.T).T  # (B, n_terms)
+            return np.einsum('bi,bi->b', v, y)
+        elif self.method == 'lstsq':
+            # Least squares without computing the moment matrix
+            y, res, _, _ = np.linalg.lstsq(self.V.T / np.sqrt(self.n_data),
+                                           v.T, rcond=0)
+            if res.size != 0 and self.verbose:
+                print(f'LS had residuals {res}')
+            return np.einsum('ib,ib->b', y, y)
+        
+        else:
+            raise AssertionError("Invalid method.")
+
+    def predict(self, z: np.ndarray) -> np.ndarray:
+        return self(z)
+
+    def plot(self, ax, multiplier=1., **plot_kwargs):
+        """
+        Plot the contours of this CD polynomial.
+        """
+        levels = [multiplier * self.mean * 10 ** i for i in range(10)]
+        plot_contours(self, ax, levels=levels, **plot_kwargs)

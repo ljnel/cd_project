@@ -2,6 +2,7 @@ import inspect
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 
 
@@ -43,6 +44,14 @@ def plot_func(f, ax, **plot_kwargs):
     ax.plot(ts, f(ts), **plot_kwargs)
 
 
+def plot_kern_mat(K, y, ax, title=None):
+    "Plot a kernel matrix, ordered by label."
+    idx = np.argsort(y)  # reorder by label
+    K_sorted = K[np.ix_(idx, idx)]
+
+    sns.heatmap(K_sorted, cmap='viridis', ax=ax)
+    if title is not None:
+        ax.set_title(title)
 def save_plot(
     name: str,
     ax=None,
