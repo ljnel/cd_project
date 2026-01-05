@@ -4,7 +4,7 @@ from stable_baselines3 import SAC
 import time
 from argparse import ArgumentParser
 from pathlib import Path
-from config.envs import cfgs
+from config.envs import ENV_CFG
 from utils.paths import get_root
 
 N_EPS = 1000
@@ -85,11 +85,11 @@ if __name__ == "__main__":
     parser.add_argument('--env')
     args = parser.parse_args()
 
-    assert args.env in cfgs.keys()
+    assert args.env in ENV_CFG.keys()
 
     rng_train = np.random.default_rng(0)
     start = time.time()
-    states, actions, rew, fail, params, seeds = gen_data(cfgs[args.env], rng_train)
+    states, actions, rew, fail, params, seeds = gen_data(ENV_CFG[args.env], rng_train)
     end = time.time()
     np.savez(get_root() / 'data' / args.env / 'train.npz',
              states=states,
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     
     rng_test = np.random.default_rng(1)
     start = time.time()
-    states, actions, rew, fail, params, seeds = gen_data(cfgs[args.env], rng_test)
+    states, actions, rew, fail, params, seeds = gen_data(ENV_CFG[args.env], rng_test)
     end = time.time()
     np.savez(get_root() / 'data' / args.env / 'test.npz',
              states=states,

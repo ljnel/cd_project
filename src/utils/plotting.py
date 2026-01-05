@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 def plot_contours(f, ax, **plot_kwargs):
     "Make a contour plot of a vectorized function on the given axes."
@@ -36,3 +37,13 @@ def plot_func(f, ax, **plot_kwargs):
     "Plot a vectorized function on [-1, 1]."
     ts = np.linspace(-1, 1, 100)
     ax.plot(ts, f(ts), **plot_kwargs)
+
+
+def plot_kern_mat(K, y, ax, title=None):
+    "Plot a kernel matrix, ordered by label."
+    idx = np.argsort(y)  # reorder by label
+    K_sorted = K[np.ix_(idx, idx)]
+
+    sns.heatmap(K_sorted, cmap='viridis', ax=ax)
+    if title is not None:
+        ax.set_title(title)

@@ -10,7 +10,7 @@ import glob
 from sklearn.metrics import precision_recall_curve, auc
 from algs.cd_poly import CDPolynomial
 from models.state_window_ae import StateSeqAutoencoder  # or wherever you place it
-from models.conv_ae import Conv1dStateSeqAutoencoder
+from models.conv_ae import ConvAE
 from models.pair_ae import PairAE
 import lightning as L
 from torch.utils.data import DataLoader
@@ -271,7 +271,7 @@ def state_seq_recon(df_tr, df_cal, df_te, args):
     # load trained GRU model
     ckpt_dir = Path(f'./{args.env}/conv/lightning_logs/{args.enc}/checkpoints')
     ae_file = glob.glob(str(ckpt_dir/'*.ckpt'))[-1]
-    model = Conv1dStateSeqAutoencoder.load_from_checkpoint(ae_file).to('cpu')
+    model = ConvAE.load_from_checkpoint(ae_file).to('cpu')
     model.eval()
 
     window_len = model.hparams.window_len
@@ -475,7 +475,7 @@ def state_seq_cd(ds_tr: dict,
     # ---- Load trained Conv1d model (robust to BN/interp/deconv changes) ----
     ckpt_dir = Path(f'./{args.env}/conv/lightning_logs/{args.enc}/checkpoints')
     ae_file = glob.glob(str(ckpt_dir / '*.ckpt'))[-1]
-    model = Conv1dStateSeqAutoencoder.load_from_checkpoint(
+    model = ConvAE.load_from_checkpoint(
         ae_file,
         strict=False,        # tolerate tiny name/shape diffs (e.g., BN toggle)
         map_location='cpu',

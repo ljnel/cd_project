@@ -1,5 +1,8 @@
 import numpy as np
 from typing import Tuple
+import torch
+from torch.utils.data import DataLoader, Dataset
+import numpy as np
 
 
 def make_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> Tuple[np.ndarray, np.ndarray]:
@@ -52,6 +55,33 @@ def make_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, ver
         j += 1
 
     if verbose:
-        print(f'Sampled windows from {j} / {len(x)} trajectories')
+        print(f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] > -1).mean()}')
 
     return x_out[:j], fail_out[:j]
+
+
+class WindowDataset(Dataset):
+    """
+    A class for getting windows from a dataset for training torch models.    
+    """
+    def __init__(self, ds, window: int, stride):
+        """
+        ds: numpy array of shape (n_episodes, n_steps, n_chan)
+        """
+        self.ds = torch.tensor(ds, dtype=torch.float32)
+        self.window = window
+        self.stride = stride
+        self.n_episodes, self.n_steps, self.n_chan = self.ds.shape
+        assert self.window <= self.n_steps
+
+        self.windows_per_ep = (self.n_steps - self.window) // self.stride + 1
+
+    def __len__(self):
+        return self.n_episodes * self.windows_per_ep
+
+    def __getitem__(self, idx):
+        ep_idx = idx // self.windows_per_ep
+        win_idx = idx % self.windows_per_ep
+        step_idx = win_idx * self.stride        
+        window = self.ds[ep_idx, step_idx:step_idx + self.window]
+        return window

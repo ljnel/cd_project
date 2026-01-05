@@ -12,20 +12,20 @@ class EnvConfig:
     fric: Tuple[float, float]
 
 
-cfgs = {
+ENV_CFG = {
     'inv_pend': EnvConfig(
         name="InvertedPendulum-v5",
         policy="invertedpendulum-v5-sac-expert.zip",
         dof_damping=(0.6, 20.0),
         mass=(0.6, 2.4),
-        fric=(0.6, 2.4)
+        fric=(0.6, 2.4),
     ),
     'hopper': EnvConfig(
         name="Hopper-v5",
         policy="hopper-v5-sac-expert.zip",
         dof_damping=(1.0, 1.0),
         mass=(1.0, 1.0),
-        fric=(1.0, 1.0)
+        fric=(1.0, 1.0),
     ),
     'half_cheetah': EnvConfig(
         name="HalfCheetah-v5",

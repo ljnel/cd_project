@@ -41,7 +41,7 @@ class PolyFFT(Kernel):
         if y is None:
             X1 = X_mag[:, None, :, :]  # (m, 1, n, d)
             X2 = X_mag[None, :, :, :]  # (1, m, n, d)
-            ip = np.sum(X1 * X2, axis=(2, 3)) / (n**2 * d)
+            ip = np.sum(X1 * X2, axis=(2, 3)) / (n**2)
             K = (1 + ip) ** self.deg
         else:
             y = np.asarray(y)
@@ -51,7 +51,7 @@ class PolyFFT(Kernel):
 
             X1 = X_mag[:, None, :, :]  # (m, 1, n, d)
             Y1 = Y_mag[None, :, :, :]  # (1, p, n, d)
-            ip = np.sum(X1 * Y1, axis=(2, 3)) / (n**2 * d)
+            ip = np.sum(X1 * Y1, axis=(2, 3)) / (n**2)
             K = (1 + ip) ** self.deg
 
         if one:
@@ -64,7 +64,7 @@ class PolyFFT(Kernel):
             x = x[None, :, :]
         m, n, d = x.shape
         X = np.fft.fft(x, axis=1)  # shape (m, n, d)
-        ip_diag = np.sum(np.abs(X) ** 2, axis=(1, 2)) / (n**2 * d)
+        ip_diag = np.sum(np.abs(X) ** 2, axis=(1, 2)) / (n**2)
         K_diag = (1 + ip_diag) ** self.deg
 
         return K_diag
@@ -88,7 +88,7 @@ class GaussFFT(Kernel):
         if y is None:
             X1 = X_mag[:, None, :, :]
             X2 = X_mag[None, :, :, :]
-            dist2 = np.sum((X1 - X2) ** 2, axis=(2, 3)) / (n**2 * d)  # ???
+            dist2 = np.sum((X1 - X2) ** 2, axis=(2, 3)) / (n**2)  # ???
             K = np.exp(-self.gamma * dist2)
         else:
             y = np.asarray(y)
@@ -101,7 +101,7 @@ class GaussFFT(Kernel):
 
             X1 = X_mag[:, None, :, :]
             Y1 = Y_mag[None, :, :, :]
-            dist2 = np.sum((X1 - Y1) ** 2, axis=(2, 3)) / (n**2 * d)  # ???
+            dist2 = np.sum((X1 - Y1) ** 2, axis=(2, 3)) / (n**2)  # ???
             K = np.exp(-self.gamma * dist2)
 
         if one:
@@ -128,5 +128,16 @@ class SigKernel(Kernel):
         else:
             return self.k(x.swapaxes(1, 2), y.swapaxes(1, 2))
         
-    def diag(self, x: np.ndarray):
+    def diag(self, x: np.ndarray) -> np.ndarray:
         return self.k.transform_diag(x.swapaxes(1, 2))
+    
+
+class RBF(Kernel):
+    def __init__(self, gamma):
+        self.gamma = gamma
+
+    def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
+        return rbf_kernel(x, y, gamma=self.gamma)
+
+    def diag(self, x: np.ndarray) -> np.ndarray:
+        return np.ones(x.shape[0])

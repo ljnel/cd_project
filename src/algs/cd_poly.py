@@ -42,7 +42,7 @@ class CDPolynomial():
             raise AssertionError("Invalid basis.")
 
         self.n_terms = self.V.shape[1]
-        assert self.n_terms <= self.n_data
+        #assert self.n_terms <= self.n_data
 
         self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
 
@@ -82,6 +82,9 @@ class CDPolynomial():
         
         else:
             raise AssertionError("Invalid method.")
+
+    def predict(self, z: np.ndarray) -> np.ndarray:
+        return self(z)
 
     def plot(self, ax, multiplier=1., **plot_kwargs):
         """

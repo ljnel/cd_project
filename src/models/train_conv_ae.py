@@ -1,6 +1,6 @@
 import numpy as np
 from models.state_window_ae import EpisodeWindowDataset
-from models.conv_ae import Conv1dStateSeqAutoencoder
+from models.conv_ae import ConvAE
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     dataset = EpisodeWindowDataset(ds, args.window)
     dl = DataLoader(dataset, batch_size=128, shuffle=True)
 
-    model = Conv1dStateSeqAutoencoder(
+    model = ConvAE(
         state_dim=s_dim,
         latent_dim=args.lat,
         hidden_dim=args.hid,

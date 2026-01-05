@@ -22,4 +22,4 @@ class KernCD(BaseEstimator):
         kxx = self.kern.diag(X)  # (b,)
         kx = self.kern(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)
-        return kxx / self.lam - np.einsum('bi,bi->b', y, y) / self.lam
+        return (kxx - np.einsum('bi,bi->b', y, y)) / self.lam
