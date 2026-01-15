@@ -1,17 +1,18 @@
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 from typing import Tuple
 import torch
-from torch.utils.data import DataLoader, Dataset
-import numpy as np
 
 
-def make_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> Tuple[np.ndarray, np.ndarray]:
+def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> Tuple[np.ndarray, np.ndarray]:
     """
+    Extract testing windows according to an array of fail steps.
+
     Input:
         x: (batch, steps, channels)
         fail: array of ints with failure step (if failure occurs), else -1
 
-    For every trajectory, sample a window of length window.
+    Samples one window from every trajectory:
     - If the trajectory is a failure, sample the window so that failure occurs
       within horizon steps of the end of the window (if this is not possible, ignore the trajectory)
     - If the trajectory is a success, sample any window
@@ -29,8 +30,8 @@ def make_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, ver
         if fail[i] == -1:
             max_start = steps - window
             if max_start < 0:
-                 continue # traj too short
-            
+                continue  # traj too short
+
             start = np.random.randint(0, max_start + 1)
             f = -1
         else:
@@ -41,30 +42,58 @@ def make_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, ver
             start_max = end_max - window
 
             start_min = max(start_min, 0)  # don't let start_min < 0
-            start_max = min(start_max, steps - window)  # don't let start_max > steps - window
+            # don't let start_max > steps - window
+            start_max = min(start_max, steps - window)
 
             if start_min > start_max:  # includes the case start_max < 0
                 if verbose:
-                    print(f"Skipping traj {i} with fail {fail[i]}: No valid window found.")
+                    print(
+                        f"Skipping traj {i} with fail {fail[i]}: No valid window found.")
                 continue
             start = np.random.randint(start_min, start_max + 1)
             f = fail[i] - (start + window)
-    
+
         x_out[j] = x[i, start:start+window]
         fail_out[j] = f
         j += 1
 
     if verbose:
-        print(f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] > -1).mean()}')
+        print(
+            f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] > -1).mean()}')
 
     return x_out[:j], fail_out[:j]
 
 
-class WindowDataset(Dataset):
+def strided_window_view(ds, window: int, stride: int):
+    """
+    Create a strided view of windows from a dataset.
+
+    ds: numpy array of shape (n_episodes, n_steps, n_chan)
+
+    Returns: view of shape (n_episodes, n_windows, window, n_chan)
+    """
+    ds = np.asarray(ds, dtype=np.float32)
+    n_episodes, n_steps, n_chan = ds.shape
+    assert window <= n_steps
+
+    n_windows = (n_steps - window) // stride + 1
+
+    new_shape = (n_episodes, n_windows, window, n_chan)
+    new_strides = (
+        ds.strides[0],
+        ds.strides[1] * stride,
+        ds.strides[1],
+        ds.strides[2],
+    )
+    return as_strided(ds, shape=new_shape, strides=new_strides)
+
+
+class WindowDataset(torch.utils.data.Dataset):
     """
     A class for getting windows from a dataset for training torch models.    
     """
-    def __init__(self, ds, window: int, stride):
+
+    def __init__(self, ds: np.ndarray, window: int, stride):
         """
         ds: numpy array of shape (n_episodes, n_steps, n_chan)
         """
@@ -82,6 +111,6 @@ class WindowDataset(Dataset):
     def __getitem__(self, idx):
         ep_idx = idx // self.windows_per_ep
         win_idx = idx % self.windows_per_ep
-        step_idx = win_idx * self.stride        
+        step_idx = win_idx * self.stride
         window = self.ds[ep_idx, step_idx:step_idx + self.window]
         return window

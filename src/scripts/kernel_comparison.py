@@ -1,4 +1,4 @@
-from utils.windows import make_windows
+from utils.windows import sample_test_windows
 from utils.signals import *
 from utils.plotting import plot_kern_mat
 from algs.kernels import *

@@ -1,11 +1,13 @@
+from config.envs import ENV_CFG
+from utils.paths import get_root
+
 import numpy as np
 import gymnasium as gym
 from stable_baselines3 import SAC
 import time
 from argparse import ArgumentParser
 from pathlib import Path
-from config.envs import ENV_CFG
-from utils.paths import get_root
+
 
 N_EPS = 1000
 EP_LEN = 1000

@@ -3,7 +3,7 @@ from algs.kern_cd import KernCD
 from algs.kernels import *
 from experiments.safety_monitor import *
 from algs.dim_red import *
-from algs.cd_poly import CDPolynomial   
+#from algs.cd_poly import CDPolynomial   
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,6 +55,11 @@ if __name__ == "__main__":
     task = SafetyMonitor(args.env, sm_cfg)
     x_tr, x_te = task.get_train_test()
 
+    from utils.signals import low_pass
+    alpha = 0.8
+    x_tr = low_pass(x_tr, alpha)
+    x_te = low_pass(x_te, alpha)
+
     # estimate data-dependent window length
     window = estimate_window_length(x_tr)
     if args.alg == 'fft':
@@ -69,6 +74,7 @@ if __name__ == "__main__":
 
     scores = []
     for i in range(N_TRIALS):
+        # ?????
         starts = np.random.randint(low=100, high=x_tr.shape[1] - window + 1, size=len(x_tr))
         idx = starts[:, None] + np.arange(window)[None, :]
         x_tr_trial = x_tr[np.arange(len(x_tr))[:, None], idx]
@@ -80,7 +86,7 @@ if __name__ == "__main__":
         #print(x_tr_trial.shape, x_te.shape)
 
         if args.alg == 'fft':
-            model = KernCD(GaussFFT(gamma=.005), lam=1e-3).fit(x_tr_trial)
+            model = KernCD(GaussFFT(gamma=.5), lam=1e-3).fit(x_tr_trial)
         if args.alg == 'sig':
             model = KernCD(SigKernel(gamma=0.001), lam=1e-3).fit(x_tr_trial)
         if args.alg == 'pca':

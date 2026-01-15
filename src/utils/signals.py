@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.signal import lfilter
 
 
 def estimate_freq(x: np.ndarray, fs: float) -> float:
@@ -19,7 +20,29 @@ def estimate_freq(x: np.ndarray, fs: float) -> float:
         magnitudes[0] = 0
     return freqs[np.argmax(magnitudes)]
 
-def analyze(x: np.ndarray, max_f = None, fs: float = 1):
+
+def estimate_window(x: np.ndarray, period: int = 1, method: str = 'median') -> int:
+    steps = x.shape[1]
+    fft_magnitudes = np.abs(np.fft.rfft(x, axis=1))
+    fft_magnitudes[:, 0, :] = 0
+    
+    peak_indices = np.argmax(fft_magnitudes, axis=1)
+    peak_indices[peak_indices == 0] = 1
+    
+    frequencies = peak_indices / steps
+    
+    if method == 'mean':
+        avg_frequency = np.mean(frequencies)
+    else:
+        avg_frequency = np.median(frequencies)
+        
+    # Convert average frequency back to total window length
+    # Period = 1 / Frequency
+    estimated_window = period / avg_frequency
+        
+    return int(round(estimated_window))
+
+def analyze(x: np.ndarray, max_f=None, fs: float = 1):
     "Analyze a scalar signal."
     dt = 1.0 / fs
     t = np.arange(0, len(x) * dt, step=dt)
@@ -39,7 +62,7 @@ def analyze(x: np.ndarray, max_f = None, fs: float = 1):
     X = np.fft.rfft(x)
     freq = np.fft.rfftfreq(len(x), dt)
     mag = np.abs(X)
-    mag[0] = 0 # ignore
+    mag[0] = 0  # ignore
     ax[2].stem(freq, mag)
     if max_f is not None:
         ax[2].set_xlim(0, freq[freq <= max_f].max())
@@ -71,3 +94,14 @@ def spectral_entropy(x, axis=1, trunc=None, eps=1e-12):
     H /= np.log(P.shape[axis])
     return H
 
+
+def low_pass(x: np.ndarray, alpha: float) -> np.ndarray:
+    # x: (time, channel)
+    # y[n] = alpha*x[n] + (1-alpha)*y[n-1]
+    b = [alpha]
+    a = [1, -(1 - alpha)]
+    if x.ndim > 1:
+        y = lfilter(b, a, x, axis=-2)  # channel last
+    else:
+        y = lfilter(b, a, x)
+    return y

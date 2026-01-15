@@ -4,6 +4,7 @@ from functools import partial
 from sktime.dists_kernels import SignatureKernel
 from sklearn.metrics.pairwise import rbf_kernel
 
+
 class Kernel(ABC):
     @abstractmethod
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:

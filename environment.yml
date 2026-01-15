@@ -6,8 +6,6 @@ dependencies:
   - python=3.11
   - pip
   - pytest
-  # because matplotlib>10 installs pyside6 which seems to have
-  # compatibility problems with vscode plotting
   - matplotlib<3.10
   - numpy
   - scikit-learn
@@ -20,10 +18,10 @@ dependencies:
   - pytorch
   - torchvision
   - ipykernel
-  - gymnasium[mujoco]
   - lightning
+  - sktime
   - pip:
     - stable-baselines3
-    - pytest
+    - gymnasium[mujoco]
     - tensorboard
     - tensorboardX
