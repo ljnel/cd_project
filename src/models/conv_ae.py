@@ -1,10 +1,6 @@
-from config.conv_ae import ConvAEConfig
-from dataclasses import astuple
-
 import torch
 from torch import nn
 import torch.nn.functional as F
-import numpy as np
 
 
 K = 5
@@ -45,11 +41,13 @@ def deconv_block(in_ch, out_ch, out_pad, last=False):
 
 
 class ConvAE(nn.Module):
-    def __init__(self, ConvAEConfig):
+    def __init__(self, in_len, in_chan, out_chan, latent_dim):
         super().__init__()
-        in_len, in_chan, out_chan, latent_dim = astuple(ConvAEConfig)
-
+        self.in_len = in_len
+        self.in_chan = in_chan
         self.out_chan = out_chan
+        self.latent_dim = latent_dim
+
         out_len1 = conv_out_len(in_len)
         out_len2 = conv_out_len(out_len1)
         out_len3 = conv_out_len(out_len2)
@@ -86,7 +84,6 @@ class ConvAE(nn.Module):
         with torch.no_grad():
             xhat, z = self.forward(x)
         return xhat, z
-
 
     def get_scores(self, x):
         "Get the reconstruction error"
