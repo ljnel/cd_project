@@ -78,9 +78,8 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         return self
     
     def predict(self, X_windows: np.ndarray) -> np.ndarray:
-        """Predict anomaly labels. Returns -1 for anomalies, +1 for normal."""
         scores = self.score_samples(X_windows)
-        return np.where(scores > self.threshold_, -1, 1)
+        return np.where(scores > self.threshold_, 1, 0)
     
     def score_samples(self, X_windows: np.ndarray) -> np.ndarray:
         """Compute anomaly scores (higher = more anomalous)."""
@@ -92,7 +91,7 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         X_windows = X_windows[:, -self.window:]  # truncate if windows too long
         return self._score_impl(X_windows)  # ????
     
-    def decision_function(self, X_windows: np.ndarray) -> np.ndarray:
+    def decision_function(self, X_windows: np.ndarray) -> np.ndarray:  # ??????
         """Decision function (negative for outliers, sklearn convention)."""
         return self.threshold_ - self.score_samples(X_windows)
 
@@ -107,5 +106,9 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         pass
 
     def _get_cal_win(self, X: np.ndarray) -> np.ndarray:
+        from utils.windows import strided_window_view
+
         # Default: calibrate on last window of each trajectory
-        return X[:, -self.window:]
+        X_windows = strided_window_view(X, window=self.window, stride=20).reshape((-1, self.window, X.shape[-1]))
+        print(f'Cal windows: {X_windows.shape}')
+        return X_windows

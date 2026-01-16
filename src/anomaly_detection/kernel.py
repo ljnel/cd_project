@@ -46,15 +46,16 @@ class KernDetector(AnomalyDetector):
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
 
     def _fit_impl(self, X: np.ndarray):
-        X = low_pass(X, alpha=0.5)  # ????
-        X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
-        self.window = estimate_window(X, period=self.n_periods, method='median')  # ?????
+        X = low_pass(X, alpha=0.8)  # ????
+        #X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
+        self.window = estimate_window(X, period=self.n_periods, method='mean')  # ?????
         X_windows = strided_window_view(X, window=self.window, stride=20).reshape((-1, self.window, X.shape[-1]))  # FIX
-        
+
         # FIX
         if len(X_windows) > self.max_train_samples:
             idx = np.random.choice(len(X_windows), self.max_train_samples, replace=False)
             X_windows = X_windows[idx]
+        print(f'Train windows: {X_windows.shape}')
         
         if self.kernel_type == "rbf":
             X_flat = X_windows.reshape(len(X_windows), -1)
@@ -79,6 +80,7 @@ class KernDetector(AnomalyDetector):
     
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
         # NB: scaler
+        #X_windows = low_pass(X_windows, alpha=0.5)
 
         if self._flatten:
             X_windows = X_windows.reshape(len(X_windows), -1)
