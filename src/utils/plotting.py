@@ -52,6 +52,8 @@ def plot_kern_mat(K, y, ax, title=None):
     sns.heatmap(K_sorted, cmap='viridis', ax=ax)
     if title is not None:
         ax.set_title(title)
+
+
 def save_plot(
     name: str,
     ax=None,

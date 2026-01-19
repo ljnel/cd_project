@@ -26,6 +26,7 @@ inv_pend_cfg = SafetyMonitorConfig('inv_pend', win=90, hor=45)
 hopper_cfg = SafetyMonitorConfig('hopper', win=75, hor=70)
 half_cheetah_cfg = SafetyMonitorConfig('half_cheetah', win=70, hor=10)
 humanoid_cfg = SafetyMonitorConfig('humanoid', win=60, hor=30)
+upkie_cfg = SafetyMonitorConfig('upkie', win=200, hor=50)
 
 
 class SafetyMonitor(Experiment):
@@ -54,7 +55,10 @@ class SafetyMonitor(Experiment):
 
     def get_train_test(self) -> tuple[np.ndarray, np.ndarray]:
         tr, te = (np.load(self.dir / file) for file in ['train.npz', 'test.npz'])
-        x_tr, fail_tr, x_te, fail_te = tr['states'], tr['fail'], te['states'], te['fail']
+        if self.cfg.name == 'upkie': # FIX
+            x_tr, fail_tr, x_te, fail_te = tr['X'], tr['y'], te['X'], te['y']
+        else:
+            x_tr, fail_tr, x_te, fail_te = tr['states'], tr['fail'], te['states'], te['fail']
 
         # NB: mask before normalization to avoid leaking failure statistics
         tr_mask = fail_tr == 0
