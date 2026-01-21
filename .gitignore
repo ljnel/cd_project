@@ -14,3 +14,6 @@ outputs/
 *.npz
 cd_project.egg-info/
 *.mp4
+*.tex
+*.pdf
+*.png

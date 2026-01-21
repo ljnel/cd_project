@@ -6,7 +6,7 @@ from utils.windows import WindowDataset, strided_window_view
 from utils.misc import median_heuristic
 
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from models.conv_ae import ConvAE, train
 
 class ConvAEDetector(AnomalyDetector):
@@ -73,14 +73,24 @@ class ConvAEDetector(AnomalyDetector):
         self.in_chan = X_train.shape[-1]
 
         # Extract training windows with stride
-        ds = WindowDataset(X_train, window=self.window, stride=self.stride)
-        #X_windows = strided_window_view(
-        #    X_train, window=self.window, stride=self.stride)
-
-        # Create dataloader
-        #tensor_X = torch.from_numpy(X_windows)
-        #dataset = TensorDataset(tensor_X)
-        dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True)
+        X_windows = strided_window_view(
+            X_train, window=self.window, stride=self.stride
+        ).reshape((-1, self.window, X_train.shape[-1]))
+        
+        # TODO: Fix this
+        # Create dataloader - use a simple wrapper that yields tensors directly
+        # (TensorDataset yields tuples, which breaks the train() function)
+        class TensorDatasetDirect(torch.utils.data.Dataset):
+            def __init__(self, tensor):
+                self.tensor = tensor
+            def __len__(self):
+                return len(self.tensor)
+            def __getitem__(self, idx):
+                return self.tensor[idx]
+        
+        tensor_X = torch.from_numpy(X_windows)
+        dataset = TensorDatasetDirect(tensor_X)
+        dl = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
         # Build and train model
         self.model_ = ConvAE(in_len=self.window,
