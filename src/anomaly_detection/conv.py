@@ -107,12 +107,13 @@ class ConvAEDetector(AnomalyDetector):
         if self.method == "latent":
             from algs.kern_cd import KernCD
             from algs.kernels import RBF
+            from sklearn.svm import OneClassSVM
 
             z = self._get_latent(X_windows)
             gamma = median_heuristic(z)
             # Subsample for efficiency
             self.latent_detector_ = KernCD(
-                RBF(gamma=gamma), lam=4e-4).fit(z[::10])
+                RBF(gamma=0.005), lam=1e-4).fit(z[::2])
 
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
         """Score windows using reconstruction error or latent distance."""
