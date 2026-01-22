@@ -32,16 +32,18 @@ from envs.upkie.gen_data import gen_data
 # =============================================================================
 
 # Mass range for test data
-MASS_RANGE = (0.8, 1.8)
+MASS_RANGE = (0.8, 2.0)
+
+# Tolerance for training data (mass sampled from [1-TOL, 1+TOL])
+TOL = 0.1
 
 # Data generation parameters
 N_TRAIN_EPISODES = 100      # Normal episodes for training
-N_TEST_EPISODES = 400       # Anomalous episodes (mass sampled uniformly)
+N_TEST_EPISODES = 200       # Anomalous episodes (mass sampled uniformly)
 EPISODE_TIME = 5.0          # Seconds per episode
 FREQUENCY = 200.0           # Hz
 
 # Kernel regression parameters
-KERNEL_BANDWIDTH = 0.03     # Bandwidth for Nadaraya-Watson estimator
 N_PLOT_POINTS = 100          # Number of points for smooth curve
 
 # Experiment parameters
@@ -62,7 +64,7 @@ def _compute_hash(params: dict) -> str:
     return hashlib.sha256(params_str.encode()).hexdigest()[:12]
 
 
-def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float, seed: int) -> Path:
+def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float, seed: int, tol: float) -> Path:
     """Get cache path for training data based on relevant parameters."""
     params = {
         "type": "train",
@@ -70,6 +72,7 @@ def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float
         "episode_time": episode_time,
         "frequency": frequency,
         "seed": seed,
+        "tol": tol,
     }
     return CACHE_DIR / f"train_{_compute_hash(params)}.npz"
 
@@ -122,9 +125,9 @@ def get_method(method_name: str) -> object:
 # Data Generation (with caching)
 # =============================================================================
 
-def generate_normal_data(n_episodes: int, seed: int) -> np.ndarray:
-    """Generate or load cached normal (non-anomalous) training data."""
-    cache_path = _get_train_cache_path(n_episodes, EPISODE_TIME, FREQUENCY, seed)
+def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
+    """Generate or load cached training data with mass in [1-TOL, 1+TOL]."""
+    cache_path = _get_train_cache_path(n_episodes, EPISODE_TIME, FREQUENCY, seed, TOL)
 
     # Try to load from cache
     if cache_path.exists():
@@ -134,16 +137,17 @@ def generate_normal_data(n_episodes: int, seed: int) -> np.ndarray:
         print(f"  Loaded {len(X)} episodes")
         return X
 
-    # Generate new data
-    print(f"Generating {n_episodes} normal training episodes...")
+    # Generate new data with mass in tolerance range
+    mass_range = (1.0 - TOL, 1.0 + TOL)
+    print(f"Generating {n_episodes} training episodes with mass in [{mass_range[0]:.2f}, {mass_range[1]:.2f}]...")
 
     data = gen_data(
         n_episodes=n_episodes,
         time=EPISODE_TIME,
-        anomaly_ratio=0.0,
+        anomaly_ratio=1.0,  # All have mass anomaly
         frequency=FREQUENCY,
         anomaly=None,
-        param_anomaly=None,
+        param_anomaly=MassAnomaly(mass_range=mass_range),
         balancer="ppo",
         seed=seed,
         n_jobs=-1,
@@ -254,15 +258,15 @@ def run_experiment(
     methods: List[str],
     mass_range: Tuple[float, float],
     n_plot_points: int,
-    bandwidth: float,
     seed: int,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+) -> Tuple[np.ndarray, Dict[str, np.ndarray], float]:
     """
     Run the mass sensitivity experiment.
 
     Returns:
         mass_grid: Array of mass values for plotting
         results: Dict mapping method name to estimated P(anomaly | mass)
+        bandwidth: Computed kernel bandwidth (Silverman's rule)
     """
     print("=" * 70)
     print("MASS ANOMALY SENSITIVITY EXPERIMENT")
@@ -270,8 +274,13 @@ def run_experiment(
 
     # --- Data Generation Phase ---
     print("\n--- Data Generation Phase ---")
-    X_train = generate_normal_data(N_TRAIN_EPISODES, seed=seed)
+    X_train = generate_train_data(N_TRAIN_EPISODES, seed=seed)
     X_test, test_mass_values = generate_test_data(MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
+
+    # Compute bandwidth using Silverman's rule of thumb
+    n = len(test_mass_values)
+    bandwidth = 1.06 * np.std(test_mass_values) * n ** (-0.2)
+    print(f"  Kernel bandwidth (Silverman): {bandwidth:.4f}")
 
     # --- Training Phase ---
     print("\n--- Training Phase ---")
@@ -322,7 +331,7 @@ def run_experiment(
         else:
             results[method_name] = np.full(n_plot_points, np.nan)
 
-    return mass_grid, results
+    return mass_grid, results, bandwidth
 
 
 # =============================================================================
@@ -348,9 +357,8 @@ def plot_mass_sensitivity(
         color = colors.get(method_name, None)
         ax.plot(mass_grid, p_anomaly, label=method_name, color=color, linewidth=2)
 
-    # Reference line at mass=1.0 (nominal)
-    ax.axvline(x=1.0, color='gray', linestyle='--', linewidth=1.5, alpha=0.7,
-               label='Nominal (m=1.0)')
+    # Shaded band showing "normal" mass range [1-TOL, 1+TOL]
+    ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2, label=f'Training range (1\u00b1{TOL})')
 
     # Formatting
     ax.set_xlabel('Mass Scale', fontsize=12)
@@ -381,19 +389,18 @@ if __name__ == "__main__":
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"\nConfiguration:")
-    print(f"  Mass range: [{MASS_RANGE[0]:.2f}, {MASS_RANGE[1]:.2f}]")
+    print(f"  Mass range (test): [{MASS_RANGE[0]:.2f}, {MASS_RANGE[1]:.2f}]")
+    print(f"  Mass range (train): [{1.0-TOL:.2f}, {1.0+TOL:.2f}] (TOL={TOL})")
     print(f"  Training episodes: {N_TRAIN_EPISODES}")
     print(f"  Test episodes: {N_TEST_EPISODES}")
-    print(f"  Kernel bandwidth: {KERNEL_BANDWIDTH}")
     print(f"  Plot points: {N_PLOT_POINTS}")
     print(f"  Methods: {METHODS}")
 
     # Run experiment
-    mass_grid, results = run_experiment(
+    mass_grid, results, bandwidth = run_experiment(
         methods=METHODS,
         mass_range=MASS_RANGE,
         n_plot_points=N_PLOT_POINTS,
-        bandwidth=KERNEL_BANDWIDTH,
         seed=BASE_SEED,
     )
 
@@ -414,7 +421,8 @@ if __name__ == "__main__":
         **{f"results_{m.replace(' ', '_')}": results[m] for m in METHODS},
         n_train=N_TRAIN_EPISODES,
         n_test=N_TEST_EPISODES,
-        bandwidth=KERNEL_BANDWIDTH,
+        bandwidth=bandwidth,
+        tol=TOL,
     )
     print(f"\nRaw data saved to {OUTPUT_DIR / 'mass_sensitivity_data.npz'}")
 
