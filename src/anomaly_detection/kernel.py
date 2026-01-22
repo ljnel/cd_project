@@ -71,6 +71,7 @@ class KernDetector(AnomalyDetector):
             self._flatten = False
             
         elif self.kernel_type == "sig":
+            self.window = self.window // 2
             self.gamma_ = self.gamma or 0.001
             kernel = SigKernel(gamma=self.gamma_)
             self.model_ = KernCD(kernel, lam=self.lam).fit(X_windows)

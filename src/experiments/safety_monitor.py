@@ -23,8 +23,8 @@ from sklearn.metrics import confusion_matrix
 @dataclass
 class SafetyMonitorConfig:
     name: str       # dataset name (for path resolution)
-    win: int        # length of test windows
-    hor: int        # failure horizon
+    win: int        # length of test windows (shorter -> harder)
+    hor: int        # failure horizon (longer -> harder)
     test_size: float = 0.3  # fraction of episodes for test
     seed: int = 42  # random seed for split
 

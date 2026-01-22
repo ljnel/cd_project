@@ -17,3 +17,4 @@ cd_project.egg-info/
 *.tex
 *.pdf
 *.png
+results/
