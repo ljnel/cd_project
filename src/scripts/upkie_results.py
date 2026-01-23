@@ -294,7 +294,7 @@ if __name__ == "__main__":
             'latent_dim': 30,
         },
     }
-    
+
     # Get data statistics
     print("Loading data and computing statistics...")
     task = SafetyMonitor(upkie_cfg)

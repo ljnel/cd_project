@@ -514,6 +514,44 @@ class TestIntegration:
         np.testing.assert_array_equal(data1['X'], data2['X'])
         np.testing.assert_array_equal(data1['fail'], data2['fail'])
 
+    def test_gen_data_different_trajectories_mpc(self):
+        """Test that different non-anomalous episodes have different trajectories (MPC)."""
+        from envs.upkie.gen_data import gen_data
+
+        data = gen_data(
+            n_episodes=5,
+            time=0.5,
+            anomaly_ratio=0.0,
+            frequency=100.0,
+            balancer="mpc",
+            seed=42,
+            n_jobs=1,
+        )
+
+        X = data['X']
+        # Check that not all trajectories are identical by comparing to first
+        differences = np.abs(X - X[0:1]).sum(axis=(1, 2))
+        assert differences.sum() > 0, "All non-anomalous episodes have identical trajectories (MPC)"
+
+    def test_gen_data_different_trajectories_ppo(self):
+        """Test that different non-anomalous episodes have different trajectories (PPO)."""
+        from envs.upkie.gen_data import gen_data
+
+        data = gen_data(
+            n_episodes=5,
+            time=0.5,
+            anomaly_ratio=0.0,
+            frequency=100.0,
+            balancer="ppo",
+            seed=42,
+            n_jobs=1,
+        )
+
+        X = data['X']
+        # Check that not all trajectories are identical by comparing to first
+        differences = np.abs(X - X[0:1]).sum(axis=(1, 2))
+        assert differences.sum() > 0, "All non-anomalous episodes have identical trajectories (PPO)"
+
 
 # =============================================================================
 # Run tests

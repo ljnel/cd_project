@@ -63,6 +63,7 @@ def _run_episodes(
 
     # Create environment
     base_env = gym.make("Upkie-PyBullet-Pendulum", frequency=frequency, gui=gui)
+    base_env.unwrapped.update_init_rand(pitch=0.02)  # ±0.02 rad initial pitch randomization
     simulator = base_env.unwrapped.backend
     robot_id = simulator.robot_id
     env = ObsHistoryWrapper(base_env, OBS_HISTORY, OBS_DIM, ACTION_DIM) if use_ppo else base_env
@@ -89,7 +90,7 @@ def _run_episodes(
 
     for i, ep in enumerate(episode_indices):
         is_anomaly = ep in anomaly_episodes
-        obs, info = env.reset()
+        obs, info = env.reset(seed=int(rng.integers(0, 2**31)))
         clear_external_forces(simulator)
 
         # Fresh MPC each episode

@@ -32,19 +32,20 @@ from envs.upkie.gen_data import gen_data
 # =============================================================================
 
 # Mass range for test data
-MASS_RANGE = (0.8, 2.0)
+MASS_RANGE = (0.5, 2.5)
 
 # Tolerance for training data (mass sampled from [1-TOL, 1+TOL])
-TOL = 0.1
+TOL = 0.05
 
 # Data generation parameters
 N_TRAIN_EPISODES = 100      # Normal episodes for training
 N_TEST_EPISODES = 200       # Anomalous episodes (mass sampled uniformly)
 EPISODE_TIME = 5.0          # Seconds per episode
 FREQUENCY = 200.0           # Hz
+BALANCER = "mpc"
 
 # Kernel regression parameters
-N_PLOT_POINTS = 100          # Number of points for smooth curve
+N_PLOT_POINTS = 50          # Number of points for smooth curve
 
 # Experiment parameters
 BASE_SEED = 42
@@ -64,7 +65,7 @@ def _compute_hash(params: dict) -> str:
     return hashlib.sha256(params_str.encode()).hexdigest()[:12]
 
 
-def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float, seed: int, tol: float) -> Path:
+def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float, seed: int, tol: float, balancer: str) -> Path:
     """Get cache path for training data based on relevant parameters."""
     params = {
         "type": "train",
@@ -73,6 +74,7 @@ def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float
         "frequency": frequency,
         "seed": seed,
         "tol": tol,
+        "balancer": balancer,
     }
     return CACHE_DIR / f"train_{_compute_hash(params)}.npz"
 
@@ -83,6 +85,7 @@ def _get_test_cache_path(
     episode_time: float,
     frequency: float,
     seed: int,
+    balancer: str,
 ) -> Path:
     """Get cache path for test data based on relevant parameters."""
     params = {
@@ -92,6 +95,7 @@ def _get_test_cache_path(
         "episode_time": episode_time,
         "frequency": frequency,
         "seed": seed,
+        "balancer": balancer,
     }
     return CACHE_DIR / f"test_{_compute_hash(params)}.npz"
 
@@ -126,8 +130,11 @@ def get_method(method_name: str) -> object:
 # =============================================================================
 
 def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
-    """Generate or load cached training data with mass in [1-TOL, 1+TOL]."""
-    cache_path = _get_train_cache_path(n_episodes, EPISODE_TIME, FREQUENCY, seed, TOL)
+    """Generate or load cached training data with mass in [1-TOL, 1+TOL].
+
+    Only returns episodes that didn't fail (no early termination).
+    """
+    cache_path = _get_train_cache_path(n_episodes, EPISODE_TIME, FREQUENCY, seed, TOL, BALANCER)
 
     # Try to load from cache
     if cache_path.exists():
@@ -148,13 +155,19 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
         frequency=FREQUENCY,
         anomaly=None,
         param_anomaly=MassAnomaly(mass_range=mass_range),
-        balancer="ppo",
+        balancer=BALANCER,
         seed=seed,
         n_jobs=-1,
     )
 
     X = data['X']
-    print(f"  Generated {len(X)} episodes")
+    fail = data['fail']
+
+    # Filter out failed episodes (those with constant padding)
+    success_mask = fail < 0
+    X = X[success_mask]
+    n_failed = (~success_mask).sum()
+    print(f"  Generated {len(X)} episodes ({n_failed} failed episodes removed)")
 
     # Save to cache
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -167,16 +180,18 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
 def generate_test_data(
     mass_range: Tuple[float, float],
     n_episodes: int,
-    seed: int,
+    seed: int
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate or load cached test data with mass uniformly sampled from range.
+
+    Only returns episodes that didn't fail (no early termination).
 
     Returns:
         X: Array of episodes
         mass_values: Array of mass scale for each episode
     """
-    cache_path = _get_test_cache_path(mass_range, n_episodes, EPISODE_TIME, FREQUENCY, seed)
+    cache_path = _get_test_cache_path(mass_range, n_episodes, EPISODE_TIME, FREQUENCY, seed, BALANCER)
 
     # Try to load from cache
     if cache_path.exists():
@@ -198,15 +213,21 @@ def generate_test_data(
         frequency=FREQUENCY,
         anomaly=None,
         param_anomaly=MassAnomaly(mass_range=mass_range),
-        balancer="ppo",
+        balancer=BALANCER,
         seed=seed,
         n_jobs=-1,
     )
 
     X = data['X']
     mass_values = data['mass_scale']
+    fail = data['fail']
 
-    print(f"  Generated {len(X)} episodes")
+    # Filter out failed episodes (those with constant padding)
+    success_mask = fail < 0
+    X = X[success_mask]
+    mass_values = mass_values[success_mask]
+    n_failed = (~success_mask).sum()
+    print(f"  Generated {len(X)} episodes ({n_failed} failed episodes removed)")
     print(f"  Mass range: [{mass_values.min():.3f}, {mass_values.max():.3f}]")
 
     # Save to cache
@@ -363,7 +384,7 @@ def plot_mass_sensitivity(
     # Formatting
     ax.set_xlabel('Mass Scale', fontsize=12)
     ax.set_ylabel('% Classified as Anomalies', fontsize=12)
-    ax.set_title('Anomaly Detection Sensitivity to Mass Changes', fontsize=14)
+    ax.set_title(f'Anomaly Detection Sensitivity to Mass Changes ({BALANCER})', fontsize=14)
     ax.set_xlim([mass_grid.min(), mass_grid.max()])
     ax.set_ylim([0, 105])
     ax.legend(loc='lower right', fontsize=10)
