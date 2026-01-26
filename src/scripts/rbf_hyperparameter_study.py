@@ -3,11 +3,14 @@
 RBF Kernel Hyperparameter Study for KernCD
 
 Visualizes the effects of sample size (m), regularization (λ), and RBF bandwidth (γ)
-on KernCD anomaly scores for 1D uniform data.
+on KernCD anomaly detection.
 
 Outputs:
-1. Score function plots: 3x3 grid (m rows, γ columns, λ curves)
-2. Classification accuracy heatmaps: 3 heatmaps varying 2 parameters each
+1. Score function plots: 3x3 grid (m rows, γ columns, λ curves) using 1D uniform data
+2. Classification accuracy heatmaps: 3 heatmaps (γ vs λ) using high-dimensional Gaussian data
+   - Training: N(0, I) in d dimensions
+   - Normal test: N(0, I)
+   - Anomaly test: N(μ, I) where μ = [offset, 0, ..., 0]
 """
 
 import numpy as np
@@ -28,17 +31,17 @@ SAMPLE_SIZES = [10, 100, 500]
 # for the score plots
 GAMMAS = [0.1, 1.0, 2.0]
 LAMBDAS = [1e-5, 1e-4, 1e-3]
-
-# for the heatmap
-GAMMA_LO, GAMMA_HI = 1e-2, 1e2          # γ range for heatmaps (TODO: tune)
-LAMBDA_LO, LAMBDA_HI = 1e-14, 1e12      # λ range for heatmaps (TODO: tune)
-HEATMAP_GRID = 5                        # Number of values per axis in heatmaps
-
-# Data generation
 TRAIN_DOMAIN = (-1, 1)                # Training data uniform on [-1, 1]
 TEST_DOMAIN = (-2, 2)                 # Test grid for score visualization
 N_TEST_POINTS = 500                   # Dense grid for score plots
-N_CLASSIFICATION_POINTS = 100         # Points per region for classification
+
+# for the heatmap
+GAMMA_LO, GAMMA_HI = 1e-3, 1e1          # γ range for heatmaps (TODO: tune)
+LAMBDA_LO, LAMBDA_HI = 1e-14, 1e1      # λ range for heatmaps (TODO: tune)
+HEATMAP_GRID = 10                        # Number of values per axis in heatmaps
+HEATMAP_DIM = 2                      # Dimensionality for heatmap classification
+ANOMALY_OFFSET = 2.5                  # Distance of anomaly mean from origin (tune for difficulty)
+N_HEATMAP_TEST = 100                  # Test points per class for heatmap
 
 # Threshold for classification
 THRESHOLD_PERCENTILE = 95             # 95th percentile of training scores
@@ -86,9 +89,19 @@ def generate_test_grid() -> np.ndarray:
     return X
 
 
-def generate_classification_data(seed: int) -> Tuple[np.ndarray, np.ndarray]:
+def generate_heatmap_training_data(m: int, seed: int) -> np.ndarray:
+    """Generate m points from N(0, I) in HEATMAP_DIM dimensions."""
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal(size=(m, HEATMAP_DIM))
+    return X
+
+
+def generate_heatmap_classification_data(seed: int) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Generate classification test data.
+    Generate classification test data for heatmap experiment.
+
+    Normal points: N(0, I)
+    Anomaly points: N(μ, I) where μ = [ANOMALY_OFFSET, 0, ..., 0]
 
     Returns:
         X: Test points
@@ -96,22 +109,117 @@ def generate_classification_data(seed: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     rng = np.random.default_rng(seed)
 
-    # Normal points: from [-1, 1]
-    X_normal = rng.uniform(-1, 1, size=(N_CLASSIFICATION_POINTS, 1))
-    y_normal = np.zeros(N_CLASSIFICATION_POINTS)
+    # Normal points: from N(0, I)
+    X_normal = rng.standard_normal(size=(N_HEATMAP_TEST, HEATMAP_DIM))
+    y_normal = np.zeros(N_HEATMAP_TEST)
 
-    # Anomaly points: from [-2, -1) ∪ (1, 2]
-    n_left = N_CLASSIFICATION_POINTS // 2
-    n_right = N_CLASSIFICATION_POINTS - n_left
-    X_left = rng.uniform(TEST_DOMAIN[0], -1, size=(n_left, 1))
-    X_right = rng.uniform(1, TEST_DOMAIN[1], size=(n_right, 1))
-    X_anomaly = np.vstack([X_left, X_right])
-    y_anomaly = np.ones(N_CLASSIFICATION_POINTS)
+    # Anomaly points: from N(μ, I) where μ = [ANOMALY_OFFSET, 0, ..., 0]
+    anomaly_mean = np.zeros(HEATMAP_DIM)
+    anomaly_mean[0] = ANOMALY_OFFSET
+    X_anomaly = rng.standard_normal(size=(N_HEATMAP_TEST, HEATMAP_DIM)) + anomaly_mean
+    y_anomaly = np.ones(N_HEATMAP_TEST)
 
     X = np.vstack([X_normal, X_anomaly])
     y = np.concatenate([y_normal, y_anomaly])
 
     return X, y
+
+
+# =============================================================================
+# Hyperparameter Heuristics
+# =============================================================================
+
+def gamma_median_heuristic(X: np.ndarray) -> float:
+    """
+    Compute γ using the median heuristic.
+
+    γ = 1 / (2 * median²) where median is the median pairwise distance.
+    """
+    from scipy.spatial.distance import pdist
+    distances = pdist(X, metric='euclidean')
+    median_dist = np.median(distances)
+    if median_dist == 0:
+        return 1.0  # fallback
+    return 1.0 / (2.0 * median_dist ** 2)
+
+
+def gamma_dimension_aware(d: int) -> float:
+    """
+    Compute γ using dimension-aware scaling.
+
+    For N(0, I) data in d dimensions, E[||x-y||²] = 2d.
+    Setting γ = 1/(2d) puts the kernel "elbow" at typical distances.
+    """
+    return 1.0 / (2.0 * d)
+
+
+def lambda_scale_invariant(m: int, c: float = 0.01) -> float:
+    """
+    Compute λ using scale-invariant heuristic.
+
+    λ = c/m so that total regularization λm = c stays constant.
+    Default c=0.01 means regularization is 1% of kernel diagonal.
+    """
+    return c / m
+
+
+def lambda_condition_number(X: np.ndarray, gamma: float, kappa_target: float = 1e6) -> float:
+    """
+    Compute λ using condition number control.
+
+    Finds λ such that cond(K + λmI) ≤ kappa_target.
+
+    Formula: λm ≥ (λ_max - κ·λ_min) / (κ - 1)
+    """
+    from sklearn.metrics.pairwise import rbf_kernel
+
+    m = len(X)
+    K = rbf_kernel(X, gamma=gamma)
+
+    eigvals = np.linalg.eigvalsh(K)  # sorted ascending
+    lambda_min, lambda_max = eigvals[0], eigvals[-1]
+
+    numerator = lambda_max - kappa_target * lambda_min
+    if numerator <= 0:
+        # Already well-conditioned, use a small floor
+        return 1e-12
+
+    lam_times_m = numerator / (kappa_target - 1)
+    return lam_times_m / m
+
+
+def print_heuristics_for_heatmap(m: int, seed: int = BASE_SEED, kappa_target: float = 1e6) -> dict:
+    """
+    Compute and print hyperparameter heuristics for given sample size.
+
+    Returns dict with heuristic values.
+    """
+    # Generate sample data to compute data-dependent heuristics
+    X = generate_heatmap_training_data(m, seed=seed)
+
+    # Gamma heuristics
+    gamma_median = gamma_median_heuristic(X)
+    gamma_dim = gamma_dimension_aware(HEATMAP_DIM)
+
+    # Lambda heuristics
+    lam_scale_inv = lambda_scale_invariant(m)
+    lam_cond_median = lambda_condition_number(X, gamma_median, kappa_target)
+    lam_cond_dim = lambda_condition_number(X, gamma_dim, kappa_target)
+
+    print(f"\n  Heuristics for m={m}, d={HEATMAP_DIM}:")
+    print(f"    γ (median heuristic):        {gamma_median:.4e}")
+    print(f"    γ (dimension-aware 1/2d):    {gamma_dim:.4e}")
+    print(f"    λ (scale-invariant 0.01/m):  {lam_scale_inv:.4e}")
+    print(f"    λ (cond κ={kappa_target:.0e}, γ=median): {lam_cond_median:.4e}")
+    print(f"    λ (cond κ={kappa_target:.0e}, γ=1/2d):   {lam_cond_dim:.4e}")
+
+    return {
+        'gamma_median': gamma_median,
+        'gamma_dim': gamma_dim,
+        'lambda_scale_inv': lam_scale_inv,
+        'lambda_cond_median': lam_cond_median,
+        'lambda_cond_dim': lam_cond_dim,
+    }
 
 
 # =============================================================================
@@ -278,9 +386,9 @@ def compute_accuracy_grid(
             for seed_offset in range(N_SEEDS):
                 seed = BASE_SEED + seed_offset
 
-                # Generate data
-                X_train = generate_training_data(params['m'], seed=seed)
-                X_test, y_test = generate_classification_data(seed=seed + 1000)
+                # Generate data (high-dimensional Gaussian)
+                X_train = generate_heatmap_training_data(params['m'], seed=seed)
+                X_test, y_test = generate_heatmap_classification_data(seed=seed + 1000)
 
                 # Compute accuracy
                 acc = compute_classification_accuracy(
@@ -298,6 +406,11 @@ def compute_accuracy_grid(
 def generate_heatmaps(output_path: Path) -> plt.Figure:
     """
     Generate 3 heatmaps showing classification accuracy.
+
+    Uses high-dimensional Gaussian data:
+    - Training: N(0, I)
+    - Normal test: N(0, I)
+    - Anomaly test: N(μ, I) with μ offset along first axis
 
     One heatmap per sample size m, with γ (rows) vs λ (columns).
     """
@@ -354,7 +467,7 @@ def generate_heatmaps(output_path: Path) -> plt.Figure:
     cbar = fig.colorbar(im, ax=axes, shrink=0.8, pad=0.02)
     cbar.set_label('Classification Accuracy', fontsize=11)
 
-    fig.suptitle(f'Classification Accuracy: γ vs λ for Each Sample Size (Averaged over {N_SEEDS} Seeds)',
+    fig.suptitle(f'Classification Accuracy ({HEATMAP_DIM}D Gaussian, offset={ANOMALY_OFFSET}): γ vs λ (Averaged over {N_SEEDS} Seeds)',
                  fontsize=14)
 
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -376,11 +489,12 @@ if __name__ == "__main__":
     print(f"  Sample sizes (m): {SAMPLE_SIZES}")
     print(f"  Score plots - γ values: {GAMMAS}")
     print(f"  Score plots - λ values: {LAMBDAS}")
+    print(f"  Score plots - domain: {TRAIN_DOMAIN} (train), {TEST_DOMAIN} (test)")
     print(f"  Heatmaps - γ range: ({GAMMA_LO}, {GAMMA_HI})")
     print(f"  Heatmaps - λ range: ({LAMBDA_LO}, {LAMBDA_HI})")
     print(f"  Heatmap grid size: {HEATMAP_GRID}")
-    print(f"  Training domain: {TRAIN_DOMAIN}")
-    print(f"  Test domain: {TEST_DOMAIN}")
+    print(f"  Heatmaps - dim: {HEATMAP_DIM}, anomaly offset: {ANOMALY_OFFSET}")
+    print(f"  Heatmaps - test points per class: {N_HEATMAP_TEST}")
     print(f"  Threshold percentile: {THRESHOLD_PERCENTILE}")
     print(f"  Random seeds: {N_SEEDS}")
     print(f"  Log scale: {LOG}")
@@ -395,6 +509,13 @@ if __name__ == "__main__":
 
     # Generate classification accuracy heatmaps
     print("\n--- Generating Classification Accuracy Heatmaps ---")
+
+    # Print hyperparameter heuristics for each sample size
+    print("\nHyperparameter Heuristics:")
+    for m in SAMPLE_SIZES:
+        print_heuristics_for_heatmap(m)
+
+    print()
     fig2 = generate_heatmaps(OUTPUT_DIR / "accuracy_heatmaps.png")
     fig2.savefig(OUTPUT_DIR / "accuracy_heatmaps.pdf", bbox_inches='tight')
 
