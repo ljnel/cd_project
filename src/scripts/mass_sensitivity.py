@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, List, Tuple
 import warnings
+from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
 
@@ -39,16 +40,14 @@ TOL = 0.05
 
 # Data generation parameters
 N_TRAIN_EPISODES = 100      # Normal episodes for training
-N_TEST_EPISODES = 200       # Anomalous episodes (mass sampled uniformly)
+N_TEST_EPISODES = 1000       # Anomalous episodes (mass sampled uniformly)
 EPISODE_TIME = 5.0          # Seconds per episode
 FREQUENCY = 200.0           # Hz
-BALANCER = "mpc"
-
-# Kernel regression parameters
-N_PLOT_POINTS = 50          # Number of points for smooth curve
+BALANCER = "ppo"
 
 # Experiment parameters
 BASE_SEED = 42
+BIN_WIDTH = 0.25            # Width of mass bins (centered on 1.0)
 
 # Output and cache directories
 OUTPUT_DIR = Path("results/mass_sensitivity")
@@ -101,6 +100,26 @@ def _get_test_cache_path(
 
 
 # =============================================================================
+# Binning Utilities
+# =============================================================================
+
+def make_bins(mass_range: Tuple[float, float], bin_width: float, center: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate bin edges with `center` as a bin center.
+
+    Returns:
+        edges: Bin edges array (n_bins + 1,)
+        centers: Bin centers array (n_bins,)
+    """
+    lo, hi = mass_range
+    # Extend from center in both directions
+    centers_below = np.arange(center, lo - bin_width/2, -bin_width)[1:][::-1]
+    centers_above = np.arange(center, hi + bin_width/2, bin_width)
+    centers = np.concatenate([centers_below, centers_above])
+    edges = np.concatenate([centers - bin_width/2, [centers[-1] + bin_width/2]])
+    return edges, centers
+
+
+# =============================================================================
 # Method Factory
 # =============================================================================
 
@@ -108,10 +127,10 @@ def get_method(method_name: str) -> object:
     """Factory function to create detector instances."""
 
     configs = {
-        "Full FFT": dict(kernel_type='fft', gamma=0.01, lam=1e-4, max_train_samples=500),
-        "Sig Kernel": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_train_samples=100),
-        "ConvAE Recon": dict(window=70, stride=10, method='reconstruction', epochs=5, latent_dim=30),
-        "ConvAE Latent": dict(window=70, stride=10, method='latent', epochs=5, latent_dim=10),
+        "FFT-CD": dict(kernel_type='fft', gamma=0.01, lam=1e-4, max_train_samples=500),
+        "Sig-CD": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_train_samples=100),
+        "ConvAE": dict(window=70, stride=10, method='reconstruction', epochs=5, latent_dim=30),
+        "Conv-CD": dict(window=70, stride=10, method='latent', epochs=5, latent_dim=10),
     }
 
     if method_name not in configs:
@@ -119,7 +138,7 @@ def get_method(method_name: str) -> object:
 
     config = configs[method_name]
 
-    if method_name in ["Full FFT", "Sig Kernel"]:
+    if method_name in ["FFT-CD", "Sig-CD"]:
         return KernDetector(**config, threshold_quantile=0.95)
     else:
         return ConvAEDetector(**config, threshold_quantile=0.95)
@@ -239,55 +258,19 @@ def generate_test_data(
 
 
 # =============================================================================
-# Kernel Regression
-# =============================================================================
-
-def nadaraya_watson(
-    x_query: np.ndarray,
-    x_data: np.ndarray,
-    y_data: np.ndarray,
-    bandwidth: float,
-) -> np.ndarray:
-    """
-    Nadaraya-Watson kernel regression estimator.
-
-    Args:
-        x_query: Points at which to estimate (n_query,)
-        x_data: Training inputs (n_data,)
-        y_data: Training outputs (n_data,)
-        bandwidth: Kernel bandwidth
-
-    Returns:
-        y_pred: Estimated values at x_query (n_query,)
-    """
-    # Compute kernel weights: K((x_query - x_data) / h)
-    # Using Gaussian kernel
-    diff = x_query[:, None] - x_data[None, :]  # (n_query, n_data)
-    weights = np.exp(-0.5 * (diff / bandwidth) ** 2)  # Gaussian kernel
-
-    # Nadaraya-Watson: y_pred = sum(w * y) / sum(w)
-    y_pred = (weights * y_data[None, :]).sum(axis=1) / weights.sum(axis=1)
-
-    return y_pred
-
-
-# =============================================================================
 # Experiment
 # =============================================================================
 
 def run_experiment(
     methods: List[str],
-    mass_range: Tuple[float, float],
-    n_plot_points: int,
     seed: int,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray], float]:
+) -> Tuple[np.ndarray, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
     """
     Run the mass sensitivity experiment.
 
     Returns:
-        mass_grid: Array of mass values for plotting
-        results: Dict mapping method name to estimated P(anomaly | mass)
-        bandwidth: Computed kernel bandwidth (Silverman's rule)
+        bin_centers: Array of bin center mass values
+        results: Dict mapping method name to (mean_percentiles, std_percentiles)
     """
     print("=" * 70)
     print("MASS ANOMALY SENSITIVITY EXPERIMENT")
@@ -298,10 +281,9 @@ def run_experiment(
     X_train = generate_train_data(N_TRAIN_EPISODES, seed=seed)
     X_test, test_mass_values = generate_test_data(MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
 
-    # Compute bandwidth using Silverman's rule of thumb
-    n = len(test_mass_values)
-    bandwidth = 1.06 * np.std(test_mass_values) * n ** (-0.2)
-    print(f"  Kernel bandwidth (Silverman): {bandwidth:.4f}")
+    # --- Binning Setup ---
+    bin_edges, bin_centers = make_bins(MASS_RANGE, BIN_WIDTH, center=1.0)
+    print(f"  Bins: {len(bin_centers)} bins with width {BIN_WIDTH}, centered on 1.0")
 
     # --- Training Phase ---
     print("\n--- Training Phase ---")
@@ -318,41 +300,35 @@ def run_experiment(
             print(f"  {method_name} FAILED: {e}")
             trained_models[method_name] = None
 
-    # --- Prediction Phase ---
-    print("\n--- Prediction Phase ---")
-    predictions = {}
+    # --- Scoring Phase ---
+    print("\n--- Scoring Phase ---")
+    results = {}
     for method_name in methods:
         model = trained_models[method_name]
         if model is not None:
             try:
-                y_pred = model.predict(X_test)
-                predictions[method_name] = y_pred.astype(float)
-                pct = 100 * y_pred.mean()
-                print(f"  {method_name}: {pct:.1f}% classified as anomalies")
+                # Score both training and test data
+                train_scores = model.score_samples(X_train)
+                test_scores = model.score_samples(X_test)
+                # Compute percentiles relative to training distribution
+                # For each test score: what % of training scores are <= this score?
+                percentiles = 100 * np.mean(train_scores[:, None] <= test_scores[None, :], axis=0)
+
+                # Compute binned statistics
+                bin_means, _, _ = binned_statistic(test_mass_values, percentiles, statistic='mean', bins=bin_edges)
+                bin_stds, _, _ = binned_statistic(test_mass_values, percentiles, statistic='std', bins=bin_edges)
+                bin_counts, _, _ = binned_statistic(test_mass_values, percentiles, statistic='count', bins=bin_edges)
+                bin_se = bin_stds / np.sqrt(bin_counts)  # Standard error
+
+                results[method_name] = (bin_means, bin_se)
+                print(f"  {method_name}: test score range [{test_scores.min():.3f}, {test_scores.max():.3f}]")
             except Exception as e:
                 print(f"  {method_name} FAILED: {e}")
-                predictions[method_name] = None
+                results[method_name] = None
         else:
-            predictions[method_name] = None
+            results[method_name] = None
 
-    # --- Kernel Regression Phase ---
-    print("\n--- Kernel Regression Phase ---")
-    print(f"Estimating P(anomaly | mass) with bandwidth={bandwidth}...")
-
-    mass_grid = np.linspace(mass_range[0], mass_range[1], n_plot_points)
-    results = {}
-
-    for method_name in methods:
-        y_pred = predictions[method_name]
-        if y_pred is not None:
-            # Estimate P(anomaly | mass) using kernel regression
-            p_anomaly = nadaraya_watson(mass_grid, test_mass_values, y_pred, bandwidth)
-            results[method_name] = 100 * p_anomaly  # Convert to percentage
-            print(f"  {method_name}: done")
-        else:
-            results[method_name] = np.full(n_plot_points, np.nan)
-
-    return mass_grid, results, bandwidth
+    return bin_centers, results
 
 
 # =============================================================================
@@ -360,32 +336,43 @@ def run_experiment(
 # =============================================================================
 
 def plot_mass_sensitivity(
-    mass_grid: np.ndarray,
-    results: Dict[str, np.ndarray],
+    bin_centers: np.ndarray,
+    results: Dict[str, Tuple[np.ndarray, np.ndarray]],
     output_path: Path = None,
 ) -> plt.Figure:
-    """Plot % classified as anomalies vs mass scale."""
+    """Plot binned score percentiles with error bars vs mass scale."""
     fig, ax = plt.subplots(figsize=(10, 6))
 
     colors = {
-        "Full FFT": "#1f77b4",
-        "Sig Kernel": "#ff7f0e",
-        "ConvAE Recon": "#2ca02c",
-        "ConvAE Latent": "#d62728",
+        "FFT-CD": "#1f77b4",
+        "Sig-CD": "#ff7f0e",
+        "ConvAE": "#2ca02c",
+        "Conv-CD": "#d62728",
     }
 
-    for method_name, p_anomaly in results.items():
-        color = colors.get(method_name, None)
-        ax.plot(mass_grid, p_anomaly, label=method_name, color=color, linewidth=2)
+    markers = {
+        "FFT-CD": "o",
+        "Sig-CD": "s",
+        "ConvAE": "^",
+        "Conv-CD": "D",
+    }
+
+    for method_name, data in results.items():
+        if data is not None:
+            bin_means, bin_se = data
+            color = colors.get(method_name, None)
+            marker = markers.get(method_name, "o")
+            ax.errorbar(bin_centers, bin_means, yerr=bin_se, label=method_name,
+                        color=color, marker=marker, capsize=3, capthick=1, linewidth=1.5, markersize=5)
 
     # Shaded band showing "normal" mass range [1-TOL, 1+TOL]
     ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2, label=f'Training range (1\u00b1{TOL})')
 
     # Formatting
     ax.set_xlabel('Mass Scale', fontsize=12)
-    ax.set_ylabel('% Classified as Anomalies', fontsize=12)
+    ax.set_ylabel('Score Percentile', fontsize=12)
     ax.set_title(f'Anomaly Detection Sensitivity to Mass Changes ({BALANCER})', fontsize=14)
-    ax.set_xlim([mass_grid.min(), mass_grid.max()])
+    ax.set_xlim([bin_centers.min() - BIN_WIDTH/2, bin_centers.max() + BIN_WIDTH/2])
     ax.set_ylim([0, 105])
     ax.legend(loc='lower right', fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -405,7 +392,7 @@ def plot_mass_sensitivity(
 
 if __name__ == "__main__":
 
-    METHODS = ["Full FFT", "Sig Kernel", "ConvAE Recon", "ConvAE Latent"]    
+    METHODS = ["FFT-CD", "Sig-CD", "ConvAE", "Conv-CD"]    
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -414,20 +401,18 @@ if __name__ == "__main__":
     print(f"  Mass range (train): [{1.0-TOL:.2f}, {1.0+TOL:.2f}] (TOL={TOL})")
     print(f"  Training episodes: {N_TRAIN_EPISODES}")
     print(f"  Test episodes: {N_TEST_EPISODES}")
-    print(f"  Plot points: {N_PLOT_POINTS}")
+    print(f"  Bin width: {BIN_WIDTH}")
     print(f"  Methods: {METHODS}")
 
     # Run experiment
-    mass_grid, results, bandwidth = run_experiment(
+    bin_centers, results = run_experiment(
         methods=METHODS,
-        mass_range=MASS_RANGE,
-        n_plot_points=N_PLOT_POINTS,
         seed=BASE_SEED,
     )
 
     # Plot results
     fig = plot_mass_sensitivity(
-        mass_grid,
+        bin_centers,
         results,
         output_path=OUTPUT_DIR / "mass_sensitivity.png"
     )
@@ -436,19 +421,23 @@ if __name__ == "__main__":
     fig.savefig(OUTPUT_DIR / "mass_sensitivity.pdf", bbox_inches='tight')
 
     # Save raw data
-    np.savez(
-        OUTPUT_DIR / "mass_sensitivity_data.npz",
-        mass_grid=mass_grid,
-        **{f"results_{m.replace(' ', '_')}": results[m] for m in METHODS},
-        n_train=N_TRAIN_EPISODES,
-        n_test=N_TEST_EPISODES,
-        bandwidth=bandwidth,
-        tol=TOL,
-    )
+    save_dict = {
+        "bin_centers": bin_centers,
+        "n_train": N_TRAIN_EPISODES,
+        "n_test": N_TEST_EPISODES,
+        "tol": TOL,
+        "bin_width": BIN_WIDTH,
+    }
+    for m in METHODS:
+        if results[m] is not None:
+            key = m.replace(' ', '_')
+            save_dict[f"mean_{key}"] = results[m][0]
+            save_dict[f"se_{key}"] = results[m][1]
+    np.savez(OUTPUT_DIR / "mass_sensitivity_data.npz", **save_dict)
     print(f"\nRaw data saved to {OUTPUT_DIR / 'mass_sensitivity_data.npz'}")
 
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")
     print("=" * 70)
 
-    plt.show()
+    #plt.show()
