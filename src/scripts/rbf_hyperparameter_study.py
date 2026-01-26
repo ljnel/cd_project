@@ -23,10 +23,16 @@ from algs.kernels import RBF
 # Configuration
 # =============================================================================
 
-# Parameter ranges to sweep
-SAMPLE_SIZES = [10, 50, 200]          # m values
-RBF_GAMMAS = [0.1, 1.0, 2.0]         # γ values
-REGULARIZATIONS = [1e-5, 1e-4, 1e-3]   # λ values
+SAMPLE_SIZES = [10, 100, 500]
+
+# for the score plots
+GAMMAS = [0.1, 1.0, 2.0]
+LAMBDAS = [1e-5, 1e-4, 1e-3]
+
+# for the heatmap
+GAMMA_LO, GAMMA_HI = 1e-2, 1e2          # γ range for heatmaps (TODO: tune)
+LAMBDA_LO, LAMBDA_HI = 1e-14, 1e12      # λ range for heatmaps (TODO: tune)
+HEATMAP_GRID = 5                        # Number of values per axis in heatmaps
 
 # Data generation
 TRAIN_DOMAIN = (-1, 1)                # Training data uniform on [-1, 1]
@@ -49,6 +55,21 @@ OUTPUT_DIR = Path("results/rbf_hyperparameter_study")
 
 
 # =============================================================================
+# Utility Functions
+# =============================================================================
+
+def powers_of_two(low: float, high: float, n: int) -> np.ndarray:
+    """Generate n values spaced by powers of 2 between low and high.
+
+    Values are geometrically spaced (uniform in log2 space).
+    """
+    log2_low = np.log2(low)
+    log2_high = np.log2(high)
+    exponents = np.linspace(log2_low, log2_high, n)
+    return 2.0 ** exponents
+
+
+# =============================================================================
 # Data Generation
 # =============================================================================
 
@@ -60,7 +81,7 @@ def generate_training_data(m: int, seed: int) -> np.ndarray:
 
 
 def generate_test_grid() -> np.ndarray:
-    """Generate dense grid over [-2, 2] for score visualization."""
+    """Generate dense grid for score visualization."""
     X = np.linspace(TEST_DOMAIN[0], TEST_DOMAIN[1], N_TEST_POINTS).reshape(-1, 1)
     return X
 
@@ -82,8 +103,8 @@ def generate_classification_data(seed: int) -> Tuple[np.ndarray, np.ndarray]:
     # Anomaly points: from [-2, -1) ∪ (1, 2]
     n_left = N_CLASSIFICATION_POINTS // 2
     n_right = N_CLASSIFICATION_POINTS - n_left
-    X_left = rng.uniform(-2, -1, size=(n_left, 1))
-    X_right = rng.uniform(1, 2, size=(n_right, 1))
+    X_left = rng.uniform(TEST_DOMAIN[0], -1, size=(n_left, 1))
+    X_right = rng.uniform(1, TEST_DOMAIN[1], size=(n_right, 1))
     X_anomaly = np.vstack([X_left, X_right])
     y_anomaly = np.ones(N_CLASSIFICATION_POINTS)
 
@@ -153,8 +174,11 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
     Columns: RBF gamma γ
     Within each subplot: 3 curves for different λ values
     """
+    gammas = GAMMAS
+    lambdas = LAMBDAS
+
     fig, axes = plt.subplots(
-        len(SAMPLE_SIZES), len(RBF_GAMMAS),
+        len(SAMPLE_SIZES), len(gammas),
         figsize=(14, 12),
         sharex=True, sharey=False
     )
@@ -171,7 +195,7 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
         X_train = generate_training_data(m, seed=BASE_SEED)
         x_train = X_train.ravel()
 
-        for j, gamma in enumerate(RBF_GAMMAS):
+        for j, gamma in enumerate(gammas):
             ax = axes[i, j]
 
             # Shaded region for training domain [-1, 1]
@@ -179,10 +203,10 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
 
             # Plot scores for each λ
             all_scores = []
-            for k, lam in enumerate(REGULARIZATIONS):
+            for k, lam in enumerate(lambdas):
                 scores = fit_and_score(X_train, X_test, gamma, lam)
                 all_scores.append(scores)
-                label = f'λ={lam:.0e}' if lam >= 1 else f'λ={lam}'
+                label = f'λ={lam:.1e}'
                 ax.plot(x_vals, scores, color=colors[k], linewidth=1.5, label=label)
 
             # Set log scale if enabled
@@ -200,7 +224,7 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
 
             # Subplot labels
             if i == 0:
-                ax.set_title(f'γ = {gamma}', fontsize=12)
+                ax.set_title(f'γ = {gamma:.2g}', fontsize=12)
             if j == 0:
                 ylabel = 'Anomaly Score (log)' if LOG else 'Anomaly Score'
                 ax.set_ylabel(f'm = {m}\n\n{ylabel}', fontsize=11)
@@ -208,7 +232,7 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
                 ax.set_xlabel('x', fontsize=11)
 
             # Legend only in first subplot
-            if i == 0 and j == len(RBF_GAMMAS) - 1:
+            if i == 0 and j == len(gammas) - 1:
                 ax.legend(loc='upper right', fontsize=9)
 
             ax.set_xlim(TEST_DOMAIN)
@@ -275,74 +299,62 @@ def generate_heatmaps(output_path: Path) -> plt.Figure:
     """
     Generate 3 heatmaps showing classification accuracy.
 
-    1. Vary (m, γ), fix λ at 1e-2
-    2. Vary (m, λ), fix γ at 1.0
-    3. Vary (γ, λ), fix m at 50
+    One heatmap per sample size m, with γ (rows) vs λ (columns).
     """
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), constrained_layout=True)
+    # Generate HEATMAP_GRID values for each parameter
+    gammas = powers_of_two(GAMMA_LO, GAMMA_HI, HEATMAP_GRID)
+    lambdas = powers_of_two(LAMBDA_LO, LAMBDA_HI, HEATMAP_GRID)
 
-    # Heatmap 1: Vary (m, γ), fix λ = 1e-2
-    print("  Computing heatmap 1: m vs γ (λ=1e-2)...")
-    acc1 = compute_accuracy_grid(
-        SAMPLE_SIZES, RBF_GAMMAS,
-        'm', 'gamma',
-        {'lam': 1e-2}
-    )
+    fig, axes = plt.subplots(1, len(SAMPLE_SIZES), figsize=(15, 4.5), constrained_layout=True)
 
-    # Heatmap 2: Vary (m, λ), fix γ = 1.0
-    print("  Computing heatmap 2: m vs λ (γ=1.0)...")
-    acc2 = compute_accuracy_grid(
-        SAMPLE_SIZES, REGULARIZATIONS,
-        'm', 'lam',
-        {'gamma': 1.0}
-    )
+    # Compute heatmap for each sample size
+    for idx, m in enumerate(SAMPLE_SIZES):
+        print(f"  Computing heatmap for m={m}...")
+        acc = compute_accuracy_grid(
+            gammas, lambdas,
+            'gamma', 'lam',
+            {'m': m}
+        )
 
-    # Heatmap 3: Vary (γ, λ), fix m = 50
-    print("  Computing heatmap 3: γ vs λ (m=50)...")
-    acc3 = compute_accuracy_grid(
-        RBF_GAMMAS, REGULARIZATIONS,
-        'gamma', 'lam',
-        {'m': 50}
-    )
-
-    # Plot heatmaps
-    heatmap_configs = [
-        (acc1, SAMPLE_SIZES, RBF_GAMMAS, 'm', 'γ', 'λ = 0.01'),
-        (acc2, SAMPLE_SIZES, REGULARIZATIONS, 'm', 'λ', 'γ = 1.0'),
-        (acc3, RBF_GAMMAS, REGULARIZATIONS, 'γ', 'λ', 'm = 50'),
-    ]
-
-    for ax, (acc, y_vals, x_vals, y_label, x_label, title) in zip(axes, heatmap_configs):
+        ax = axes[idx]
         im = ax.imshow(acc, aspect='auto', cmap='RdYlGn', vmin=0.5, vmax=1.0,
                        origin='lower')
+        #from matplotlib.colors import PowerNorm
+        #im = ax.imshow(acc, aspect='auto', cmap='RdYlGn', 
+               # Gamma > 1 expands the high values (greens)
+               # vmin/vmax are handled inside the Norm
+        #       norm=PowerNorm(gamma=2.0, vmax=1.0),
+        #       origin='lower')
 
         # Set tick labels
-        ax.set_xticks(range(len(x_vals)))
-        ax.set_yticks(range(len(y_vals)))
+        ax.set_xticks(range(len(lambdas)))
+        ax.set_yticks(range(len(gammas)))
 
         # Format tick labels
-        x_labels = [f'{v:.0e}' if isinstance(v, float) and v < 0.1 else str(v) for v in x_vals]
-        y_labels = [f'{v:.0e}' if isinstance(v, float) and v < 0.1 else str(v) for v in y_vals]
-        ax.set_xticklabels(x_labels)
+        x_labels = [f'{v:.1e}' for v in lambdas]
+        y_labels = [f'{v:.2g}' for v in gammas]
+        ax.set_xticklabels(x_labels, rotation=45, ha='right')
         ax.set_yticklabels(y_labels)
 
-        ax.set_xlabel(x_label, fontsize=11)
-        ax.set_ylabel(y_label, fontsize=11)
-        ax.set_title(f'Fixed: {title}', fontsize=12)
+        ax.set_xlabel('λ', fontsize=11)
+        if idx == 0:
+            ax.set_ylabel('γ', fontsize=11)
+        ax.set_title(f'm = {m}', fontsize=12)
 
-        # Annotate cells with accuracy values
-        for ii in range(len(y_vals)):
-            for jj in range(len(x_vals)):
-                val = acc[ii, jj]
-                text_color = 'white' if val < 0.7 else 'black'
-                ax.text(jj, ii, f'{val:.2f}', ha='center', va='center',
-                       color=text_color, fontsize=10, fontweight='bold')
+        # Annotate cells with accuracy values (only if grid is small enough)
+        if HEATMAP_GRID <= 6:
+            for ii in range(len(gammas)):
+                for jj in range(len(lambdas)):
+                    val = acc[ii, jj]
+                    text_color = 'white' if val < 0.7 else 'black'
+                    ax.text(jj, ii, f'{val:.2f}', ha='center', va='center',
+                           color=text_color, fontsize=9, fontweight='bold')
 
     # Colorbar
     cbar = fig.colorbar(im, ax=axes, shrink=0.8, pad=0.02)
     cbar.set_label('Classification Accuracy', fontsize=11)
 
-    fig.suptitle('Classification Accuracy Heatmaps (95th Percentile Threshold, Averaged over 5 Seeds)',
+    fig.suptitle(f'Classification Accuracy: γ vs λ for Each Sample Size (Averaged over {N_SEEDS} Seeds)',
                  fontsize=14)
 
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -362,8 +374,11 @@ if __name__ == "__main__":
 
     print(f"\nConfiguration:")
     print(f"  Sample sizes (m): {SAMPLE_SIZES}")
-    print(f"  RBF gammas (γ): {RBF_GAMMAS}")
-    print(f"  Regularizations (λ): {REGULARIZATIONS}")
+    print(f"  Score plots - γ values: {GAMMAS}")
+    print(f"  Score plots - λ values: {LAMBDAS}")
+    print(f"  Heatmaps - γ range: ({GAMMA_LO}, {GAMMA_HI})")
+    print(f"  Heatmaps - λ range: ({LAMBDA_LO}, {LAMBDA_HI})")
+    print(f"  Heatmap grid size: {HEATMAP_GRID}")
     print(f"  Training domain: {TRAIN_DOMAIN}")
     print(f"  Test domain: {TEST_DOMAIN}")
     print(f"  Threshold percentile: {THRESHOLD_PERCENTILE}")
@@ -388,4 +403,4 @@ if __name__ == "__main__":
     print(f"Results saved to {OUTPUT_DIR}")
     print("=" * 70)
 
-    plt.show()
+    #plt.show()
