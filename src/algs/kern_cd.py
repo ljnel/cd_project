@@ -1,3 +1,4 @@
+from typing import Union, Literal
 from .kernels import Kernel
 import numpy as np
 from scipy.linalg import solve_triangular
@@ -5,15 +6,55 @@ from sklearn.base import BaseEstimator
 
 
 class KernCD(BaseEstimator):
+    """
+    Kernelized Christoffel-Darboux polynomial for outlier detection.
 
-    def __init__(self, kernel: Kernel, lam=1e-3):
+    Parameters
+    ----------
+    kernel : Kernel
+        The kernel to use for similarity computation.
+    reg : float or {"adaptive", "condition"}, default="adaptive"
+        Regularization strategy.
+        - If "adaptive" (default), automatically selects λ by trying increasing
+          values until the regularized kernel matrix is well-conditioned.
+        - If "condition", analytically computes λ to achieve a target
+          condition number (κ=1e6).
+        - If a float, uses scale-invariant regularization where λ = reg/m,
+          so the total regularization λm = reg stays constant regardless of
+          sample size.
+
+    Attributes
+    ----------
+    lam_ : float
+        The actual λ value used after fitting.
+    """
+
+    def __init__(
+        self,
+        kernel: Kernel,
+        reg: Union[float, Literal["adaptive", "condition"]] = "adaptive",
+    ):
         self.kern = kernel
-        self.lam = lam
+        self.reg = reg
 
     def fit(self, X):
         m = len(X)
-        self.K = self.kern(X)
-        self.K += self.lam * m * np.eye(m)
+        self.kern.fit(X)  # allow kernel to learn hyperparameters
+        K = self.kern(X)  # unregularized kernel matrix
+
+        # Determine lambda based on regularization strategy
+        if isinstance(self.reg, (int, float)):
+            # Scale-invariant: λm = reg (constant), so λ = reg/m
+            self.lam_ = self.reg / m
+        elif self.reg == "adaptive":
+            self.lam_ = _lambda_adaptive(K)
+        elif self.reg == "condition":
+            self.lam_ = _lambda_condition_number(K)
+        else:
+            raise ValueError(f"Unknown regularization strategy: '{self.reg}'")
+
+        # Regularize and compute Cholesky
+        self.K = K + self.lam_ * m * np.eye(m)
         self.L = np.linalg.cholesky(self.K)  # (m, m)
         self.data = X
         return self
@@ -22,7 +63,7 @@ class KernCD(BaseEstimator):
         kxx = self.kern.diag(X)  # (b,)
         kx = self.kern(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)
-        return (kxx - np.einsum('bi,bi->b', y, y)) / self.lam
+        return (kxx - np.einsum('bi,bi->b', y, y)) / self.lam_
     
     def update(self, x_new, exact=False):
         """
@@ -76,7 +117,7 @@ class KernCD(BaseEstimator):
         k_self = self.kern.diag(x_new)[0]  # scalar
         
         # Regularized self-kernel for the new point
-        kappa_new = k_self + self.lam * m_new
+        kappa_new = k_self + self.lam_ * m_new
         
         # Update data array
         self.data = np.vstack([self.data, x_new])
@@ -85,7 +126,7 @@ class KernCD(BaseEstimator):
             # Exact update: add λ to all existing diagonal entries and recompute
             # This gives consistent λ(m+1) regularization on all points
             K_new = np.zeros((m_new, m_new))
-            K_new[:m, :m] = self.K + self.lam * np.eye(m)  # update existing regularization
+            K_new[:m, :m] = self.K + self.lam_ * np.eye(m)  # update existing regularization
             K_new[:m, m] = k
             K_new[m, :m] = k
             K_new[m, m] = kappa_new
@@ -224,5 +265,51 @@ class KernCD(BaseEstimator):
         self.data = np.delete(self.data, idx, axis=0)
         self.K = K_new
         self.L = L_new
-        
+
         return self
+
+
+# =============================================================================
+# Lambda Heuristics (internal)
+# =============================================================================
+
+def _lambda_condition_number(K: np.ndarray, kappa_target: float = 1e6) -> float:
+    """
+    Compute λ using condition number control.
+
+    Finds λ such that cond(K + λmI) ≤ kappa_target.
+
+    Formula: λm ≥ (λ_max - κ·λ_min) / (κ - 1)
+    """
+    m = K.shape[0]
+    eigvals = np.linalg.eigvalsh(K)  # sorted ascending
+    lambda_min, lambda_max = eigvals[0], eigvals[-1]
+
+    numerator = lambda_max - kappa_target * lambda_min
+    if numerator <= 0:
+        # Already well-conditioned, use a small floor
+        return 1e-12
+
+    lam_times_m = numerator / (kappa_target - 1)
+    return lam_times_m / m
+
+
+def _lambda_adaptive(K: np.ndarray, kappa_target: float = 1e6) -> float:
+    """
+    Compute λ adaptively by trying increasing values until Cholesky succeeds
+    and condition number is acceptable.
+    """
+    m = K.shape[0]
+
+    for log_lam in range(-14, 0):
+        lam = 10.0 ** log_lam
+        K_reg = K + lam * m * np.eye(m)
+        try:
+            np.linalg.cholesky(K_reg)
+            cond = np.linalg.cond(K_reg)
+            if cond < kappa_target:
+                return lam
+        except np.linalg.LinAlgError:
+            continue
+
+    return 1e-3  # fallback

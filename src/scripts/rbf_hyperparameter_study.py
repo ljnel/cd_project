@@ -36,11 +36,11 @@ TEST_DOMAIN = (-2, 2)                 # Test grid for score visualization
 N_TEST_POINTS = 500                   # Dense grid for score plots
 
 # for the heatmap
-GAMMA_LO, GAMMA_HI = 1e-3, 1e1          # γ range for heatmaps (TODO: tune)
-LAMBDA_LO, LAMBDA_HI = 1e-14, 1e1      # λ range for heatmaps (TODO: tune)
+GAMMA_LO, GAMMA_HI = 1e-3, 1e1          # γ range for heatmaps
+LAMBDA_LO, LAMBDA_HI = 1e-14, 1e1      # λ range for heatmaps
 HEATMAP_GRID = 10                        # Number of values per axis in heatmaps
 HEATMAP_DIM = 2                      # Dimensionality for heatmap classification
-ANOMALY_OFFSET = 2.5                  # Distance of anomaly mean from origin (tune for difficulty)
+ANOMALY_OFFSET = 2.5                  # Distance of anomaly mean from origin
 N_HEATMAP_TEST = 100                  # Test points per class for heatmap
 
 # Threshold for classification
@@ -126,99 +126,56 @@ def generate_heatmap_classification_data(seed: int) -> Tuple[np.ndarray, np.ndar
 
 
 # =============================================================================
-# Hyperparameter Heuristics
+# Hyperparameter Heuristics Display
 # =============================================================================
 
-def gamma_median_heuristic(X: np.ndarray) -> float:
-    """
-    Compute γ using the median heuristic.
-
-    γ = 1 / (2 * median²) where median is the median pairwise distance.
-    """
-    from scipy.spatial.distance import pdist
-    distances = pdist(X, metric='euclidean')
-    median_dist = np.median(distances)
-    if median_dist == 0:
-        return 1.0  # fallback
-    return 1.0 / (2.0 * median_dist ** 2)
-
-
-def gamma_dimension_aware(d: int) -> float:
-    """
-    Compute γ using dimension-aware scaling.
-
-    For N(0, I) data in d dimensions, E[||x-y||²] = 2d.
-    Setting γ = 1/(2d) puts the kernel "elbow" at typical distances.
-    """
-    return 1.0 / (2.0 * d)
-
-
-def lambda_scale_invariant(m: int, c: float = 0.01) -> float:
-    """
-    Compute λ using scale-invariant heuristic.
-
-    λ = c/m so that total regularization λm = c stays constant.
-    Default c=0.01 means regularization is 1% of kernel diagonal.
-    """
-    return c / m
-
-
-def lambda_condition_number(X: np.ndarray, gamma: float, kappa_target: float = 1e6) -> float:
-    """
-    Compute λ using condition number control.
-
-    Finds λ such that cond(K + λmI) ≤ kappa_target.
-
-    Formula: λm ≥ (λ_max - κ·λ_min) / (κ - 1)
-    """
-    from sklearn.metrics.pairwise import rbf_kernel
-
-    m = len(X)
-    K = rbf_kernel(X, gamma=gamma)
-
-    eigvals = np.linalg.eigvalsh(K)  # sorted ascending
-    lambda_min, lambda_max = eigvals[0], eigvals[-1]
-
-    numerator = lambda_max - kappa_target * lambda_min
-    if numerator <= 0:
-        # Already well-conditioned, use a small floor
-        return 1e-12
-
-    lam_times_m = numerator / (kappa_target - 1)
-    return lam_times_m / m
-
-
-def print_heuristics_for_heatmap(m: int, seed: int = BASE_SEED, kappa_target: float = 1e6) -> dict:
+def print_heuristics_for_heatmap(m: int, seed: int = BASE_SEED) -> dict:
     """
     Compute and print hyperparameter heuristics for given sample size.
+
+    Uses the fittable kernel interface for gamma heuristics and KernCD's
+    built-in regularization strategies for lambda heuristics.
 
     Returns dict with heuristic values.
     """
     # Generate sample data to compute data-dependent heuristics
     X = generate_heatmap_training_data(m, seed=seed)
 
-    # Gamma heuristics
-    gamma_median = gamma_median_heuristic(X)
-    gamma_dim = gamma_dimension_aware(HEATMAP_DIM)
+    # Gamma heuristics (using fittable kernel interface)
+    kernel_median = RBF(gamma="median")
+    kernel_median.fit(X)
+    gamma_median = kernel_median.gamma
 
-    # Lambda heuristics
-    lam_scale_inv = lambda_scale_invariant(m)
-    lam_cond_median = lambda_condition_number(X, gamma_median, kappa_target)
-    lam_cond_dim = lambda_condition_number(X, gamma_dim, kappa_target)
+    kernel_dim = RBF(gamma="dimension")
+    kernel_dim.fit(X)
+    gamma_dim = kernel_dim.gamma
+
+    # Lambda heuristics (using KernCD's built-in strategies)
+    # Scale-invariant with c=0.01: lam = 0.01/m
+    lam_scale_inv = 0.01 / m
+
+    # Adaptive and condition-based: fit models to get the selected lambda
+    model_adaptive = KernCD(RBF(gamma=gamma_median), reg="adaptive")
+    model_adaptive.fit(X)
+    lam_adaptive = model_adaptive.lam_
+
+    model_condition = KernCD(RBF(gamma=gamma_median), reg="condition")
+    model_condition.fit(X)
+    lam_condition = model_condition.lam_
 
     print(f"\n  Heuristics for m={m}, d={HEATMAP_DIM}:")
     print(f"    γ (median heuristic):        {gamma_median:.4e}")
     print(f"    γ (dimension-aware 1/2d):    {gamma_dim:.4e}")
     print(f"    λ (scale-invariant 0.01/m):  {lam_scale_inv:.4e}")
-    print(f"    λ (cond κ={kappa_target:.0e}, γ=median): {lam_cond_median:.4e}")
-    print(f"    λ (cond κ={kappa_target:.0e}, γ=1/2d):   {lam_cond_dim:.4e}")
+    print(f"    λ (adaptive, γ=median):      {lam_adaptive:.4e}")
+    print(f"    λ (condition κ=1e6, γ=median): {lam_condition:.4e}")
 
     return {
         'gamma_median': gamma_median,
         'gamma_dim': gamma_dim,
         'lambda_scale_inv': lam_scale_inv,
-        'lambda_cond_median': lam_cond_median,
-        'lambda_cond_dim': lam_cond_dim,
+        'lambda_adaptive': lam_adaptive,
+        'lambda_condition': lam_condition,
     }
 
 
@@ -232,9 +189,29 @@ def fit_and_score(
     gamma: float,
     lam: float,
 ) -> np.ndarray:
-    """Fit KernCD and compute anomaly scores on test data."""
+    """Fit KernCD and compute anomaly scores on test data.
+
+    Parameters
+    ----------
+    X_train : array of shape (m, d)
+        Training data.
+    X_test : array of shape (n, d)
+        Test data.
+    gamma : float
+        RBF kernel bandwidth.
+    lam : float
+        Regularization parameter λ.
+
+    Returns
+    -------
+    scores : array of shape (n,)
+        Anomaly scores for test data.
+    """
     kernel = RBF(gamma=gamma)
-    model = KernCD(kernel=kernel, lam=lam)
+    # Convert lambda to scale-invariant reg: reg = lam * m
+    # This ensures the actual lambda used is exactly `lam`
+    reg = lam * len(X_train)
+    model = KernCD(kernel=kernel, reg=reg)
     model.fit(X_train)
     scores = model.predict(X_test)
     return scores
@@ -254,7 +231,9 @@ def compute_classification_accuracy(
         accuracy: Fraction of correctly classified points
     """
     kernel = RBF(gamma=gamma)
-    model = KernCD(kernel=kernel, lam=lam)
+    # Convert lambda to scale-invariant reg: reg = lam * m
+    reg = lam * len(X_train)
+    model = KernCD(kernel=kernel, reg=reg)
     model.fit(X_train)
 
     # Compute threshold from training scores
@@ -432,12 +411,6 @@ def generate_heatmaps(output_path: Path) -> plt.Figure:
         ax = axes[idx]
         im = ax.imshow(acc, aspect='auto', cmap='RdYlGn', vmin=0.5, vmax=1.0,
                        origin='lower')
-        #from matplotlib.colors import PowerNorm
-        #im = ax.imshow(acc, aspect='auto', cmap='RdYlGn', 
-               # Gamma > 1 expands the high values (greens)
-               # vmin/vmax are handled inside the Norm
-        #       norm=PowerNorm(gamma=2.0, vmax=1.0),
-        #       origin='lower')
 
         # Set tick labels
         ax.set_xticks(range(len(lambdas)))
@@ -511,7 +484,7 @@ if __name__ == "__main__":
     print("\n--- Generating Classification Accuracy Heatmaps ---")
 
     # Print hyperparameter heuristics for each sample size
-    print("\nHyperparameter Heuristics:")
+    print("\nHyperparameter Heuristics (built into KernCD):")
     for m in SAMPLE_SIZES:
         print_heuristics_for_heatmap(m)
 
