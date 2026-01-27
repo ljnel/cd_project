@@ -70,7 +70,7 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
             raise RuntimeError(f"{self.__class__.__name__}._fit_impl() must set self.window_")
         print(f'Successfully fit model w/ window length {self.window}')
     
-        X_cal_windows = self._get_cal_win(X_cal)
+        X_cal_windows = self._get_cal_windows(X_cal)
         
         cal_scores = self._score_impl(X_cal_windows)
         self.threshold_ = np.quantile(cal_scores, self.threshold_quantile)
@@ -105,10 +105,10 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         """Implementation-specific scoring"""
         pass
 
-    def _get_cal_win(self, X: np.ndarray) -> np.ndarray:
-        from utils.windows import strided_window_view
+    @abstractmethod
+    def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
+        """Extract calibration windows from episodes.
 
-        # Default: calibrate on last window of each trajectory
-        X_windows = strided_window_view(X, window=self.window, stride=20).reshape((-1, self.window, X.shape[-1]))
-        print(f'Cal windows: {X_windows.shape}')
-        return X_windows
+        Should use the same windowing strategy as training for consistency.
+        """
+        pass

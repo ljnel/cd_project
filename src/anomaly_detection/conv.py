@@ -115,6 +115,12 @@ class ConvAEDetector(AnomalyDetector):
             self.latent_detector_ = KernCD(
                 RBF(gamma="median"), reg="adaptive").fit(z[::2])
 
+    def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
+        X_windows = strided_window_view(X, window=self.window, stride=self.stride)
+        X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
+        print(f'Cal windows: {X_windows.shape}')
+        return X_windows
+
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
         """Score windows using reconstruction error or latent distance."""
         if self.method == "reconstruction":

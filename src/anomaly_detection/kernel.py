@@ -27,35 +27,45 @@ class KernDetector(AnomalyDetector):
     Predict: gets windows (must be sufficiently long)
         - truncates windows if needed
     """
-    
+
     def __init__(self,
-                cal_fraction: float = 0.3,
-                threshold_quantile: float = 0.95,
+                 cal_fraction: float = 0.3,
+                 threshold_quantile: float = 0.95,
                  n_periods: int = 1,
                  kernel_type: str = "fft",
                  gamma: Optional[float] = None,
                  reg: float | str = "adaptive",
-                 max_train_samples: int = 100):
+                 overlap: float = 0.5,
+                 max_windows: int = 200):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
         self.gamma = gamma
         self.reg = reg
         self.n_periods = n_periods
-        self.max_train_samples = max_train_samples
+        self.overlap = overlap
+        self.max_windows = max_windows
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
 
     def _fit_impl(self, X: np.ndarray):
         X = low_pass(X, alpha=0.8)  # ????
-        #X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
-        self.window = estimate_window(X, period=self.n_periods, method='mean')  # ?????
-        X_windows = strided_window_view(X, window=self.window, stride=20).reshape((-1, self.window, X.shape[-1]))  # FIX
+        # X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
+        self.window = estimate_window(
+            X, period=self.n_periods, method='mean')  # ?????
+        print(f'win len {self.window}')
 
-        # FIX
-        if len(X_windows) > self.max_train_samples:
-            idx = np.random.choice(len(X_windows), self.max_train_samples, replace=False)
+        # Adaptive stride based on overlap
+        stride = max(1, int(self.window * (1 - self.overlap)))
+        X_windows = strided_window_view(X, window=self.window, stride=stride)
+        X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
+        print(f'overlap {self.overlap} --> stride {stride} --> num windows {len(X_windows)}')
+
+        # Cap windows for computational efficiency (kernel methods scale O(n²))
+        if len(X_windows) > self.max_windows:
+            idx = np.random.choice(
+                len(X_windows), self.max_windows, replace=False)
             X_windows = X_windows[idx]
         print(f'Train windows: {X_windows.shape}')
-        
+
         if self.kernel_type == "rbf":
             X_flat = X_windows.reshape(len(X_windows), -1)
             gamma = self.gamma if self.gamma is not None else "median"
@@ -77,10 +87,22 @@ class KernDetector(AnomalyDetector):
             self._flatten = False
         else:
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")
-    
+
+    def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
+        stride = max(1, int(self.window * (1 - self.overlap)))
+        X_windows = strided_window_view(X, window=self.window, stride=stride)
+        X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
+
+        if len(X_windows) > self.max_windows:
+            idx = np.random.choice(len(X_windows), self.max_windows, replace=False)
+            X_windows = X_windows[idx]
+
+        print(f'Cal windows: {X_windows.shape}')
+        return X_windows
+
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
         # NB: scaler
-        #X_windows = low_pass(X_windows, alpha=0.5)
+        # X_windows = low_pass(X_windows, alpha=0.5)
 
         if self._flatten:
             X_windows = X_windows.reshape(len(X_windows), -1)
