@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Union, Literal
 import numpy as np
 from functools import partial
-from scipy.spatial.distance import pdist
 from sktime.dists_kernels import SignatureKernel
 from sklearn.metrics.pairwise import rbf_kernel
+from utils.misc import median_heuristic
 
 
 class Kernel(ABC):
@@ -83,30 +83,16 @@ class RBF(Kernel):
         self : RBF
         """
         if isinstance(self._gamma_param, (int, float)):
-            # Already have a fixed gamma, nothing to fit
             return self
 
         if self._gamma_param == "median":
-            self._gamma = self._gamma_median_heuristic(X)
+            self._gamma = median_heuristic(X)
         elif self._gamma_param == "dimension":
-            self._gamma = self._gamma_dimension_heuristic(X)
+            self._gamma = 1.0 / (2.0 * X.shape[1])
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 
         return self
-
-    @staticmethod
-    def _gamma_median_heuristic(X: np.ndarray) -> float:
-        distances = pdist(X, metric="euclidean")
-        median_dist = np.median(distances)
-        if median_dist == 0:
-            return 1.0  # fallback for degenerate case
-        return 1.0 / (2.0 * median_dist**2)
-
-    @staticmethod
-    def _gamma_dimension_heuristic(X: np.ndarray) -> float:
-        d = X.shape[1]
-        return 1.0 / (2.0 * d)
 
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
         return rbf_kernel(x, y, gamma=self.gamma)
@@ -209,35 +195,18 @@ class GaussFFT(Kernel):
             return self
 
         if self._gamma_param == "median":
-            self._gamma = self._gamma_median_heuristic(X)
+            # Transform to FFT magnitude space, then apply median heuristic
+            X = np.asarray(X)
+            if X.ndim == 2:
+                X = X[None, :, :]
+            m, n, d = X.shape
+            X_mag = np.abs(np.fft.fft(X, axis=1))
+            X_flat = X_mag.reshape(m, -1) / n  # normalize by n
+            self._gamma = median_heuristic(X_flat)
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 
         return self
-
-    @staticmethod
-    def _gamma_median_heuristic(X: np.ndarray) -> float:
-        """
-        Compute γ using the median heuristic in FFT magnitude space.
-
-        Computes pairwise distances between normalized FFT magnitude
-        representations, then sets γ = 1 / (2 * median²).
-        """
-        X = np.asarray(X)
-        if X.ndim == 2:
-            X = X[None, :, :]
-
-        m, n, d = X.shape
-        X_mag = np.abs(np.fft.fft(X, axis=1))  # (m, n, d)
-
-        # Normalize by n to match the /n² in squared distance
-        X_flat = X_mag.reshape(m, -1) / n  # (m, n*d)
-
-        distances = pdist(X_flat, metric="euclidean")
-        median_dist = np.median(distances)
-        if median_dist == 0:
-            return 1.0
-        return 1.0 / (2.0 * median_dist**2)
 
     def __call__(self, x, y=None):
         x = np.asarray(x)
@@ -283,16 +252,81 @@ class GaussFFT(Kernel):
     
 
 class SigKernel(Kernel):
-    def __init__(self, gamma):
-        kernel = partial(rbf_kernel, gamma=gamma)
+    """
+    Signature kernel with RBF static kernel.
+
+    Parameters
+    ----------
+    gamma : float or "median", default="median"
+        Bandwidth for the static RBF kernel applied at each timestep.
+        - If "median" (default), computed from training data using the median
+          heuristic on flattened signal representations.
+        - If a float, used directly.
+    """
+
+    def __init__(self, gamma: Union[float, Literal["median"]] = "median"):
+        self._gamma_param = gamma
+        self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
+        self.k = None  # Will be initialized after fit or when gamma is known
+
+        if self._gamma is not None:
+            self._init_kernel()
+
+    def _init_kernel(self):
+        """Initialize the signature kernel with the current gamma."""
+        kernel = partial(rbf_kernel, gamma=self._gamma)
         self.k = SignatureKernel(kernel=kernel, normalize=True)
 
+    @property
+    def gamma(self) -> float:
+        if self._gamma is None:
+            raise ValueError(
+                f"Kernel not fitted. Call fit(X) first when using gamma='{self._gamma_param}'."
+            )
+        return self._gamma
+
+    def fit(self, X: np.ndarray) -> "SigKernel":
+        """
+        Learn gamma from training data if using a heuristic.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (m, n, d)
+            Training signals: m signals of length n with d channels.
+
+        Returns
+        -------
+        self : SigKernel
+        """
+        if isinstance(self._gamma_param, (int, float)):
+            return self
+
+        if self._gamma_param == "median":
+            # Compute cross-trajectory distances at each timestep
+            from sklearn.metrics.pairwise import euclidean_distances
+            X = np.asarray(X)
+            m, n, d = X.shape
+            all_dists = []
+            for t in range(n):
+                dists = euclidean_distances(X[:, t, :])
+                all_dists.append(dists[np.triu_indices(m, k=1)])
+            self._gamma = median_heuristic(np.concatenate(all_dists))
+            self._init_kernel()
+        else:
+            raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
+
+        return self
+
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
+        if self.k is None:
+            raise ValueError("Kernel not initialized. Call fit(X) first.")
         if y is None:
             return self.k(x.swapaxes(1, 2))
         else:
             return self.k(x.swapaxes(1, 2), y.swapaxes(1, 2))
-        
+
     def diag(self, x: np.ndarray) -> np.ndarray:
+        if self.k is None:
+            raise ValueError("Kernel not initialized. Call fit(X) first.")
         return self.k.transform_diag(x.swapaxes(1, 2))
     

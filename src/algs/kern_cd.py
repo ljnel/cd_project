@@ -34,13 +34,13 @@ class KernCD(BaseEstimator):
         kernel: Kernel,
         reg: Union[float, Literal["adaptive", "condition"]] = "adaptive",
     ):
-        self.kern = kernel
+        self.kernel = kernel
         self.reg = reg
 
     def fit(self, X):
         m = len(X)
-        self.kern.fit(X)  # allow kernel to learn hyperparameters
-        K = self.kern(X)  # unregularized kernel matrix
+        self.kernel.fit(X)  # allow kernel to learn hyperparameters
+        K = self.kernel(X)  # unregularized kernel matrix
 
         # Determine lambda based on regularization strategy
         if isinstance(self.reg, (int, float)):
@@ -60,8 +60,8 @@ class KernCD(BaseEstimator):
         return self
 
     def predict(self, X):
-        kxx = self.kern.diag(X)  # (b,)
-        kx = self.kern(X, self.data)  # (b, m)
+        kxx = self.kernel.diag(X)  # (b,)
+        kx = self.kernel(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)
         return (kxx - np.einsum('bi,bi->b', y, y)) / self.lam_
     
@@ -111,10 +111,10 @@ class KernCD(BaseEstimator):
         m_new = m + 1
         
         # Compute kernel between new point and existing data: k(x_new, X)
-        k = self.kern(x_new, self.data).ravel()  # (m,)
+        k = self.kernel(x_new, self.data).ravel()  # (m,)
         
         # Compute kernel of new point with itself: k(x_new, x_new)
-        k_self = self.kern.diag(x_new)[0]  # scalar
+        k_self = self.kernel.diag(x_new)[0]  # scalar
         
         # Regularized self-kernel for the new point
         kappa_new = k_self + self.lam_ * m_new

@@ -39,7 +39,7 @@ def eval_latent_clf(model, dl_tr, dl_cal, df_te):
     z_cal = np.concatenate([model.predict(x)[1] for x in dl_cal])
     z_te = np.concatenate([model.predict(x)[1] for x in dl_te])
 
-    p = KernCD(RBF(gamma=0.5), lam=1e-3).fit(z_tr[::50])
+    p = KernCD(RBF(gamma=0.5), reg=1e-3).fit(z_tr[::50])
     q = np.quantile(p.predict(z_cal[::100]), q=0.95)
     y_pred = p.predict(z_te) > q
     eval(y_true, y_pred)

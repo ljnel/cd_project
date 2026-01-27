@@ -50,7 +50,7 @@ def eval_latent_clf(model, dl_tr, dl_cal, dl_te):
     
     print(f"Computed Gamma: {gamma_heuristic:.4f}")
 
-    p = KernCD(RBF(gamma=gamma_heuristic), lam=4e-4).fit(z_tr[::10]) 
+    p = KernCD(RBF(gamma=gamma_heuristic), reg=4e-4).fit(z_tr[::10]) 
 
     scores_cal = p.predict(z_cal)
     q = np.quantile(scores_cal, q=0.95)

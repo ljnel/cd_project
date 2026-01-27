@@ -9,7 +9,6 @@ from algs.kernels import RBF, GaussFFT, SigKernel
 from .base import AnomalyDetector
 from utils.signals import estimate_window, low_pass
 from utils.windows import strided_window_view
-from utils.misc import median_heuristic
 
 from sklearn.preprocessing import StandardScaler
 from typing import Optional
@@ -30,17 +29,17 @@ class KernDetector(AnomalyDetector):
     """
     
     def __init__(self,
-                cal_fraction: float = 0.3, 
+                cal_fraction: float = 0.3,
                 threshold_quantile: float = 0.95,
-                 n_periods: int = 1, 
+                 n_periods: int = 1,
                  kernel_type: str = "fft",
                  gamma: Optional[float] = None,
-                 lam: float = 1e-4,
+                 reg: float | str = "adaptive",
                  max_train_samples: int = 100):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
         self.gamma = gamma
-        self.lam = lam
+        self.reg = reg
         self.n_periods = n_periods
         self.max_train_samples = max_train_samples
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
@@ -59,22 +58,22 @@ class KernDetector(AnomalyDetector):
         
         if self.kernel_type == "rbf":
             X_flat = X_windows.reshape(len(X_windows), -1)
-            self.gamma_ = self.gamma or median_heuristic(X_flat)
-            kernel = RBF(gamma=self.gamma_)
-            self.model_ = KernCD(kernel, lam=self.lam).fit(X_flat)
+            gamma = self.gamma if self.gamma is not None else "median"
+            kernel = RBF(gamma=gamma)
+            self.model_ = KernCD(kernel, reg=self.reg).fit(X_flat)
             self._flatten = True
-            
+
         elif self.kernel_type == "fft":
-            self.gamma_ = self.gamma or 0.5
-            kernel = GaussFFT(gamma=self.gamma_)
-            self.model_ = KernCD(kernel, lam=self.lam).fit(X_windows)
+            gamma = self.gamma if self.gamma is not None else "median"
+            kernel = GaussFFT(gamma=gamma)
+            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
             self._flatten = False
-            
+
         elif self.kernel_type == "sig":
             self.window = self.window // 2
-            self.gamma_ = self.gamma or 0.001
-            kernel = SigKernel(gamma=self.gamma_)
-            self.model_ = KernCD(kernel, lam=self.lam).fit(X_windows)
+            gamma = self.gamma if self.gamma is not None else "median"
+            kernel = SigKernel(gamma=gamma)
+            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
             self._flatten = False
         else:
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")

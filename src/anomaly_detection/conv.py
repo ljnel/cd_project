@@ -113,7 +113,7 @@ class ConvAEDetector(AnomalyDetector):
             gamma = median_heuristic(z)
             # Subsample for efficiency
             self.latent_detector_ = KernCD(
-                RBF(gamma=0.005), lam=1e-4).fit(z[::2])
+                RBF(gamma="median"), reg="adaptive").fit(z[::2])
 
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
         """Score windows using reconstruction error or latent distance."""

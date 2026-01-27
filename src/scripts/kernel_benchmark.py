@@ -86,9 +86,9 @@ if __name__ == "__main__":
         #print(x_tr_trial.shape, x_te.shape)
 
         if args.alg == 'fft':
-            model = KernCD(GaussFFT(gamma=.5), lam=1e-3).fit(x_tr_trial)
+            model = KernCD(GaussFFT(gamma=.5), reg=1e-3).fit(x_tr_trial)
         if args.alg == 'sig':
-            model = KernCD(SigKernel(gamma=0.001), lam=1e-3).fit(x_tr_trial)
+            model = KernCD(SigKernel(gamma=0.001), reg=1e-3).fit(x_tr_trial)
         if args.alg == 'pca':
             pca = PCA_FFT(k1=0.9, k2=3)
             x_tr_trial = pca.fit_transform(x_tr_trial)
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
             print(x_tr_trial.shape)
 
-            model = KernCD(RBF(gamma=0.005), lam=1e-5).fit(x_tr_trial)
+            model = KernCD(RBF(gamma=0.005), reg=1e-5).fit(x_tr_trial)
             
 
         q = np.quantile(model.predict(x_cal), q=.95)
