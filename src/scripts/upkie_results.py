@@ -41,7 +41,7 @@ def run_single_trial(
             kernel_type='fft',
             gamma=method_kwargs.get('gamma', 0.5),
             lam=method_kwargs.get('lam', 1e-3),
-            max_train_samples=method_kwargs.get('max_train_samples', 100),
+            max_windows=method_kwargs.get('max_windows', 100),
             threshold_quantile=0.95
         )
     elif method_name == "Sig Kernel":
@@ -49,7 +49,7 @@ def run_single_trial(
             kernel_type='sig',
             gamma=method_kwargs.get('gamma', 0.001),
             lam=method_kwargs.get('lam', 1e-3),
-            max_train_samples=method_kwargs.get('max_train_samples', 100),
+            max_windows=method_kwargs.get('max_windows', 100),
             threshold_quantile=0.95
         )
     elif method_name == "RBF":
@@ -57,7 +57,7 @@ def run_single_trial(
             kernel_type='rbf',
             gamma=method_kwargs.get('gamma', None),  # median heuristic
             lam=method_kwargs.get('lam', 1e-3),
-            max_train_samples=method_kwargs.get('max_train_samples', 100),
+            max_windows=method_kwargs.get('max_windows', 100),
             threshold_quantile=0.95
         )
     elif method_name == "ConvAE w/ Recon Loss":
@@ -272,12 +272,12 @@ if __name__ == "__main__":
         "Full FFT": {
             'gamma': 0.5,
             'lam': 1e-3,
-            'max_train_samples': 100,
+            'max_windows': 100,
         },
         "Sig Kernel": {
             'gamma': 0.001,
             'lam': 1e-3,
-            'max_train_samples': 100,
+            'max_windows': 100,
         },
         "ConvAE w/ Recon Loss": {
             'window': 70,

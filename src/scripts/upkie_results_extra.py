@@ -42,9 +42,9 @@ def get_method(method_name: str, **kwargs) -> object:
     """Factory function to create detector instances."""
     
     defaults = {
-        "Full FFT": dict(kernel_type='fft', gamma=0.5, lam=1e-3, max_train_samples=100),
-        "Sig Kernel": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_train_samples=100),
-        "RBF": dict(kernel_type='rbf', gamma=None, lam=1e-3, max_train_samples=100),
+        "Full FFT": dict(kernel_type='fft', gamma=0.5, lam=1e-3, max_windows=100),
+        "Sig Kernel": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_windows=100),
+        "RBF": dict(kernel_type='rbf', gamma=None, lam=1e-3, max_windows=100),
         "ConvAE Recon": dict(window=70, stride=10, method='reconstruction', epochs=10),
         "ConvAE Latent": dict(window=70, stride=10, method='latent', epochs=15),
     }

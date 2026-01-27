@@ -35,7 +35,7 @@ param_distributions = {
     'gamma': loguniform(0.01, 10),      # log-uniform from 0.01 to 10
     'reg': loguniform(1e-5, 1e-1),      # log-uniform from 1e-5 to 0.1
     'threshold_quantile': uniform(0.85, 0.14),  # uniform from 0.85 to 0.99
-    'max_train_samples': [100, 200, 300, 500],
+    'max_windows': [100, 200, 300, 500],
 }
 
 # Create search object

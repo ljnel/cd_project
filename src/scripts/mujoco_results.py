@@ -6,7 +6,7 @@ from sklearn.metrics import confusion_matrix
 task = SafetyMonitor(hopper_cfg)
 x_tr, x_te = task.get_train_test()
 
-model = KernDetector(kernel_type='fft', gamma=0.5, lam=1e-3, max_train_samples=100)
+model = KernDetector(kernel_type='fft', gamma=0.5, lam=1e-3, max_windows=100)
 #model = ConvAEDetector(window=70, stride=10, lr=3e-4)
 model.fit(x_tr)
 y_pred = model.predict(x_te)

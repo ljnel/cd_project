@@ -127,8 +127,8 @@ def get_method(method_name: str) -> object:
     """Factory function to create detector instances."""
 
     configs = {
-        "FFT-CD": dict(kernel_type='fft', gamma=0.01, lam=1e-4, max_train_samples=500),
-        "Sig-CD": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_train_samples=100),
+        "FFT-CD": dict(kernel_type='fft', gamma=0.01, lam=1e-4, max_windows=500),
+        "Sig-CD": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_windows=100),
         "ConvAE": dict(window=70, stride=10, method='reconstruction', epochs=5, latent_dim=30),
         "Conv-CD": dict(window=70, stride=10, method='latent', epochs=5, latent_dim=10),
     }

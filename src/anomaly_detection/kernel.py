@@ -4,11 +4,12 @@ This module provides sklearn-compatible wrappers around kernel methods.
 The underlying algorithm (KernCD) lives in algs.kern_cd.
 """
 
+import warnings
+
 from algs.kern_cd import KernCD
 from algs.kernels import RBF, GaussFFT, SigKernel
 from .base import AnomalyDetector
 from utils.signals import estimate_window, low_pass
-from utils.windows import strided_window_view
 
 from sklearn.preprocessing import StandardScaler
 from typing import Optional
@@ -35,35 +36,57 @@ class KernDetector(AnomalyDetector):
                  kernel_type: str = "fft",
                  gamma: Optional[float] = None,
                  reg: float | str = "adaptive",
-                 overlap: float = 0.5,
                  max_windows: int = 200):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
         self.gamma = gamma
         self.reg = reg
         self.n_periods = n_periods
-        self.overlap = overlap
         self.max_windows = max_windows
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
+
+    def _get_windows(self, X: np.ndarray, max_windows: int) -> np.ndarray:
+        """Extract windows using stratified uniform sampling.
+
+        Samples uniformly spaced windows from each episode to achieve
+        approximately max_windows total, with equal representation per episode.
+        """
+        n_episodes, seq_len, n_features = X.shape
+        n_possible = seq_len - self.window + 1
+
+        if max_windows < n_episodes:
+            warnings.warn(
+                f"max_windows ({max_windows}) < n_episodes ({n_episodes}). "
+                f"Sampling {max_windows} episodes with 1 window each."
+            )
+            ep_idx = np.linspace(0, n_episodes - 1, max_windows).astype(int)
+            start = n_possible // 2
+            return X[ep_idx, start:start + self.window, :]
+
+        windows_per_episode = max_windows // n_episodes
+
+        # Uniformly spaced starting positions (same for all episodes)
+        starts = np.linspace(0, n_possible - 1, windows_per_episode).astype(int)
+
+        # Window indices: (windows_per_episode, window)
+        window_idx = starts[:, None] + np.arange(self.window)
+
+        # Extract all at once: (n_episodes, windows_per_episode, window, n_features)
+        X_windows = X[:, window_idx, :]
+
+        return X_windows.reshape(-1, self.window, n_features)
 
     def _fit_impl(self, X: np.ndarray):
         X = low_pass(X, alpha=0.8)  # ????
         # X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
         self.window = estimate_window(
             X, period=self.n_periods, method='mean')  # ?????
-        print(f'win len {self.window}')
 
-        # Adaptive stride based on overlap
-        stride = max(1, int(self.window * (1 - self.overlap)))
-        X_windows = strided_window_view(X, window=self.window, stride=stride)
-        X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
-        print(f'overlap {self.overlap} --> stride {stride} --> num windows {len(X_windows)}')
+        # Store windows per episode so calibration uses same density
+        n_train_episodes = X.shape[0]
+        self._windows_per_episode = max(1, self.max_windows // n_train_episodes)
 
-        # Cap windows for computational efficiency (kernel methods scale O(n²))
-        if len(X_windows) > self.max_windows:
-            idx = np.random.choice(
-                len(X_windows), self.max_windows, replace=False)
-            X_windows = X_windows[idx]
+        X_windows = self._get_windows(X, self.max_windows)
         print(f'Train windows: {X_windows.shape}')
 
         if self.kernel_type == "rbf":
@@ -89,14 +112,9 @@ class KernDetector(AnomalyDetector):
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
-        stride = max(1, int(self.window * (1 - self.overlap)))
-        X_windows = strided_window_view(X, window=self.window, stride=stride)
-        X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
-
-        if len(X_windows) > self.max_windows:
-            idx = np.random.choice(len(X_windows), self.max_windows, replace=False)
-            X_windows = X_windows[idx]
-
+        n_cal_episodes = X.shape[0]
+        max_cal = self._windows_per_episode * n_cal_episodes
+        X_windows = self._get_windows(X, max_cal)
         print(f'Cal windows: {X_windows.shape}')
         return X_windows
 
