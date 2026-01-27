@@ -12,18 +12,21 @@ Returns dict with:
     fail: (n_eps,) step where episode failed, -1 if no failure
     mass_scale, friction_scale, damping_scale: parameter values per episode
     seeds: (n_eps,) episode seeds
+
+Example: python gen_data.py --dataset upkie/impulse
 """
 
 import copy
 import logging
 import warnings
-from typing import Optional, Literal, Tuple
+from typing import Optional
 
 import numpy as np
 import gymnasium as gym
 import pybullet as p
 import upkie.envs
 
+from config.datasets import DatasetConfig, DATASETS, get_dataset_path
 from envs.upkie.disturbances import Disturbance, clear_external_forces
 from envs.upkie.obs_hist_wrapper import ObsHistoryWrapper
 from utils.paths import get_root
@@ -288,21 +291,7 @@ def _gen_data_parallel(
     }
 
 
-def gen_data(
-    n_episodes: int = 100,
-    time: float = 5.0,
-    frequency: float = 200.0,
-    mass_range: Tuple[float, float] = (1.0, 1.0),
-    friction_range: Tuple[float, float] = (1.0, 1.0),
-    damping_range: Tuple[float, float] = (1.0, 1.0),
-    disturbance: Optional[Disturbance] = None,
-    balancer: Literal["ppo", "mpc"] = "mpc",
-    policy_path: str = None,
-    deterministic: bool = True,
-    render: bool = False,
-    seed: Optional[int] = None,
-    n_jobs: int = -1,
-) -> dict:
+def gen_data(cfg: DatasetConfig, n_jobs: int = -1, render: bool = False) -> dict:
     """
     Generate rollout data with parameter variations and optional disturbances.
 
@@ -310,37 +299,34 @@ def gen_data(
     when render=True (GUI requires single process).
 
     Args:
-        n_episodes: Number of episodes to generate
-        time: Episode duration in seconds
-        frequency: Simulation frequency in Hz
-        mass_range: (min, max) for mass scale sampling (1.0 = nominal)
-        friction_range: (min, max) for friction scale sampling
-        damping_range: (min, max) for damping scale sampling
-        disturbance: Optional per-step disturbance (e.g., ImpulseForce)
-        balancer: Controller type ("ppo" or "mpc")
-        policy_path: Path to PPO policy (if balancer="ppo")
-        deterministic: Use deterministic policy actions
-        render: Show GUI (forces sequential execution)
-        seed: Random seed
+        cfg: Dataset configuration
         n_jobs: Number of parallel workers (-1 = all cores)
+        render: Show GUI (forces sequential execution)
 
     Returns:
         dict with X, actions, fail, mass_scale, friction_scale, damping_scale, seeds
     """
-    rng = np.random.default_rng(seed)
-    n_steps = int(time * frequency)
-    use_ppo = (balancer == "ppo")
+    # Extract config values
+    n_episodes = cfg.n_episodes
+    n_steps = cfg.ep_len
+    frequency = cfg.frequency
+    use_ppo = (cfg.balancer == "ppo")
+    policy_path = str(get_root() / 'src/policies' / cfg.policy) if cfg.policy else None
+    disturbance = cfg.get_disturbance()
+
+    # Create RNG from config seed
+    rng = np.random.default_rng(cfg.seed)
 
     # Sample parameters for all episodes
     episode_seeds = rng.integers(0, 2**31, size=n_episodes, dtype=np.int64)
-    mass_scales = rng.uniform(mass_range[0], mass_range[1], size=n_episodes).astype(np.float32)
-    friction_scales = rng.uniform(friction_range[0], friction_range[1], size=n_episodes).astype(np.float32)
-    damping_scales = rng.uniform(damping_range[0], damping_range[1], size=n_episodes).astype(np.float32)
+    mass_scales = rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=n_episodes).astype(np.float32)
+    friction_scales = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=n_episodes).astype(np.float32)
+    damping_scales = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=n_episodes).astype(np.float32)
 
-    print(f"Generating {n_episodes} episodes, {time}s @ {frequency}Hz")
-    print(f"  Mass range: [{mass_range[0]:.2f}, {mass_range[1]:.2f}]")
-    print(f"  Friction range: [{friction_range[0]:.2f}, {friction_range[1]:.2f}]")
-    print(f"  Damping range: [{damping_range[0]:.2f}, {damping_range[1]:.2f}]")
+    print(f"Generating {n_episodes} episodes, {cfg.time}s @ {frequency}Hz")
+    print(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
+    print(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
+    print(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
     if disturbance:
         print(f"  Disturbance: {disturbance.__class__.__name__}")
     print(f"  Balancer: {'PPO' if use_ppo else 'MPC'}")
@@ -359,7 +345,7 @@ def gen_data(
             disturbance=disturbance,
             use_ppo=use_ppo,
             policy_path=policy_path,
-            deterministic=deterministic,
+            deterministic=True,
             render=render,
         )
     else:
@@ -374,7 +360,7 @@ def gen_data(
             disturbance=disturbance,
             use_ppo=use_ppo,
             policy_path=policy_path,
-            deterministic=deterministic,
+            deterministic=True,
             n_jobs=n_jobs,
         )
 
@@ -438,25 +424,32 @@ def compare_plots(data: dict, num_samples=3, title=""):
 
 
 if __name__ == "__main__":
-    from envs.upkie.disturbances import ImpulseForce
+    import time
+    from argparse import ArgumentParser
 
-    # Example: parameter variations only
-    data = gen_data(
-        n_episodes=50,
-        time=5.0,
-        mass_range=(0.8, 1.5),
-        friction_range=(0.8, 1.2),
-        balancer="mpc",
-        seed=42,
-    )
-    compare_plots(data, title="Parameter Variations")
+    parser = ArgumentParser()
+    parser.add_argument('--dataset', required=True, help='Dataset key (e.g., upkie/nominal)')
+    parser.add_argument('--n_jobs', type=int, default=-1, help='Number of parallel workers (-1 for all cores)')
+    parser.add_argument('--render', action='store_true', help='Show GUI (forces sequential)')
+    args = parser.parse_args()
 
-    # Example: with disturbance
-    data = gen_data(
-        n_episodes=50,
-        time=5.0,
-        disturbance=ImpulseForce(force_magnitude=8.0),
-        balancer="mpc",
-        seed=42,
-    )
-    compare_plots(data, title="With Impulse Disturbance")
+    if args.dataset not in DATASETS:
+        available = [k for k, v in DATASETS.items() if v.platform == 'upkie']
+        raise ValueError(f"Unknown dataset: {args.dataset}\nAvailable Upkie datasets: {available}")
+
+    cfg = DATASETS[args.dataset]
+    if cfg.platform != 'upkie':
+        raise ValueError(f"Dataset {args.dataset} is not an Upkie dataset (platform={cfg.platform})")
+
+    start = time.time()
+    data = gen_data(cfg, n_jobs=args.n_jobs, render=args.render)
+    elapsed = time.time() - start
+
+    output_path = get_dataset_path(cfg)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(output_path, **data)
+
+    print(f"Generated in {elapsed:.1f}s")
+    print(f"Saved to {output_path}")
+
+    compare_plots(data, title=f"Dataset: {cfg.key}")

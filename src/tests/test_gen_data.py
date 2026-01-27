@@ -366,18 +366,32 @@ class TestConstants:
 class TestIntegration:
     """Integration tests requiring full PyBullet/Upkie environment."""
 
+    def _make_cfg(self, n_episodes=3, ep_len=50, frequency=100.0, balancer="mpc",
+                  seed=42, mass_range=(1.0, 1.0), disturbance_type=None,
+                  disturbance_kwargs=None):
+        """Helper to create DatasetConfig for tests."""
+        from config.datasets import DatasetConfig
+        return DatasetConfig(
+            name='_test',
+            env='upkie',
+            platform='upkie',
+            policy='ppo_balancer/params.zip',
+            n_episodes=n_episodes,
+            ep_len=ep_len,
+            frequency=frequency,
+            mass_range=mass_range,
+            balancer=balancer,
+            seed=seed,
+            disturbance_type=disturbance_type,
+            disturbance_kwargs=disturbance_kwargs or {},
+        )
+
     def test_gen_data_minimal(self):
         """Test gen_data with minimal configuration."""
         from envs.upkie.gen_data import gen_data
 
-        data = gen_data(
-            n_episodes=3,
-            time=0.5,
-            frequency=100.0,
-            balancer="mpc",
-            seed=42,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=3, ep_len=50, frequency=100.0, balancer="mpc", seed=42)
+        data = gen_data(cfg, n_jobs=1)
 
         assert 'X' in data
         assert data['X'].shape == (3, 50, 4)
@@ -386,15 +400,9 @@ class TestIntegration:
         """Test gen_data with mass range variation."""
         from envs.upkie.gen_data import gen_data
 
-        data = gen_data(
-            n_episodes=5,
-            time=0.5,
-            frequency=100.0,
-            mass_range=(1.5, 2.0),
-            balancer="mpc",
-            seed=42,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=5, ep_len=50, frequency=100.0,
+                             mass_range=(1.5, 2.0), balancer="mpc", seed=42)
+        data = gen_data(cfg, n_jobs=1)
 
         # All episodes should have mass in [1.5, 2.0]
         assert np.all(data['mass_scale'] >= 1.5)
@@ -405,19 +413,12 @@ class TestIntegration:
         from envs.upkie.gen_data import gen_data
 
         n_eps = 5
-        time_sec = 1.0
+        n_steps = 100
         freq = 100.0
 
-        data = gen_data(
-            n_episodes=n_eps,
-            time=time_sec,
-            frequency=freq,
-            balancer="mpc",
-            seed=42,
-            n_jobs=1,
-        )
-
-        n_steps = int(time_sec * freq)
+        cfg = self._make_cfg(n_episodes=n_eps, ep_len=n_steps, frequency=freq,
+                             balancer="mpc", seed=42)
+        data = gen_data(cfg, n_jobs=1)
 
         assert data['X'].shape == (n_eps, n_steps, 4)
         assert data['actions'].shape == (n_eps, n_steps, 1)
@@ -431,17 +432,11 @@ class TestIntegration:
         """Test gen_data produces reproducible results with same seed."""
         from envs.upkie.gen_data import gen_data
 
-        kwargs = dict(
-            n_episodes=3,
-            time=0.3,
-            frequency=100.0,
-            balancer="mpc",
-            seed=123,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=3, ep_len=30, frequency=100.0,
+                             balancer="mpc", seed=123)
 
-        data1 = gen_data(**kwargs)
-        data2 = gen_data(**kwargs)
+        data1 = gen_data(cfg, n_jobs=1)
+        data2 = gen_data(cfg, n_jobs=1)
 
         # Results should be identical
         np.testing.assert_array_equal(data1['X'], data2['X'])
@@ -451,14 +446,9 @@ class TestIntegration:
         """Test that different episodes have different trajectories (MPC)."""
         from envs.upkie.gen_data import gen_data
 
-        data = gen_data(
-            n_episodes=5,
-            time=0.5,
-            frequency=100.0,
-            balancer="mpc",
-            seed=42,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=5, ep_len=50, frequency=100.0,
+                             balancer="mpc", seed=42)
+        data = gen_data(cfg, n_jobs=1)
 
         X = data['X']
         # Check that not all trajectories are identical by comparing to first
@@ -469,14 +459,9 @@ class TestIntegration:
         """Test that different episodes have different trajectories (PPO)."""
         from envs.upkie.gen_data import gen_data
 
-        data = gen_data(
-            n_episodes=5,
-            time=0.5,
-            frequency=100.0,
-            balancer="ppo",
-            seed=42,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=5, ep_len=50, frequency=100.0,
+                             balancer="ppo", seed=42)
+        data = gen_data(cfg, n_jobs=1)
 
         X = data['X']
         # Check that not all trajectories are identical by comparing to first
@@ -484,19 +469,14 @@ class TestIntegration:
         assert differences.sum() > 0, "All episodes have identical trajectories (PPO)"
 
     def test_gen_data_with_disturbance(self):
-        """Test gen_data with disturbance."""
+        """Test gen_data with disturbance via config."""
         from envs.upkie.gen_data import gen_data
-        from envs.upkie.disturbances import ImpulseForce
 
-        data = gen_data(
-            n_episodes=5,
-            time=1.0,
-            frequency=100.0,
-            disturbance=ImpulseForce(force_magnitude=5.0),
-            balancer="mpc",
-            seed=42,
-            n_jobs=1,
-        )
+        cfg = self._make_cfg(n_episodes=5, ep_len=100, frequency=100.0,
+                             balancer="mpc", seed=42,
+                             disturbance_type='ImpulseForce',
+                             disturbance_kwargs={'force_magnitude': 5.0})
+        data = gen_data(cfg, n_jobs=1)
 
         assert data['X'].shape == (5, 100, 4)
 

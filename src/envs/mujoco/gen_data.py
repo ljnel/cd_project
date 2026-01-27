@@ -11,10 +11,11 @@ Returns dict with:
     mass_scale, friction_scale, damping_scale: parameter values per episode
     seeds: (n_eps,) episode seeds
 
-Example: python gen_data.py --env hopper
+Example: python gen_data.py --dataset half_cheetah/domain_rand
 """
 
-from config.envs import ENV_CFG
+from config.datasets import DatasetConfig, DATASETS, get_dataset_path
+from config.envs import ENV_INFO
 from utils.paths import get_root
 
 import numpy as np
@@ -24,13 +25,11 @@ import time
 from argparse import ArgumentParser
 
 
-N_EPS = 1000
-EP_LEN = 1000
-
-
 def _run_episodes(
     episode_indices: list,
-    cfg,
+    gym_name: str,
+    policy_path: str,
+    ep_len: int,
     seeds: np.ndarray,
     mass_scale: np.ndarray,
     friction_scale: np.ndarray,
@@ -38,18 +37,17 @@ def _run_episodes(
     verbose: bool = False,
 ) -> dict:
     """Run a batch of episodes. Used by both sequential and parallel paths."""
-    env = gym.make(cfg.name)
-    policy_path = get_root() / 'src/policies' / cfg.policy
+    env = gym.make(gym_name)
     policy = SAC.load(policy_path, env=env)
-    is_cheetah = cfg.name == 'HalfCheetah-v5'
+    is_cheetah = gym_name == 'HalfCheetah-v5'
 
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
 
     # Output arrays for this batch
     n_batch = len(episode_indices)
-    X = np.zeros((n_batch, EP_LEN, s_dim), dtype=np.float32)
-    actions = np.zeros((n_batch, EP_LEN, a_dim), dtype=np.float32)
+    X = np.zeros((n_batch, ep_len, s_dim), dtype=np.float32)
+    actions = np.zeros((n_batch, ep_len, a_dim), dtype=np.float32)
     fail = np.full(n_batch, -1, dtype=np.int32)
 
     # Store base parameters
@@ -67,7 +65,7 @@ def _run_episodes(
         obs, _ = env.reset(seed=int(seeds[ep]))
         terminated = False
 
-        for step in range(EP_LEN):
+        for step in range(ep_len):
             X[i, step] = obs
             action, _ = policy.predict(obs, deterministic=True)
             actions[i, step] = action
@@ -102,7 +100,10 @@ def _run_episodes(
 
 
 def _gen_data_sequential(
-    cfg,
+    gym_name: str,
+    policy_path: str,
+    n_episodes: int,
+    ep_len: int,
     seeds: np.ndarray,
     mass_scale: np.ndarray,
     friction_scale: np.ndarray,
@@ -110,8 +111,10 @@ def _gen_data_sequential(
 ) -> dict:
     """Sequential execution (useful for debugging)."""
     result = _run_episodes(
-        episode_indices=list(range(N_EPS)),
-        cfg=cfg,
+        episode_indices=list(range(n_episodes)),
+        gym_name=gym_name,
+        policy_path=policy_path,
+        ep_len=ep_len,
         seeds=seeds,
         mass_scale=mass_scale,
         friction_scale=friction_scale,
@@ -124,7 +127,10 @@ def _gen_data_sequential(
 
 
 def _gen_data_parallel(
-    cfg,
+    gym_name: str,
+    policy_path: str,
+    n_episodes: int,
+    ep_len: int,
     seeds: np.ndarray,
     mass_scale: np.ndarray,
     friction_scale: np.ndarray,
@@ -135,13 +141,13 @@ def _gen_data_parallel(
     from joblib import Parallel, delayed
 
     # Get dimensions from a temporary env
-    env = gym.make(cfg.name)
+    env = gym.make(gym_name)
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
     env.close()
 
     # Split episodes into batches
-    all_indices = list(range(N_EPS))
+    all_indices = list(range(n_episodes))
     n_workers = n_jobs if n_jobs > 0 else max(1, __import__('os').cpu_count() + n_jobs + 1)
     batches = np.array_split(all_indices, n_workers)
     batches = [b.tolist() for b in batches if len(b) > 0]
@@ -150,14 +156,17 @@ def _gen_data_parallel(
 
     # Run episodes in parallel
     results = Parallel(n_jobs=n_jobs, verbose=10)(
-        delayed(_run_episodes)(batch, cfg, seeds, mass_scale, friction_scale, damping_scale, False)
+        delayed(_run_episodes)(
+            batch, gym_name, policy_path, ep_len,
+            seeds, mass_scale, friction_scale, damping_scale, False
+        )
         for batch in batches
     )
 
     # Combine results
-    X = np.zeros((N_EPS, EP_LEN, s_dim), dtype=np.float32)
-    actions = np.zeros((N_EPS, EP_LEN, a_dim), dtype=np.float32)
-    fail = np.full(N_EPS, -1, dtype=np.int32)
+    X = np.zeros((n_episodes, ep_len, s_dim), dtype=np.float32)
+    actions = np.zeros((n_episodes, ep_len, a_dim), dtype=np.float32)
+    fail = np.full(n_episodes, -1, dtype=np.int32)
 
     for res in results:
         indices = res['indices']
@@ -173,7 +182,7 @@ def _gen_data_parallel(
     }
 
 
-def gen_data(cfg, rng, n_jobs: int = -1) -> dict:
+def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     """
     Generate trajectory data with parameter variations.
 
@@ -181,30 +190,43 @@ def gen_data(cfg, rng, n_jobs: int = -1) -> dict:
     sequential execution (useful for debugging).
 
     Args:
-        cfg: Environment configuration (from ENV_CFG)
-        rng: NumPy random generator
+        cfg: Dataset configuration (from DATASETS)
         n_jobs: Number of parallel workers (-1 = all cores, 1 = sequential)
 
     Returns:
         dict with X, actions, fail, mass_scale, friction_scale, damping_scale, seeds
     """
-    # Sample parameters for each episode
-    seeds = rng.integers(0, 2**32, size=N_EPS, dtype=np.uint32)
-    damping_scale = rng.uniform(cfg.dof_damping[0], cfg.dof_damping[1], size=N_EPS).astype(np.float32)
-    mass_scale = rng.uniform(cfg.mass[0], cfg.mass[1], size=N_EPS).astype(np.float32)
-    friction_scale = rng.uniform(cfg.fric[0], cfg.fric[1], size=N_EPS).astype(np.float32)
+    # Get environment info
+    env_info = ENV_INFO[cfg.env]
+    gym_name = env_info.gym_name
+    policy_path = str(get_root() / 'src/policies' / cfg.policy)
 
-    print(f"Generating {N_EPS} episodes for {cfg.name}")
-    print(f"  Mass range: [{cfg.mass[0]:.2f}, {cfg.mass[1]:.2f}]")
-    print(f"  Friction range: [{cfg.fric[0]:.2f}, {cfg.fric[1]:.2f}]")
-    print(f"  Damping range: [{cfg.dof_damping[0]:.2f}, {cfg.dof_damping[1]:.2f}]")
+    # Create RNG from config seed
+    rng = np.random.default_rng(cfg.seed)
+
+    # Sample parameters for each episode
+    seeds = rng.integers(0, 2**32, size=cfg.n_episodes, dtype=np.uint32)
+    mass_scale = rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=cfg.n_episodes).astype(np.float32)
+    friction_scale = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=cfg.n_episodes).astype(np.float32)
+    damping_scale = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=cfg.n_episodes).astype(np.float32)
+
+    print(f"Generating {cfg.n_episodes} episodes for {gym_name}")
+    print(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
+    print(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
+    print(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
 
     # Dispatch: sequential or parallel
     if n_jobs == 1:
         print("Using sequential execution")
-        result = _gen_data_sequential(cfg, seeds, mass_scale, friction_scale, damping_scale)
+        result = _gen_data_sequential(
+            gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
+            seeds, mass_scale, friction_scale, damping_scale
+        )
     else:
-        result = _gen_data_parallel(cfg, seeds, mass_scale, friction_scale, damping_scale, n_jobs)
+        result = _gen_data_parallel(
+            gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
+            seeds, mass_scale, friction_scale, damping_scale, n_jobs
+        )
 
     # Add parameter scales and seeds to result
     result['mass_scale'] = mass_scale
@@ -213,27 +235,30 @@ def gen_data(cfg, rng, n_jobs: int = -1) -> dict:
     result['seeds'] = seeds
 
     n_failed = (result['fail'] >= 0).sum()
-    print(f"Done: {n_failed}/{N_EPS} failures ({100*n_failed/N_EPS:.1f}%)")
+    print(f"Done: {n_failed}/{cfg.n_episodes} failures ({100*n_failed/cfg.n_episodes:.1f}%)")
 
     return result
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--env', required=True, help='Environment name (e.g., hopper)')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--dataset', required=True, help='Dataset key (e.g., half_cheetah/domain_rand)')
     parser.add_argument('--n_jobs', type=int, default=-1, help='Number of parallel workers (-1 for all cores, 1 for sequential)')
     args = parser.parse_args()
 
-    assert args.env in ENV_CFG, f"Unknown env: {args.env}. Available: {list(ENV_CFG.keys())}"
+    if args.dataset not in DATASETS:
+        available = [k for k, v in DATASETS.items() if v.platform == 'mujoco']
+        raise ValueError(f"Unknown dataset: {args.dataset}\nAvailable MuJoCo datasets: {available}")
 
-    rng = np.random.default_rng(args.seed)
+    cfg = DATASETS[args.dataset]
+    if cfg.platform != 'mujoco':
+        raise ValueError(f"Dataset {args.dataset} is not a MuJoCo dataset (platform={cfg.platform})")
 
     start = time.time()
-    data = gen_data(ENV_CFG[args.env], rng, n_jobs=args.n_jobs)
+    data = gen_data(cfg, n_jobs=args.n_jobs)
     elapsed = time.time() - start
 
-    output_path = get_root() / 'data' / args.env / 'data.npz'
+    output_path = get_dataset_path(cfg)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(output_path, **data)
 

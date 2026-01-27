@@ -1,52 +1,23 @@
 from dataclasses import dataclass
-from typing import Tuple
 
+
+# =============================================================================
+# Environment Info (static, platform-independent)
+# =============================================================================
 
 @dataclass
-class EnvConfig:
-    "Wrapper that includes env name, policy file name, params for domain randomization"
-    name: str
-    policy: str
-    dof_damping: Tuple[float, float]
-    mass: Tuple[float, float]
-    fric: Tuple[float, float]
+class EnvInfo:
+    """Static environment information."""
+    gym_name: str       # Gymnasium environment name (e.g., "Hopper-v5")
+    obs_dim: int        # Observation dimension
+    act_dim: int        # Action dimension
 
 
-ENV_CFG = {
-    'inv_pend': EnvConfig(
-        name="InvertedPendulum-v5",
-        policy="invertedpendulum-v5-sac-expert.zip",
-        dof_damping=(0.6, 20.0),
-        mass=(0.6, 2.4),
-        fric=(0.6, 2.4),
-    ),
-    'hopper': EnvConfig(
-        name="Hopper-v5",
-        policy="hopper-v5-sac-expert.zip",
-        dof_damping=(1.0, 1.0),
-        mass=(1.0, 1.0),
-        fric=(1.0, 1.0),
-    ),
-    'half_cheetah': EnvConfig(
-        name="HalfCheetah-v5",
-        policy="halfcheetah-v5-sac-expert.zip",
-        dof_damping=(0.4, 2.8),
-        mass=(0.4, 2.2),
-        fric=(0.4, 2.2)
-    ),
-    'ant': EnvConfig(
-        name="Ant-v5",
-        policy="ant-v5-sac-expert.zip",
-        dof_damping=(0.6, 2.8),
-        mass=(0.6, 1.8),
-        fric=(0.6, 1.4)
-    ),
-    'humanoid': EnvConfig(
-        name="Humanoid-v5",
-        policy="humanoid-v5-sac-expert.zip",
-        dof_damping=(0.9, 1.1),
-        mass=(0.9, 1.1),
-        fric=(0.9, 1.1)
-    )
-
+ENV_INFO = {
+    'inv_pend': EnvInfo(gym_name="InvertedPendulum-v5", obs_dim=4, act_dim=1),
+    'hopper': EnvInfo(gym_name="Hopper-v5", obs_dim=11, act_dim=3),
+    'half_cheetah': EnvInfo(gym_name="HalfCheetah-v5", obs_dim=17, act_dim=6),
+    'ant': EnvInfo(gym_name="Ant-v5", obs_dim=27, act_dim=8),
+    'humanoid': EnvInfo(gym_name="Humanoid-v5", obs_dim=376, act_dim=17),
+    'upkie': EnvInfo(gym_name="Upkie-PyBullet-Pendulum", obs_dim=4, act_dim=1),
 }
