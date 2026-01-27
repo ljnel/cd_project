@@ -273,7 +273,7 @@ class KernCD(BaseEstimator):
 # Lambda Heuristics (internal)
 # =============================================================================
 
-def _lambda_condition_number(K: np.ndarray, kappa_target: float = 1e6) -> float:
+def _lambda_condition_number(K: np.ndarray, kappa_target: float = 1e3) -> float:
     """
     Compute λ using condition number control.
 
@@ -294,7 +294,7 @@ def _lambda_condition_number(K: np.ndarray, kappa_target: float = 1e6) -> float:
     return lam_times_m / m
 
 
-def _lambda_adaptive(K: np.ndarray, kappa_target: float = 1e6) -> float:
+def _lambda_adaptive(K: np.ndarray, kappa_target: float = 1e3) -> float:
     """
     Compute λ adaptively by trying increasing values until Cholesky succeeds
     and condition number is acceptable.

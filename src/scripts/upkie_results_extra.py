@@ -515,60 +515,60 @@ def generate_controller_data(
     balancer: str,
     n_episodes: int = 100,
     time: float = 5.0,
-    anomaly_ratio: float = 0.3,
     seed: int = 42
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Generate data using a specific controller.
-    
+    Generate data using a specific controller for failure prediction.
+
+    Uses parameter variations (mass) to induce failures. Trains on successful
+    trajectories, tests on all (predicting failure).
+
     Returns:
-        X_train: Training trajectories (normal only)
-        X_test: Test trajectories (mixed)
-        y_test: Labels (0=normal, 1=anomaly)
+        X_train: Training trajectories (successes only)
+        X_test: Test trajectories (all)
+        y_test: Labels (0=success, 1=failure within horizon)
     """
-    from envs.upkie.anomalies import ImpulseForceAnomaly, MassAnomaly
-    from envs.upkie.gen_data_parallel import gen_data
-    
+    from envs.upkie.gen_data import gen_data
+    from utils.windows import sample_test_windows
+
     print(f"\nGenerating data with {balancer.upper()} controller...")
-    
+
+    # Generate with mass variation to induce some failures
     data = gen_data(
         n_episodes=n_episodes,
         time=time,
-        anomaly_ratio=anomaly_ratio,
-        anomaly=ImpulseForceAnomaly(force_magnitude=5.0, duration_seconds=1.5),
-        param_anomaly=MassAnomaly(mass_range=(1.3, 1.7)),
+        mass_range=(0.8, 1.8),
+        friction_range=(0.8, 1.2),
         balancer=balancer,
         seed=seed,
         n_jobs=-1,
     )
-    
+
     X = data['X']
-    has_anomaly = (
-        data['anomaly_active'].any(axis=1) |
-        (np.abs(data['mass_scale'] - 1.0) > 0.1)
-    )
-    
-    # Split: train on normal, test on all
-    normal_idx = np.where(~has_anomaly)[0]
-    
-    # Use 70% of normal for training
-    n_train = int(0.7 * len(normal_idx))
+    fail = data['fail']
+
+    # Split: train on successes, test on all
+    success_mask = fail == -1
+
+    # Use 70% of successes for training
+    success_idx = np.where(success_mask)[0]
+    n_train = int(0.7 * len(success_idx))
     np.random.seed(seed)
-    np.random.shuffle(normal_idx)
-    train_idx = normal_idx[:n_train]
-    
-    # Test on remaining normal + all anomalies
-    test_normal_idx = normal_idx[n_train:]
-    anomaly_idx = np.where(has_anomaly)[0]
-    test_idx = np.concatenate([test_normal_idx, anomaly_idx])
-    
+    np.random.shuffle(success_idx)
+    train_idx = success_idx[:n_train]
+
+    # Test on remaining successes + all failures
+    test_success_idx = success_idx[n_train:]
+    failure_idx = np.where(~success_mask)[0]
+    test_idx = np.concatenate([test_success_idx, failure_idx])
+
     X_train = X[train_idx]
     X_test = X[test_idx]
-    y_test = has_anomaly[test_idx].astype(int)
-    
-    print(f"  Train: {X_train.shape} (all normal)")
-    print(f"  Test: {X_test.shape} ({y_test.sum()} anomalies, {(~y_test.astype(bool)).sum()} normal)")
-    
+    y_test = (~success_mask[test_idx]).astype(int)  # 1 = failure
+
+    print(f"  Train: {X_train.shape} (all successes)")
+    print(f"  Test: {X_test.shape} ({y_test.sum()} failures, {(~y_test.astype(bool)).sum()} successes)")
+
     return X_train, X_test, y_test
 
 

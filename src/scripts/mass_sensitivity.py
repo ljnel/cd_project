@@ -24,7 +24,6 @@ warnings.filterwarnings("ignore")
 
 from anomaly_detection.kernel import KernDetector
 from anomaly_detection.conv import ConvAEDetector
-from envs.upkie.anomalies import MassAnomaly
 from envs.upkie.gen_data import gen_data
 
 
@@ -47,7 +46,7 @@ BALANCER = "ppo"
 
 # Experiment parameters
 BASE_SEED = 42
-BIN_WIDTH = 0.25            # Width of mass bins (centered on 1.0)
+BIN_WIDTH = 0.1            # Width of mass bins (centered on 1.0)
 
 # Output and cache directories
 OUTPUT_DIR = Path("results/mass_sensitivity")
@@ -127,8 +126,8 @@ def get_method(method_name: str) -> object:
     """Factory function to create detector instances."""
 
     configs = {
-        "FFT-CD": dict(kernel_type='fft', gamma=0.01, lam=1e-4, max_windows=500),
-        "Sig-CD": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_windows=100),
+        "FFT-CD": dict(kernel_type='fft', max_windows=500),
+        "Sig-CD": dict(kernel_type='sig', max_windows=300),
         "ConvAE": dict(window=70, stride=10, method='reconstruction', epochs=5, latent_dim=30),
         "Conv-CD": dict(window=70, stride=10, method='latent', epochs=5, latent_dim=10),
     }
@@ -164,16 +163,14 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
         return X
 
     # Generate new data with mass in tolerance range
-    mass_range = (1.0 - TOL, 1.0 + TOL)
-    print(f"Generating {n_episodes} training episodes with mass in [{mass_range[0]:.2f}, {mass_range[1]:.2f}]...")
+    train_mass_range = (1.0 - TOL, 1.0 + TOL)
+    print(f"Generating {n_episodes} training episodes with mass in [{train_mass_range[0]:.2f}, {train_mass_range[1]:.2f}]...")
 
     data = gen_data(
         n_episodes=n_episodes,
         time=EPISODE_TIME,
-        anomaly_ratio=1.0,  # All have mass anomaly
         frequency=FREQUENCY,
-        anomaly=None,
-        param_anomaly=MassAnomaly(mass_range=mass_range),
+        mass_range=train_mass_range,
         balancer=BALANCER,
         seed=seed,
         n_jobs=-1,
@@ -228,10 +225,8 @@ def generate_test_data(
     data = gen_data(
         n_episodes=n_episodes,
         time=EPISODE_TIME,
-        anomaly_ratio=1.0,  # All anomalous
         frequency=FREQUENCY,
-        anomaly=None,
-        param_anomaly=MassAnomaly(mass_range=mass_range),
+        mass_range=mass_range,
         balancer=BALANCER,
         seed=seed,
         n_jobs=-1,

@@ -54,7 +54,7 @@ def plot_kern_mat(K, y, ax, title=None):
         ax.set_title(title)
 
 
-def plot_channels(x, y, max_channels=9, max_batches=50):
+def plot_channels(x, y, max_channels=9, max_batches=20):
     import math
     n_batch, n_step, n_channel = x.shape
 
