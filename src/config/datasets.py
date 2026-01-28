@@ -212,7 +212,7 @@ DATASETS = {
         policy='invertedpendulum-v5-sac-expert.zip',
         mass_range=(0.6, 2.4),
         friction_range=(0.6, 2.4),
-        damping_range=(0.6, 20.0),
+        damping_range=(0.6, 2.4),
     ),
 
     # --- Hopper ---
@@ -260,38 +260,18 @@ DATASETS = {
     ),
 
     # --- Upkie ---
-    'upkie/nominal': DatasetConfig(
-        name='nominal',
-        env='upkie',
-        platform='upkie',
-        policy='ppo_balancer/params.zip',
-        balancer='mpc',
-        n_episodes=100,
-        ep_len=1000,
-        frequency=200.0,
-    ),
-    'upkie/mass_var': DatasetConfig(
-        name='mass_var',
-        env='upkie',
-        platform='upkie',
-        policy='ppo_balancer/params.zip',
-        balancer='mpc',
-        mass_range=(0.8, 1.5),
-        n_episodes=100,
-        ep_len=1000,
-        frequency=200.0,
-    ),
-    'upkie/impulse': DatasetConfig(
+    'upkie': DatasetConfig(
         name='impulse',
         env='upkie',
         platform='upkie',
         policy='ppo_balancer/params.zip',
         balancer='mpc',
-        n_episodes=100,
+        n_episodes=1000,
         ep_len=1000,
         frequency=200.0,
+        mass_range=(0.8, 1.5),
         disturbance_type='ImpulseForce',
-        disturbance_kwargs={'force_magnitude': 8.0},
+        disturbance_kwargs={'force_magnitude': 5.0},
     ),
 }
 

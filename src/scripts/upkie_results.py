@@ -2,31 +2,32 @@
 """
 Upkie Robot Anomaly Detection Experiments
 
-Runs multiple anomaly detection methods with multiple trials and outputs
+Runs multiple anomaly detection methods with k-fold cross-validation and outputs
 results in LaTeX table format, matching the style of the gym environment experiments.
 """
 
 import numpy as np
 from sklearn.metrics import confusion_matrix
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 import warnings
 warnings.filterwarnings("ignore")
 
 # Import detectors
 from anomaly_detection.kernel import KernDetector
 from anomaly_detection.conv import ConvAEDetector
-from experiments.safety_monitor import SafetyMonitor, upkie_cfg
+from experiments.safety_monitor import SafetyMonitorConfig, upkie_cfg
+from experiments.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
 
 
 def run_single_trial(
     method_name: str,
-    task: SafetyMonitor,
+    task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
     **method_kwargs
 ) -> Tuple[float, float, float, float]:
     """
     Run a single trial of anomaly detection.
-    
+
     Returns:
         Tuple of (TN, FP, FN, TP) as percentages
     """
@@ -109,58 +110,56 @@ def run_single_trial(
 
 def run_experiments(
     methods: Dict[str, dict],
-    n_trials: int = 5,
+    tasks: List[FoldTask],
     base_seed: int = 42
 ) -> Dict[str, Dict[str, Tuple[float, float]]]:
     """
-    Run experiments for all methods with multiple trials.
-    
+    Run experiments for all methods with k-fold cross-validation.
+
     Args:
         methods: Dict mapping method name to kwargs
-        n_trials: Number of trials per method
-        base_seed: Base random seed
-        
+        tasks: List of FoldTask objects (one per fold)
+        base_seed: Base random seed for model training
+
     Returns:
         Dict mapping method name to dict of metric -> (mean, std)
     """
     results = {}
-    
+    n_folds = len(tasks)
+
     for method_name, method_kwargs in methods.items():
         print(f"\n{'='*60}")
         print(f"Running {method_name}...")
         print(f"{'='*60}")
-        
-        trial_results = []
-        
-        for trial in range(n_trials):
-            seed = base_seed + trial * 100
-            print(f"  Trial {trial + 1}/{n_trials} (seed={seed})...", end=" ")
-            
+
+        fold_results = []
+
+        for fold, task in enumerate(tasks):
+            seed = base_seed + fold * 100
+            print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
+
             try:
-                # Create fresh task for each trial to resample data
-                task = SafetyMonitor(upkie_cfg)
-                
                 tn, fp, fn, tp = run_single_trial(
                     method_name, task, seed, **method_kwargs
                 )
-                trial_results.append((tn, fp, fn, tp))
+                fold_results.append((tn, fp, fn, tp))
                 print(f"TN={tn:.1f}%, FP={fp:.1f}%, FN={fn:.1f}%, TP={tp:.1f}%")
-                
+
             except Exception as e:
                 print(f"FAILED: {e}")
                 continue
-        
-        if trial_results:
-            trial_results = np.array(trial_results)
+
+        if fold_results:
+            fold_results = np.array(fold_results)
             results[method_name] = {
-                'TN': (trial_results[:, 0].mean(), trial_results[:, 0].std()),
-                'FP': (trial_results[:, 1].mean(), trial_results[:, 1].std()),
-                'FN': (trial_results[:, 2].mean(), trial_results[:, 2].std()),
-                'TP': (trial_results[:, 3].mean(), trial_results[:, 3].std()),
+                'TN': (fold_results[:, 0].mean(), fold_results[:, 0].std()),
+                'FP': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
+                'FN': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
+                'TP': (fold_results[:, 3].mean(), fold_results[:, 3].std()),
             }
         else:
-            print(f"  WARNING: No successful trials for {method_name}")
-    
+            print(f"  WARNING: No successful folds for {method_name}")
+
     return results
 
 
@@ -247,25 +246,30 @@ def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]]):
     print("-" * 85)
 
 
-def get_data_statistics(task: SafetyMonitor) -> dict:
-    """Extract data statistics from the task for table generation."""
-    x_tr, x_te = task.get_train_test()
-    
+def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
+    """Extract data statistics from the config for table generation."""
+    stats = get_fold_statistics(cfg, n_folds)
+
     return {
-        'train_size': len(x_tr),
-        'test_size': len(x_te),
-        'obs_dim': x_te.shape[-1] if x_te.ndim > 2 else 1,
-        'seq_len': x_te.shape[1] if x_te.ndim > 1 else len(x_te),
-        'failure_prop': task.y_true.mean() if hasattr(task, 'y_true') else None
+        'n_episodes': stats['n_episodes'],
+        'n_successes': stats['n_successes'],
+        'n_failures': stats['n_failures'],
+        'obs_dim': stats['obs_dim'],
+        'ep_len': stats['ep_len'],
+        'win': stats['win'],
+        'hor': stats['hor'],
+        'n_folds': stats['n_folds'],
+        'eps_per_fold': stats['eps_per_fold'],
+        'failure_prop': stats['n_failures'] / stats['n_episodes'],
     }
 
 
 if __name__ == "__main__":
-    
+
     # Configuration
-    N_TRIALS = 5
+    N_FOLDS = 5
     BASE_SEED = 42
-    
+
     # Define methods with their hyperparameters
     # These can be tuned based on preliminary experiments
     methods = {
@@ -297,44 +301,47 @@ if __name__ == "__main__":
 
     # Get data statistics
     print("Loading data and computing statistics...")
-    task = SafetyMonitor(upkie_cfg)
-    stats = get_data_statistics(task)
+    stats = get_data_statistics(upkie_cfg, n_folds=N_FOLDS)
     print(f"Data stats: {stats}")
-    
+
+    # Create fold tasks
+    print(f"\nCreating {N_FOLDS}-fold cross-validation tasks...")
+    tasks = create_fold_tasks(upkie_cfg, n_folds=N_FOLDS, seed=BASE_SEED)
+
     # Run experiments
-    results = run_experiments(methods, n_trials=N_TRIALS, base_seed=BASE_SEED)
-    
+    results = run_experiments(methods, tasks=tasks, base_seed=BASE_SEED)
+
     # Print summary
     print_summary(results)
-    
+
     # Generate LaTeX tables
     latex_output = format_latex_table(
         results,
         env_name="Upkie",
-        window=stats.get('seq_len'),
-        horizon=stats.get('seq_len'),  # Adjust as needed
+        window=stats.get('win'),
+        horizon=stats.get('hor'),
         obs_dim=stats.get('obs_dim', 4),
-        train_size=stats.get('train_size', 100),
-        test_size=stats.get('test_size'),
+        train_size=stats.get('n_successes'),
+        test_size=stats.get('eps_per_fold'),
         failure_prop=f"{stats.get('failure_prop', 0):.3f}" if stats.get('failure_prop') else None
     )
-    
+
     print("\n" + "="*80)
     print("LATEX OUTPUT")
     print("="*80)
     print(latex_output)
-    
+
     # Save LaTeX to file
     with open("upkie_results_latex.tex", "w") as f:
         f.write(latex_output)
     print("\nLaTeX table saved to: upkie_results_latex.tex")
-    
+
     # Also save raw results to numpy file for later analysis
     np.savez(
         "upkie_experiment_results.npz",
         results={k: dict(v) for k, v in results.items()},
         stats=stats,
         methods=list(methods.keys()),
-        n_trials=N_TRIALS
+        n_folds=N_FOLDS
     )
     print("Raw results saved to: upkie_experiment_results.npz")

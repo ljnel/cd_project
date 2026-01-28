@@ -11,6 +11,7 @@ with uniformly sampled mass values for efficient computation.
 Datasets are cached to disk and reused on reruns if parameters match.
 """
 
+import argparse
 import hashlib
 import json
 import numpy as np
@@ -24,6 +25,7 @@ warnings.filterwarnings("ignore")
 
 from anomaly_detection.kernel import KernDetector
 from anomaly_detection.conv import ConvAEDetector
+from config.datasets import DatasetConfig
 from envs.upkie.gen_data import gen_data
 
 
@@ -42,14 +44,13 @@ N_TRAIN_EPISODES = 100      # Normal episodes for training
 N_TEST_EPISODES = 1000       # Anomalous episodes (mass sampled uniformly)
 EPISODE_TIME = 5.0          # Seconds per episode
 FREQUENCY = 200.0           # Hz
-BALANCER = "ppo"
+BALANCER = "mpc"
 
 # Experiment parameters
 BASE_SEED = 42
 BIN_WIDTH = 0.1            # Width of mass bins (centered on 1.0)
 
-# Output and cache directories
-OUTPUT_DIR = Path("results/mass_sensitivity")
+# Cache directory (shared across balancer types)
 CACHE_DIR = Path("results/mass_sensitivity/.cache")
 
 
@@ -166,15 +167,19 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
     train_mass_range = (1.0 - TOL, 1.0 + TOL)
     print(f"Generating {n_episodes} training episodes with mass in [{train_mass_range[0]:.2f}, {train_mass_range[1]:.2f}]...")
 
-    data = gen_data(
+    cfg = DatasetConfig(
+        name='_train_temp',
+        env='upkie',
+        platform='upkie',
+        policy='ppo_balancer/params.zip',
         n_episodes=n_episodes,
-        time=EPISODE_TIME,
+        ep_len=int(EPISODE_TIME * FREQUENCY),
         frequency=FREQUENCY,
         mass_range=train_mass_range,
         balancer=BALANCER,
         seed=seed,
-        n_jobs=-1,
     )
+    data = gen_data(cfg, n_jobs=-1)
 
     X = data['X']
     fail = data['fail']
@@ -222,15 +227,19 @@ def generate_test_data(
     # Generate new data
     print(f"Generating {n_episodes} test episodes with mass in {mass_range}...")
 
-    data = gen_data(
+    cfg = DatasetConfig(
+        name='_test_temp',
+        env='upkie',
+        platform='upkie',
+        policy='ppo_balancer/params.zip',
         n_episodes=n_episodes,
-        time=EPISODE_TIME,
+        ep_len=int(EPISODE_TIME * FREQUENCY),
         frequency=FREQUENCY,
         mass_range=mass_range,
         balancer=BALANCER,
         seed=seed,
-        n_jobs=-1,
     )
+    data = gen_data(cfg, n_jobs=-1)
 
     X = data['X']
     mass_values = data['mass_scale']
@@ -386,8 +395,23 @@ def plot_mass_sensitivity(
 # =============================================================================
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Mass Anomaly Sensitivity Experiment")
+    parser.add_argument(
+        "--balancer",
+        type=str,
+        choices=["mpc", "ppo"],
+        default="mpc",
+        help="Balancer type to use (default: mpc)"
+    )
+    args = parser.parse_args()
 
-    METHODS = ["FFT-CD", "Sig-CD", "ConvAE", "Conv-CD"]    
+    # Override module-level BALANCER with CLI argument
+    BALANCER = args.balancer
+
+    # Output directory includes balancer type to avoid overwrites
+    OUTPUT_DIR = Path(f"results/mass_sensitivity/{BALANCER}")
+
+    METHODS = ["FFT-CD", "Sig-CD", "ConvAE", "Conv-CD"]
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

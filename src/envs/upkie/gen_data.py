@@ -34,6 +34,7 @@ from utils.paths import get_root
 # Suppress warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="gymnasium")
 logging.getLogger("loop_rate_limiters").setLevel(logging.ERROR)
+logging.getLogger("upkie").setLevel(logging.ERROR)
 
 upkie.envs.register()
 
