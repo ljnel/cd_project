@@ -8,7 +8,7 @@ Train data: Only successful trajectories (fail == -1)
 Test data: Windows sampled from all trajectories, labeled by whether failure occurs within horizon
 """
 
-from experiments.experiment import Experiment
+from tasks.experiment import Experiment
 from utils.paths import get_root
 from utils.windows import sample_test_windows
 

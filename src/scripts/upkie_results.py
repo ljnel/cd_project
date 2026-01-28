@@ -13,10 +13,10 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Import detectors
-from anomaly_detection.kernel import KernDetector
-from anomaly_detection.conv import ConvAEDetector
-from experiments.safety_monitor import SafetyMonitorConfig, upkie_cfg
-from experiments.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
+from detectors.kernel import KernDetector
+from detectors.conv import ConvAEDetector
+from tasks.safety_monitor import SafetyMonitorConfig, upkie_cfg
+from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
 
 
 def run_single_trial(

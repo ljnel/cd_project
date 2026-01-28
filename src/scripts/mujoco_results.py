@@ -1,6 +1,6 @@
-from anomaly_detection.kernel import KernDetector
-from anomaly_detection.conv import ConvAEDetector
-from experiments.safety_monitor import SafetyMonitor, hopper_cfg
+from detectors.kernel import KernDetector
+from detectors.conv import ConvAEDetector
+from tasks.safety_monitor import SafetyMonitor, hopper_cfg
 from sklearn.metrics import confusion_matrix
 
 task = SafetyMonitor(hopper_cfg)

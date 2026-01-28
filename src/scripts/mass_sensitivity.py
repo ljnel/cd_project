@@ -23,8 +23,8 @@ from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
 
-from anomaly_detection.kernel import KernDetector
-from anomaly_detection.conv import ConvAEDetector
+from detectors.kernel import KernDetector
+from detectors.conv import ConvAEDetector
 from config.datasets import DatasetConfig
 from envs.upkie.gen_data import gen_data
 

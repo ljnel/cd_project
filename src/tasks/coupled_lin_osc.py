@@ -1,4 +1,4 @@
-from experiments.experiment import Experiment
+from tasks.experiment import Experiment
 from utils.paths import get_root
 
 from scipy.linalg import expm, block_diag

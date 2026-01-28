@@ -5,8 +5,8 @@ GridSearchCV but use a custom scorer that actually fits on x_tr (stored globally
 and evaluates on the input.
 """
 
-from anomaly_detection.kernel import KernDetector
-from experiments.safety_monitor import SafetyMonitor, hopper_cfg
+from detectors.kernel import KernDetector
+from tasks.safety_monitor import SafetyMonitor, hopper_cfg
 
 from sklearn.model_selection import RandomizedSearchCV, PredefinedSplit
 from sklearn.metrics import make_scorer, balanced_accuracy_score

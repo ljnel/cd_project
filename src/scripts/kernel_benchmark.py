@@ -1,7 +1,7 @@
 from utils.signals import *
 from algs.kern_cd import KernCD
 from algs.kernels import *
-from experiments.safety_monitor import *
+from tasks.safety_monitor import *
 from algs.dim_red import *
 #from algs.cd_poly import CDPolynomial   
 

@@ -2,7 +2,7 @@ from utils.windows import sample_test_windows
 from utils.signals import *
 from utils.plotting import plot_kern_mat
 from algs.kernels import *
-from experiments.safety_monitor import *
+from tasks.safety_monitor import *
 
 import numpy as np
 import matplotlib.pyplot as plt

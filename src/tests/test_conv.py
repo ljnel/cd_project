@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 import torch
 
-from anomaly_detection.conv import ConvAEDetector
+from detectors.conv import ConvAEDetector
 
 
 # =============================================================================

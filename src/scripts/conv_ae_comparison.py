@@ -2,7 +2,7 @@
 
 from models.conv_ae import *
 from config.conv_ae import CAE_CFG
-from experiments.safety_monitor import *
+from tasks.safety_monitor import *
 from utils.windows import WindowDataset
 from utils.paths import get_root
 from algs.kern_cd import *

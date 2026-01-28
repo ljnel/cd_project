@@ -19,9 +19,9 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
-from anomaly_detection.kernel import KernDetector
-from anomaly_detection.conv import ConvAEDetector
-from experiments.safety_monitor import SafetyMonitor, upkie_cfg
+from detectors.kernel import KernDetector
+from detectors.conv import ConvAEDetector
+from tasks.safety_monitor import SafetyMonitor, upkie_cfg
 
 
 # =============================================================================
@@ -528,21 +528,26 @@ def generate_controller_data(
         X_test: Test trajectories (all)
         y_test: Labels (0=success, 1=failure within horizon)
     """
+    from config.datasets import DatasetConfig
     from envs.upkie.gen_data import gen_data
-    from utils.windows import sample_test_windows
 
     print(f"\nGenerating data with {balancer.upper()} controller...")
 
     # Generate with mass variation to induce some failures
-    data = gen_data(
+    cfg = DatasetConfig(
+        name='_controller_temp',
+        env='upkie',
+        platform='upkie',
+        policy='ppo_balancer/params.zip',
         n_episodes=n_episodes,
-        time=time,
+        ep_len=int(time * 200.0),  # 200 Hz default
+        frequency=200.0,
         mass_range=(0.8, 1.8),
         friction_range=(0.8, 1.2),
         balancer=balancer,
         seed=seed,
-        n_jobs=-1,
     )
+    data = gen_data(cfg, n_jobs=-1)
 
     X = data['X']
     fail = data['fail']
