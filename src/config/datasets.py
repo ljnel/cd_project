@@ -1,24 +1,11 @@
 """
-Dataset Configuration System
+Dataset configuration dataclasses and registry.
 
-Provides configuration and utilities for managing multiple datasets per environment.
-
-Usage:
-    from config.datasets import DATASETS, load_dataset, get_or_generate
-
-    # Load existing dataset
-    data = load_dataset(DATASETS['hopper/domain_rand'])
-
-    # Load or generate if missing
-    data = get_or_generate(DATASETS['hopper/domain_rand'])
+For utilities (load, save, generate), see data.datasets.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Tuple, Optional, Literal
-import numpy as np
-
-from utils.paths import get_root
 
 
 @dataclass
@@ -73,140 +60,14 @@ class DatasetConfig:
 
 
 # =============================================================================
-# Path Utilities
-# =============================================================================
-
-def get_dataset_path(cfg: DatasetConfig) -> Path:
-    """Get storage path for a dataset: data/{env}/{name}/data.npz"""
-    return get_root() / 'data' / cfg.env / cfg.name / 'data.npz'
-
-
-def get_dataset_dir(cfg: DatasetConfig) -> Path:
-    """Get storage directory for a dataset: data/{env}/{name}/"""
-    return get_root() / 'data' / cfg.env / cfg.name
-
-
-# =============================================================================
-# Load/Save Utilities
-# =============================================================================
-
-def load_dataset(cfg: DatasetConfig) -> dict:
-    """
-    Load dataset from disk.
-
-    Args:
-        cfg: Dataset configuration
-
-    Returns:
-        dict with X, actions, fail, mass_scale, friction_scale, damping_scale, seeds
-
-    Raises:
-        FileNotFoundError: If dataset doesn't exist
-    """
-    path = get_dataset_path(cfg)
-    if not path.exists():
-        raise FileNotFoundError(f"Dataset not found: {path}\nUse generate_dataset() to create it.")
-    return dict(np.load(path))
-
-
-def save_dataset(cfg: DatasetConfig, data: dict, overwrite: bool = False) -> Path:
-    """
-    Save dataset to disk.
-
-    Args:
-        cfg: Dataset configuration
-        data: Dataset dict to save
-        overwrite: If True, overwrite existing dataset
-
-    Returns:
-        Path where dataset was saved
-
-    Raises:
-        FileExistsError: If dataset exists and overwrite=False
-    """
-    path = get_dataset_path(cfg)
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"Dataset already exists: {path}\nUse overwrite=True to replace.")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(path, **data)
-    return path
-
-
-def dataset_exists(cfg: DatasetConfig) -> bool:
-    """Check if dataset exists on disk."""
-    return get_dataset_path(cfg).exists()
-
-
-def get_or_generate(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
-    """
-    Load dataset if it exists, otherwise generate and save it.
-
-    Args:
-        cfg: Dataset configuration
-        n_jobs: Number of parallel workers for generation (-1 = all cores)
-
-    Returns:
-        Dataset dict
-    """
-    if dataset_exists(cfg):
-        print(f"Loading existing dataset: {cfg.key}")
-        return load_dataset(cfg)
-    else:
-        print(f"Generating new dataset: {cfg.key}")
-        data = generate_dataset(cfg, n_jobs=n_jobs)
-        return data
-
-
-def generate_dataset(cfg: DatasetConfig, n_jobs: int = -1, overwrite: bool = False) -> dict:
-    """
-    Generate dataset and save to disk.
-
-    Args:
-        cfg: Dataset configuration
-        n_jobs: Number of parallel workers (-1 = all cores)
-        overwrite: If True, overwrite existing dataset
-
-    Returns:
-        Generated dataset dict
-    """
-    path = get_dataset_path(cfg)
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"Dataset already exists: {path}\nUse overwrite=True to replace.")
-
-    if cfg.platform == 'mujoco':
-        data = _generate_mujoco(cfg, n_jobs)
-    elif cfg.platform == 'upkie':
-        data = _generate_upkie(cfg, n_jobs)
-    else:
-        raise ValueError(f"Unknown platform: {cfg.platform}")
-
-    save_dataset(cfg, data, overwrite=True)
-    print(f"Saved dataset to: {path}")
-    return data
-
-
-def _generate_mujoco(cfg: DatasetConfig, n_jobs: int) -> dict:
-    """Generate MuJoCo dataset using gen_data."""
-    from envs.mujoco.gen_data import gen_data
-    return gen_data(cfg, n_jobs=n_jobs)
-
-
-def _generate_upkie(cfg: DatasetConfig, n_jobs: int) -> dict:
-    """Generate Upkie dataset using gen_data."""
-    from envs.upkie.gen_data import gen_data
-    return gen_data(cfg, n_jobs=n_jobs)
-
-
-# =============================================================================
 # Dataset Registry
 # =============================================================================
 
 # MuJoCo Datasets
 DATASETS = {
     # --- Inverted Pendulum ---
-    'inv_pend/domain_rand': DatasetConfig(
-        name='domain_rand',
+    'inv_pend/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='inv_pend',
         platform='mujoco',
         policy='invertedpendulum-v5-sac-expert.zip',
@@ -216,8 +77,8 @@ DATASETS = {
     ),
 
     # --- Hopper ---
-    'hopper/nominal': DatasetConfig(
-        name='nominal',
+    'hopper/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='hopper',
         platform='mujoco',
         policy='hopper-v5-sac-expert.zip',
@@ -227,8 +88,8 @@ DATASETS = {
     ),
 
     # --- HalfCheetah ---
-    'half_cheetah/domain_rand': DatasetConfig(
-        name='domain_rand',
+    'half_cheetah/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='half_cheetah',
         platform='mujoco',
         policy='halfcheetah-v5-sac-expert.zip',
@@ -238,8 +99,8 @@ DATASETS = {
     ),
 
     # --- Ant ---
-    'ant/domain_rand': DatasetConfig(
-        name='domain_rand',
+    'ant/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='ant',
         platform='mujoco',
         policy='ant-v5-sac-expert.zip',
@@ -249,8 +110,8 @@ DATASETS = {
     ),
 
     # --- Humanoid ---
-    'humanoid/domain_rand': DatasetConfig(
-        name='domain_rand',
+    'humanoid/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='humanoid',
         platform='mujoco',
         policy='humanoid-v5-sac-expert.zip',
@@ -260,14 +121,12 @@ DATASETS = {
     ),
 
     # --- Upkie ---
-    'upkie': DatasetConfig(
-        name='impulse',
+    'upkie/fail_pred': DatasetConfig(
+        name='fail_pred',
         env='upkie',
         platform='upkie',
         policy='ppo_balancer/params.zip',
         balancer='mpc',
-        n_episodes=1000,
-        ep_len=1000,
         frequency=200.0,
         mass_range=(0.8, 1.5),
         disturbance_type='ImpulseForce',

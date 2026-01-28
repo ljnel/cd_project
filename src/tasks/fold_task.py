@@ -10,7 +10,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from typing import List
 
-from tasks.safety_monitor import SafetyMonitorConfig
+from config.tasks import SafetyMonitorConfig
 from utils.paths import get_root
 from utils.windows import sample_test_windows
 

@@ -26,7 +26,8 @@ import gymnasium as gym
 import pybullet as p
 import upkie.envs
 
-from config.datasets import DatasetConfig, DATASETS, get_dataset_path
+from config.datasets import DatasetConfig, DATASETS
+from data.datasets import get_dataset_path
 from envs.upkie.disturbances import Disturbance, clear_external_forces
 from envs.upkie.obs_hist_wrapper import ObsHistoryWrapper
 from utils.paths import get_root

@@ -14,7 +14,8 @@ Returns dict with:
 Example: python gen_data.py --dataset half_cheetah/domain_rand
 """
 
-from config.datasets import DatasetConfig, DATASETS, get_dataset_path
+from config.datasets import DatasetConfig, DATASETS
+from data.datasets import get_dataset_path
 from config.envs import ENV_INFO
 from utils.paths import get_root
 

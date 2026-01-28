@@ -9,32 +9,33 @@ Test data: Windows sampled from all trajectories, labeled by whether failure occ
 """
 
 from tasks.experiment import Experiment
+from config.tasks import (
+    SafetyMonitorConfig,
+    inv_pend_cfg,
+    hopper_cfg,
+    half_cheetah_cfg,
+    humanoid_cfg,
+    upkie_cfg,
+)
 from utils.paths import get_root
 from utils.windows import sample_test_windows
 
-from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 
-
-@dataclass
-class SafetyMonitorConfig:
-    name: str       # dataset name (for path resolution)
-    win: int        # length of test windows (shorter -> harder)
-    hor: int        # failure horizon (longer -> harder)
-    test_size: float = 0.3  # fraction of episodes for test
-    seed: int = 42  # random seed for split
-
-
-# Example configs
-inv_pend_cfg = SafetyMonitorConfig('inv_pend', win=90, hor=45)
-hopper_cfg = SafetyMonitorConfig('hopper', win=75, hor=70)
-half_cheetah_cfg = SafetyMonitorConfig('half_cheetah', win=70, hor=10)
-humanoid_cfg = SafetyMonitorConfig('humanoid', win=60, hor=30)
-upkie_cfg = SafetyMonitorConfig('upkie', win=200, hor=100)
+# Re-export for backwards compatibility
+__all__ = [
+    'SafetyMonitor',
+    'SafetyMonitorConfig',
+    'inv_pend_cfg',
+    'hopper_cfg',
+    'half_cheetah_cfg',
+    'humanoid_cfg',
+    'upkie_cfg',
+]
 
 
 class SafetyMonitor(Experiment):
