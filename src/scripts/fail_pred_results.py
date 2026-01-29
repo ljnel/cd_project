@@ -14,7 +14,7 @@ Usage:
 import argparse
 import gc
 import numpy as np
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, fbeta_score
 from typing import Dict, List, Tuple, Union
 import warnings
 warnings.filterwarnings("ignore")
@@ -30,12 +30,12 @@ def run_single_trial(
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
     **method_kwargs
-) -> Tuple[float, float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     """
     Run a single trial of anomaly detection.
 
     Returns:
-        Tuple of (TN, FP, FN, TP) as percentages
+        Tuple of (TN, FP, FN, TP) as percentages and F2 score
     """
     np.random.seed(seed)
 
@@ -95,11 +95,14 @@ def run_single_trial(
                 fn = cm[0, 0] if y_pred[0] == 0 else 0
                 tp = cm[0, 1] if cm.shape[1] > 1 else 0
 
+    # Compute F2 score
+    f2 = fbeta_score(task.y_true, y_pred, beta=2)
+
     # Cleanup to prevent memory accumulation
     del model
     gc.collect()
 
-    return tn * 100, fp * 100, fn * 100, tp * 100
+    return tn * 100, fp * 100, fn * 100, tp * 100, f2
 
 
 def run_experiments(
@@ -133,11 +136,11 @@ def run_experiments(
             print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
 
             try:
-                tn, fp, fn, tp = run_single_trial(
+                tn, fp, fn, tp, f2 = run_single_trial(
                     method_name, task, seed, **method_kwargs
                 )
-                fold_results.append((tn, fp, fn, tp))
-                print(f"TN={tn:.1f}%, FP={fp:.1f}%, FN={fn:.1f}%, TP={tp:.1f}%")
+                fold_results.append((tn, fp, fn, tp, f2))
+                print(f"TN={tn:.1f}%, FP={fp:.1f}%, FN={fn:.1f}%, TP={tp:.1f}%, F2={f2:.3f}")
 
             except Exception as e:
                 print(f"FAILED: {e}")
@@ -150,6 +153,7 @@ def run_experiments(
                 'FP': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
                 'FN': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
                 'TP': (fold_results[:, 3].mean(), fold_results[:, 3].std()),
+                'F2': (fold_results[:, 4].mean(), fold_results[:, 4].std()),
             }
         else:
             print(f"  WARNING: No successful folds for {method_name}")
@@ -240,6 +244,71 @@ def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: 
     print("-" * 85)
 
 
+def print_f2_summary(all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]):
+    """Print a summary table of F2 scores across all environments."""
+    envs = list(all_results.keys())
+    methods = list(next(iter(all_results.values()))['results'].keys())
+
+    print("\n" + "="*80)
+    print("F2 SCORE SUMMARY - ALL ENVIRONMENTS")
+    print("="*80)
+
+    # Header
+    header = f"{'Method':<25}"
+    for env in envs:
+        header += f" {env:<20}"
+    print(header)
+    print("-" * (25 + 21 * len(envs)))
+
+    # Rows
+    for method in methods:
+        row = f"{method:<25}"
+        for env in envs:
+            f2_mean, f2_std = all_results[env]['results'][method]['F2']
+            row += f" {f2_mean:.3f} +/- {f2_std:.3f}  "
+        print(row)
+
+    print("-" * (25 + 21 * len(envs)))
+
+
+def format_f2_latex_table(
+    all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]
+) -> str:
+    """
+    Format F2 scores as a single LaTeX table with environments as columns.
+    """
+    envs = list(all_results.keys())
+    methods = list(next(iter(all_results.values()))['results'].keys())
+
+    # Build table header
+    col_spec = "|l|" + "c|" * len(envs)
+    header_row = " & ".join(envs)
+
+    latex = f"""
+\\begin{{table}}[h!]
+\\centering
+\\begin{{tabular}}{{{col_spec}}}
+\\hline
+Method & {header_row} \\\\ \\hline
+"""
+
+    # Add rows for each method
+    for method in methods:
+        cells = [method]
+        for env in envs:
+            f2_mean, f2_std = all_results[env]['results'][method]['F2']
+            cells.append(f"{f2_mean:.3f} $\\pm$ {f2_std:.3f}")
+        latex += " & ".join(cells) + " \\\\\n"
+
+    latex += """\\hline
+\\end{tabular}
+\\caption{F2 scores across all environments.}
+\\label{tab:f2_all_envs}
+\\end{table}
+"""
+    return latex
+
+
 def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     """Extract data statistics from the config for table generation."""
     stats = get_fold_statistics(cfg, n_folds)
@@ -258,7 +327,7 @@ def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     }
 
 
-def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed: int = 42):
+def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -286,39 +355,40 @@ def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed
     # Print summary
     print_summary(results, env_name)
 
-    # Generate LaTeX tables
-    latex_output = format_latex_table(
-        results,
-        env_name=env_name,
-        window=stats.get('win'),
-        horizon=stats.get('hor'),
-        obs_dim=stats.get('obs_dim', 4),
-        train_size=stats.get('n_successes'),
-        test_size=stats.get('eps_per_fold'),
-        failure_prop=f"{stats.get('failure_prop', 0):.3f}" if stats.get('failure_prop') else None
-    )
+    if output_latex:
+        # Generate LaTeX tables
+        latex_output = format_latex_table(
+            results,
+            env_name=env_name,
+            window=stats.get('win'),
+            horizon=stats.get('hor'),
+            obs_dim=stats.get('obs_dim', 4),
+            train_size=stats.get('n_successes'),
+            test_size=stats.get('eps_per_fold'),
+            failure_prop=f"{stats.get('failure_prop', 0):.3f}" if stats.get('failure_prop') else None
+        )
 
-    print("\n" + "="*80)
-    print("LATEX OUTPUT")
-    print("="*80)
-    print(latex_output)
+        print("\n" + "="*80)
+        print("LATEX OUTPUT")
+        print("="*80)
+        print(latex_output)
 
-    # Save LaTeX to file
-    latex_file = f"{env_name}_results_latex.tex"
-    with open(latex_file, "w") as f:
-        f.write(latex_output)
-    print(f"\nLaTeX table saved to: {latex_file}")
+        # Save LaTeX to file
+        latex_file = f"{env_name}_results_latex.tex"
+        with open(latex_file, "w") as f:
+            f.write(latex_output)
+        print(f"\nLaTeX table saved to: {latex_file}")
 
-    # Also save raw results to numpy file for later analysis
-    npz_file = f"{env_name}_experiment_results.npz"
-    np.savez(
-        npz_file,
-        results={k: dict(v) for k, v in results.items()},
-        stats=stats,
-        methods=list(methods.keys()),
-        n_folds=n_folds
-    )
-    print(f"Raw results saved to: {npz_file}")
+        # Also save raw results to numpy file for later analysis
+        npz_file = f"{env_name}_experiment_results.npz"
+        np.savez(
+            npz_file,
+            results={k: dict(v) for k, v in results.items()},
+            stats=stats,
+            methods=list(methods.keys()),
+            n_folds=n_folds
+        )
+        print(f"Raw results saved to: {npz_file}")
 
     return results, stats
 
@@ -362,14 +432,16 @@ if __name__ == "__main__":
     # Determine which environments to run
     if args.env == 'all':
         envs = list(TASK_CONFIGS.keys())
+        output_latex = False  # Don't output per-env LaTeX for "all" mode
     else:
         envs = [args.env]
+        output_latex = False  # Single env mode: no LaTeX output
 
     # Run experiments
     all_results = {}
     for env_name in envs:
         try:
-            results, stats = run_env(env_name, methods, n_folds=args.n_folds, base_seed=args.seed)
+            results, stats = run_env(env_name, methods, n_folds=args.n_folds, base_seed=args.seed, output_latex=output_latex)
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
@@ -377,10 +449,23 @@ if __name__ == "__main__":
             print(f"\nError running {env_name}: {e}")
             raise
 
-    # Print final summary if multiple envs
-    if len(all_results) > 1:
+    # Output depends on mode
+    if args.env == 'all' and len(all_results) > 1:
+        # All envs mode: print F2 summary and save combined LaTeX table
         print("\n" + "#"*80)
         print("# FINAL SUMMARY - ALL ENVIRONMENTS")
         print("#"*80)
-        for env_name, data in all_results.items():
-            print_summary(data['results'], env_name)
+
+        print_f2_summary(all_results)
+
+        # Generate and save combined F2 LaTeX table
+        latex_output = format_f2_latex_table(all_results)
+        print("\n" + "="*80)
+        print("COMBINED F2 LATEX TABLE")
+        print("="*80)
+        print(latex_output)
+
+        latex_file = "all_envs_f2_results.tex"
+        with open(latex_file, "w") as f:
+            f.write(latex_output)
+        print(f"\nCombined F2 LaTeX table saved to: {latex_file}")
