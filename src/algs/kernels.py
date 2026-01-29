@@ -3,7 +3,7 @@ from typing import Union, Literal
 import numpy as np
 from functools import partial
 from sktime.dists_kernels import SignatureKernel
-from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.metrics.pairwise import rbf_kernel, euclidean_distances
 from utils.misc import median_heuristic
 
 
@@ -218,11 +218,10 @@ class GaussFFT(Kernel):
         m, n, d = x.shape
         X = np.fft.fft(x, axis=1)
         X_mag = np.abs(X)
+        X_flat = X_mag.reshape(m, -1) / n  # (m, n*d), normalized
 
         if y is None:
-            X1 = X_mag[:, None, :, :]
-            X2 = X_mag[None, :, :, :]
-            dist2 = np.sum((X1 - X2) ** 2, axis=(2, 3)) / (n**2)
+            dist2 = euclidean_distances(X_flat, squared=True)
             K = np.exp(-self.gamma * dist2)
         else:
             y = np.asarray(y)
@@ -232,10 +231,9 @@ class GaussFFT(Kernel):
 
             Y = np.fft.fft(y, axis=1)
             Y_mag = np.abs(Y)
+            Y_flat = Y_mag.reshape(len(y), -1) / n  # (p, n*d), normalized
 
-            X1 = X_mag[:, None, :, :]
-            Y1 = Y_mag[None, :, :, :]
-            dist2 = np.sum((X1 - Y1) ** 2, axis=(2, 3)) / (n**2)
+            dist2 = euclidean_distances(X_flat, Y_flat, squared=True)
             K = np.exp(-self.gamma * dist2)
 
         if one:
