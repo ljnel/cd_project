@@ -71,9 +71,9 @@ DATASETS = {
         env='inv_pend',
         platform='mujoco',
         policy='invertedpendulum-v5-sac-expert.zip',
-        mass_range=(0.6, 2.4),
-        friction_range=(0.6, 2.4),
-        damping_range=(0.6, 2.4),
+        mass_range=(0.4, 10.4),
+        friction_range=(0.4, 5.4),
+        damping_range=(0.4, 10.4),
     ),
 
     # --- Hopper ---
@@ -115,9 +115,9 @@ DATASETS = {
         env='humanoid',
         platform='mujoco',
         policy='humanoid-v5-sac-expert.zip',
-        mass_range=(0.9, 1.1),
-        friction_range=(0.9, 1.1),
-        damping_range=(0.9, 1.1),
+        mass_range=(0.99, 1.01),
+        friction_range=(1.0, 1.0),
+        damping_range=(1.0, 1.0),
     ),
 
     # --- Upkie ---
@@ -126,9 +126,9 @@ DATASETS = {
         env='upkie',
         platform='upkie',
         policy='ppo_balancer/params.zip',
-        balancer='mpc',
+        balancer='ppo',
         frequency=200.0,
-        mass_range=(0.8, 1.5),
+        mass_range=(0.6, 3.0),
         disturbance_type='ImpulseForce',
         disturbance_kwargs={'force_magnitude': 5.0},
     ),

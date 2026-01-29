@@ -116,5 +116,4 @@ def train(model, dl, opt, epochs, device):
         avg_loss = epoch_loss / len(dl.dataset)
         # losses.append(avg_loss)
         print(f"Epoch {epoch}: loss={avg_loss:.4f}")
-    model.to('cpu')
     return losses

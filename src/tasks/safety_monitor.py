@@ -11,9 +11,11 @@ Test data: Windows sampled from all trajectories, labeled by whether failure occ
 from tasks.experiment import Experiment
 from config.tasks import (
     SafetyMonitorConfig,
+    TASK_CONFIGS,
     inv_pend_cfg,
     hopper_cfg,
     half_cheetah_cfg,
+    ant_cfg,
     humanoid_cfg,
     upkie_cfg,
 )
@@ -30,9 +32,11 @@ from sklearn.metrics import confusion_matrix
 __all__ = [
     'SafetyMonitor',
     'SafetyMonitorConfig',
+    'TASK_CONFIGS',
     'inv_pend_cfg',
     'hopper_cfg',
     'half_cheetah_cfg',
+    'ant_cfg',
     'humanoid_cfg',
     'upkie_cfg',
 ]
@@ -53,7 +57,7 @@ class SafetyMonitor(Experiment):
             data_path: Path to data.npz. If None, uses get_root()/data/{cfg.name}/data.npz
         """
         self.cfg = cfg
-        self.data_path = data_path or (get_root() / 'data' / cfg.name / 'data.npz')
+        self.data_path = data_path or (get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz')
         self.y_true = None
 
     def get_train_test(self) -> tuple[np.ndarray, np.ndarray]:

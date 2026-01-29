@@ -149,6 +149,58 @@ def _generate_upkie(cfg: DatasetConfig, n_jobs: int) -> dict:
 
 
 # =============================================================================
+# Analysis Utilities
+# =============================================================================
+
+def report_fail_proportions() -> dict:
+    """
+    Report the proportion of failed episodes for each 'fail_pred' dataset.
+
+    Failed episodes are those where fail > -1.
+
+    Returns:
+        dict mapping dataset key to failure proportion
+    """
+    results = {}
+    rows = []
+    fail_pred_keys = [k for k in DATASETS.keys() if k.endswith('fail_pred')]
+
+    # Collect data
+    for key in fail_pred_keys:
+        cfg = DATASETS[key]
+        path = get_dataset_path(cfg)
+
+        if not path.exists():
+            rows.append((key, None, None, None))
+            continue
+
+        data = load_dataset(cfg)
+        fail = data['fail']
+        n_failed = int(np.sum(fail > -1))
+        n_total = len(fail)
+        proportion = n_failed / n_total if n_total > 0 else 0.0
+
+        results[key] = proportion
+        rows.append((key, n_failed, n_total, proportion))
+
+    # Calculate column widths
+    key_width = max(len(row[0]) for row in rows)
+    count_strs = [f"{row[1]}/{row[2]}" if row[1] is not None else "" for row in rows]
+    count_width = max(len(s) for s in count_strs) if count_strs else 0
+
+    # Print aligned output
+    for row, count_str in zip(rows, count_strs):
+        key = row[0]
+        if row[1] is None:
+            print(f"{key:<{key_width}}  dataset not found")
+        else:
+            proportion = row[3]
+            print(f"{key:<{key_width}}  {count_str:>{count_width}}  ({proportion:>6.2%}) failed")
+
+    return results
+
+
+# =============================================================================
 # CLI
 # =============================================================================
 

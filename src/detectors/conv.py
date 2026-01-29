@@ -49,7 +49,8 @@ class ConvAEDetector(AnomalyDetector):
                  lr: float = 3e-4,
                  epochs: int = 10,
                  batch_size: int = 128,
-                 device: str = "cpu"):
+                 device: str = "mps",
+                 max_samples: int = 1000):  # ignored for reconstruction method
         super().__init__(cal_fraction, threshold_quantile)
         self.window = window
         self.stride = stride
@@ -60,6 +61,7 @@ class ConvAEDetector(AnomalyDetector):
         self.epochs = epochs
         self.batch_size = batch_size
         self.device = device
+        self.max_samples = max_samples
 
     def _fit_impl(self, X_train: np.ndarray) -> None:
         """Fit ConvAE on trajectories.
@@ -97,7 +99,7 @@ class ConvAEDetector(AnomalyDetector):
                              in_chan=self.in_chan,
                              out_chan=self.out_chan,
                              latent_dim=self.latent_dim
-                             )
+                             ).to(self.device)
         opt = torch.optim.Adam(self.model_.parameters(), lr=self.lr)
 
         epochs = 5 if self.method == "reconstruction" else self.epochs
@@ -112,8 +114,14 @@ class ConvAEDetector(AnomalyDetector):
             z = self._get_latent(X_windows)
             gamma = median_heuristic(z)
             # Subsample for efficiency
+            if len(z) > self.max_samples:
+                indices = np.random.choice(len(z), self.max_samples, replace=False)
+                z_sub = z[indices]
+            else:
+                z_sub = z
             self.latent_detector_ = KernCD(
-                RBF(gamma="median"), reg="adaptive").fit(z[::2])
+                RBF(gamma="median"), reg="adaptive").fit(z_sub)
+            print(f'fit latent det {z_sub.shape}')
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
         X_windows = strided_window_view(X, window=self.window, stride=self.stride)

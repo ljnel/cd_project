@@ -117,8 +117,8 @@ def create_fold_tasks(
     """
     seed = seed if seed is not None else cfg.seed
 
-    # Load data
-    data_path = get_root() / 'data' / cfg.name / 'data.npz'
+    # Load data (fail_pred dataset for this environment)
+    data_path = get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz'
     data = np.load(data_path)
     X = data['X']       # (n_eps, ep_len, obs_dim)
     fail = data['fail'] # (n_eps,)
@@ -153,7 +153,7 @@ def get_fold_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
         - n_folds: number of folds
         - eps_per_fold: approximate episodes per test fold
     """
-    data_path = get_root() / 'data' / cfg.name / 'data.npz'
+    data_path = get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz'
     data = np.load(data_path)
     X = data['X']
     fail = data['fail']
