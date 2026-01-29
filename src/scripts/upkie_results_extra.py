@@ -45,8 +45,8 @@ def get_method(method_name: str, **kwargs) -> object:
         "Full FFT": dict(kernel_type='fft', gamma=0.5, lam=1e-3, max_windows=100),
         "Sig Kernel": dict(kernel_type='sig', gamma=0.001, lam=1e-3, max_windows=100),
         "RBF": dict(kernel_type='rbf', gamma=None, lam=1e-3, max_windows=100),
-        "ConvAE Recon": dict(window=70, stride=10, method='reconstruction', epochs=10),
-        "ConvAE Latent": dict(window=70, stride=10, method='latent', epochs=15),
+        "ConvAE Recon": dict(window_frac=0.25, overlap=0.5, method='reconstruction', epochs=5),
+        "ConvAE Latent": dict(window_frac=0.25, overlap=0.5, method='latent', epochs=10),
     }
     
     if method_name not in defaults:

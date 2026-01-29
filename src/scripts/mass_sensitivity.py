@@ -129,8 +129,8 @@ def get_method(method_name: str) -> object:
     configs = {
         "FFT-CD": dict(kernel_type='fft', max_windows=500),
         "Sig-CD": dict(kernel_type='sig', max_windows=300),
-        "ConvAE": dict(window=70, stride=10, method='reconstruction', epochs=5, latent_dim=30),
-        "Conv-CD": dict(window=70, stride=10, method='latent', epochs=5, latent_dim=10),
+        "ConvAE": dict(window_frac=0.25, overlap=0.5, method='reconstruction', epochs=5, latent_dim_mult=3.0),
+        "Conv-CD": dict(window_frac=0.25, overlap=0.5, method='latent', epochs=10, latent_dim_mult=1.0),
     }
 
     if method_name not in configs:

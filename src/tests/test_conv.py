@@ -67,9 +67,9 @@ def synthetic_anomaly_data():
 def small_window_config():
     """Config for faster testing with smaller windows."""
     return {
-        'window': 50,
-        'stride': 20,
-        'latent_dim': 16,
+        'window_frac': 0.5,  # 50% of ep_len
+        'overlap': 0.5,      # 50% overlap
+        'latent_dim_mult': 2.0,
         'epochs': 3,
         'batch_size': 32,
         'cal_fraction': 0.3,
@@ -87,24 +87,24 @@ class TestConvAEDetectorInit:
     def test_default_initialization(self):
         """Test default parameter initialization."""
         detector = ConvAEDetector()
-        
-        assert detector.window == 50
-        assert detector.stride == 10
-        assert detector.latent_dim == 30
+
+        assert detector.window_frac == 0.25
+        assert detector.overlap == 0.5
+        assert detector.latent_dim_mult == 3.0
         assert detector.method == "reconstruction"
         assert detector.lr == 3e-4
         assert detector.epochs == 10
         assert detector.batch_size == 128
-        assert detector.device == "cpu"
+        assert detector.device == "mps"
         assert detector.cal_fraction == 0.3
         assert detector.threshold_quantile == 0.95
-    
+
     def test_custom_initialization(self):
         """Test custom parameter initialization."""
         detector = ConvAEDetector(
-            window=100,
-            stride=25,
-            latent_dim=64,
+            window_frac=0.4,
+            overlap=0.75,
+            latent_dim_mult=2.0,
             method="latent",
             lr=1e-3,
             epochs=20,
@@ -112,10 +112,10 @@ class TestConvAEDetectorInit:
             cal_fraction=0.2,
             threshold_quantile=0.99,
         )
-        
-        assert detector.window == 100
-        assert detector.stride == 25
-        assert detector.latent_dim == 64
+
+        assert detector.window_frac == 0.4
+        assert detector.overlap == 0.75
+        assert detector.latent_dim_mult == 2.0
         assert detector.method == "latent"
         assert detector.lr == 1e-3
         assert detector.epochs == 20
@@ -158,8 +158,9 @@ class TestReconstructionMethod:
         assert hasattr(detector, 'threshold_')
         assert detector.threshold_ > 0
         
-        # Check window was set
-        assert detector.window == small_window_config['window']
+        # Check window was derived from data
+        assert detector.window is not None
+        assert detector.window > 0
     
     def test_predict_reconstruction(self, synthetic_normal_data, synthetic_anomaly_data, small_window_config):
         """Test prediction with reconstruction method."""
@@ -171,7 +172,7 @@ class TestReconstructionMethod:
         detector.fit(synthetic_normal_data)
         
         # Create test windows (last window of each trajectory)
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:, -window:, :]
         
@@ -196,7 +197,7 @@ class TestReconstructionMethod:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:, -window:, :]
         
@@ -225,7 +226,7 @@ class TestReconstructionMethod:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:5, -window:, :]
         
         errors = detector._get_reconstruction_error(test_windows)
@@ -272,7 +273,7 @@ class TestLatentMethod:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:, -window:, :]
         
@@ -296,7 +297,7 @@ class TestLatentMethod:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:, -window:, :]
         
@@ -323,13 +324,13 @@ class TestLatentMethod:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:10, -window:, :]
         
         z = detector._get_latent(test_windows)
         
         # Check shape: (n_samples, latent_dim)
-        assert z.shape == (10, small_window_config['latent_dim'])
+        assert z.shape == (10, detector.latent_dim_)
         assert np.all(np.isfinite(z))
 
 
@@ -355,7 +356,7 @@ class TestEdgeCases:
         detector.fit(X_2d)
         
         # Predict on 2D windows
-        window = small_window_config['window']
+        window = detector.window
         test_windows = X_2d[:5, -window:]
         
         preds = detector.predict(test_windows)
@@ -400,7 +401,7 @@ class TestEdgeCases:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         single_window = synthetic_normal_data[0:1, -window:, :]
         
         pred = detector.predict(single_window)
@@ -423,7 +424,7 @@ class TestEdgeCases:
             
             detector.fit(X)
             
-            window = small_window_config['window']
+            window = detector.window
             test_windows = X[:5, -window:, :]
             
             preds = detector.predict(test_windows)
@@ -446,7 +447,7 @@ class TestDecisionFunction:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:10, -window:, :]
         
         decisions = detector.decision_function(test_windows)
@@ -469,7 +470,7 @@ class TestDecisionFunction:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:10, -window:, :]
         
         decisions = detector.decision_function(test_windows)
@@ -494,7 +495,7 @@ class TestConsistency:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:5, -window:, :]
         
         scores1 = detector.score_samples(test_windows)
@@ -511,7 +512,7 @@ class TestConsistency:
         
         detector.fit(synthetic_normal_data)
         
-        window = small_window_config['window']
+        window = detector.window
         test_windows = synthetic_normal_data[:20, -window:, :]
         
         scores = detector.score_samples(test_windows)
@@ -539,7 +540,7 @@ class TestIntegration:
         detector.fit(synthetic_normal_data)
         
         # Create test set
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:20, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:20, -window:, :]
         
@@ -577,7 +578,7 @@ class TestIntegration:
         detector.fit(synthetic_normal_data)
         
         # Create test set
-        window = small_window_config['window']
+        window = detector.window
         normal_windows = synthetic_normal_data[:20, -window:, :]
         anomaly_windows = synthetic_anomaly_data[:20, -window:, :]
         

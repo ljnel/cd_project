@@ -16,10 +16,10 @@ class SafetyMonitorConfig:
 
 # Registry mapping env name to config
 TASK_CONFIGS = {
-    'inv_pend': SafetyMonitorConfig('inv_pend', win=90, hor=45),
-    'hopper': SafetyMonitorConfig('hopper', win=75, hor=70),
-    'half_cheetah': SafetyMonitorConfig('half_cheetah', win=70, hor=10),
-    'ant': SafetyMonitorConfig('ant', win=70, hor=30),
-    'humanoid': SafetyMonitorConfig('humanoid', win=60, hor=30),
-    'upkie': SafetyMonitorConfig('upkie', win=200, hor=100),
+    'inv_pend': SafetyMonitorConfig('inv_pend', win=100, hor=20),
+    'hopper': SafetyMonitorConfig('hopper', win=100, hor=50),
+    'half_cheetah': SafetyMonitorConfig('half_cheetah', win=100, hor=50),
+    'ant': SafetyMonitorConfig('ant', win=100, hor=50),
+    'humanoid': SafetyMonitorConfig('humanoid', win=100, hor=50),
+    'upkie': SafetyMonitorConfig('upkie', win=100, hor=50),
 }

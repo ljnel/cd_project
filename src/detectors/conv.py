@@ -21,12 +21,14 @@ class ConvAEDetector(AnomalyDetector):
         Fraction of training data for calibration.
     threshold_quantile : float
         Quantile for threshold calibration.
-    window : int
-        Window size (required for ConvAE architecture).
-    stride : int
-        Stride for extracting training windows.
-    model_config : dict or None
-        Configuration dict for ConvAE architecture.
+    window_frac : float
+        Window size as fraction of episode length.
+    overlap : float
+        Overlap between windows (0.5 = 50% overlap, stride = window * 0.5).
+    latent_dim_mult : float
+        Latent dimension as multiple of obs_dim.
+    out_chan : int
+        Number of output channels in conv layers.
     method : {"reconstruction", "latent"}
         Detection method.
     lr : float
@@ -37,25 +39,28 @@ class ConvAEDetector(AnomalyDetector):
         Batch size for training.
     device : str
         PyTorch device string.
+    max_samples : int
+        Max samples for latent detector (ignored for reconstruction method).
     """
 
     def __init__(self,
                  cal_fraction: float = 0.3,
                  threshold_quantile: float = 0.95,
-                 window: int = 50,
-                 stride: int = 10,
-                 latent_dim: int = 30,
+                 window_frac: float = 0.25,
+                 overlap: float = 0.5,
+                 latent_dim_mult: float = 3.0,
+                 out_chan: int = 30,
                  method: str = "reconstruction",
                  lr: float = 3e-4,
                  epochs: int = 10,
                  batch_size: int = 128,
                  device: str = "mps",
-                 max_samples: int = 1000):  # ignored for reconstruction method
+                 max_samples: int = 1000):
         super().__init__(cal_fraction, threshold_quantile)
-        self.window = window
-        self.stride = stride
-        self.out_chan = 30  # ???
-        self.latent_dim = latent_dim
+        self.window_frac = window_frac
+        self.overlap = overlap
+        self.latent_dim_mult = latent_dim_mult
+        self.out_chan = out_chan
         self.method = method
         self.lr = lr
         self.epochs = epochs
@@ -66,18 +71,25 @@ class ConvAEDetector(AnomalyDetector):
     def _fit_impl(self, X_train: np.ndarray) -> None:
         """Fit ConvAE on trajectories.
 
-        1. Extract strided windows from trajectories
-        2. Train ConvAE
-        3. If latent method, fit KernCD on latent space
+        1. Compute window/stride/latent_dim from data shape
+        2. Extract strided windows from trajectories
+        3. Train ConvAE
+        4. If latent method, fit KernCD on latent space
         """
+        # X_train shape: (n_episodes, ep_len, obs_dim)
+        ep_len = X_train.shape[1]
+        obs_dim = X_train.shape[2]
 
-        self.window_ = self.window
-        self.in_chan = X_train.shape[-1]
+        # Derive concrete values from data
+        self.window = max(10, int(ep_len * self.window_frac))
+        self.stride_ = max(1, int(self.window * (1 - self.overlap)))
+        self.latent_dim_ = max(2, int(obs_dim * self.latent_dim_mult))
+        self.in_chan_ = obs_dim
 
         # Extract training windows with stride
         X_windows = strided_window_view(
-            X_train, window=self.window, stride=self.stride
-        ).reshape((-1, self.window, X_train.shape[-1]))
+            X_train, window=self.window, stride=self.stride_
+        ).reshape((-1, self.window, obs_dim))
         
         # TODO: Fix this
         # Create dataloader - use a simple wrapper that yields tensors directly
@@ -96,9 +108,9 @@ class ConvAEDetector(AnomalyDetector):
 
         # Build and train model
         self.model_ = ConvAE(in_len=self.window,
-                             in_chan=self.in_chan,
+                             in_chan=self.in_chan_,
                              out_chan=self.out_chan,
-                             latent_dim=self.latent_dim
+                             latent_dim=self.latent_dim_
                              ).to(self.device)
         opt = torch.optim.Adam(self.model_.parameters(), lr=self.lr)
 
@@ -124,7 +136,7 @@ class ConvAEDetector(AnomalyDetector):
             print(f'fit latent det {z_sub.shape}')
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
-        X_windows = strided_window_view(X, window=self.window, stride=self.stride)
+        X_windows = strided_window_view(X, window=self.window, stride=self.stride_)
         X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
         print(f'Cal windows: {X_windows.shape}')
         return X_windows

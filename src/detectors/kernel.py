@@ -36,12 +36,14 @@ class KernDetector(AnomalyDetector):
                  kernel_type: str = "fft",
                  gamma: Optional[float] = None,
                  reg: float | str = "adaptive",
+                 window_frac: Optional[float] = None,
                  max_windows: int = 200):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
         self.gamma = gamma
         self.reg = reg
         self.n_periods = n_periods
+        self.window_frac = window_frac
         self.max_windows = max_windows
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
 
@@ -79,8 +81,13 @@ class KernDetector(AnomalyDetector):
     def _fit_impl(self, X: np.ndarray):
         X = low_pass(X, alpha=0.8)  # ????
         # X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
-        self.window = estimate_window(
-            X, period=self.n_periods, method='mean')  # ?????
+
+        # Window estimation: use window_frac if provided, else auto-estimate
+        if self.window_frac is not None:
+            ep_len = X.shape[1]
+            self.window = max(10, int(ep_len * self.window_frac))
+        else:
+            self.window = estimate_window(X, period=self.n_periods, method='mean')
 
         # Store windows per episode so calibration uses same density
         n_train_episodes = X.shape[0]
@@ -103,7 +110,6 @@ class KernDetector(AnomalyDetector):
             self._flatten = False
 
         elif self.kernel_type == "sig":
-            self.window = self.window // 2
             gamma = self.gamma if self.gamma is not None else "median"
             kernel = SigKernel(gamma=gamma)
             self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)

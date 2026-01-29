@@ -22,17 +22,47 @@ warnings.filterwarnings("ignore")
 from detectors.kernel import KernDetector
 from detectors.conv import ConvAEDetector
 from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
+from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
 
 
+# Display names for methods (config key -> display name)
+METHOD_DISPLAY_NAMES = {
+    "fft": "FFT Kernel",
+    "sig": "Sig Kernel",
+    "rec": "ConvAE Recon",
+    "lat": "ConvAE Latent",
+}
+
+
+def get_detector(method_key: str):
+    """Factory function to create a detector from config."""
+    if method_key not in DETECTOR_CONFIGS:
+        raise ValueError(f"Unknown method: {method_key}. Available: {list(DETECTOR_CONFIGS.keys())}")
+
+    config = DETECTOR_CONFIGS[method_key].copy()
+    cls_name = config.pop('cls')
+
+    if cls_name == 'KernDetector':
+        return KernDetector(**config)
+    elif cls_name == 'ConvAEDetector':
+        return ConvAEDetector(**config)
+    else:
+        raise ValueError(f"Unknown detector class: {cls_name}")
+
+
 def run_single_trial(
-    method_name: str,
+    method_key: str,
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
-    **method_kwargs
 ) -> Tuple[float, float, float, float, float]:
     """
     Run a single trial of anomaly detection.
+
+    Args:
+        method_key: Key from DETECTOR_CONFIGS (e.g., "fft", "sig", "rec", "lat")
+        task: FoldTask with train/test data
+        seed: Random seed for reproducibility
 
     Returns:
         Tuple of (TN, FP, FN, TP) as percentages and F2 score
@@ -42,37 +72,8 @@ def run_single_trial(
     # Get train/test data (resampled each trial)
     x_tr, x_te = task.get_train_test()
 
-    # Create and fit model based on method
-    if method_name == "Full FFT":
-        model = KernDetector(
-            kernel_type='fft',
-            max_windows=method_kwargs.get('max_windows', 100),
-        )
-    elif method_name == "Sig Kernel":
-        model = KernDetector(
-            kernel_type='sig',
-            max_windows=method_kwargs.get('max_windows', 100),
-        )
-    elif method_name == "ConvAE w/ Recon Loss":
-        model = ConvAEDetector(
-            window=method_kwargs.get('window', 70),
-            stride=method_kwargs.get('stride', 10),
-            method='reconstruction',
-            lr=method_kwargs.get('lr', 3e-4),
-            epochs=method_kwargs.get('epochs', 10),
-            latent_dim=method_kwargs.get('latent_dim', 30),
-        )
-    elif method_name == "ConvAE w/ Lat":
-        model = ConvAEDetector(
-            window=method_kwargs.get('window', 70),
-            stride=method_kwargs.get('stride', 10),
-            method='latent',
-            lr=method_kwargs.get('lr', 3e-4),
-            epochs=method_kwargs.get('epochs', 15),
-            latent_dim=method_kwargs.get('latent_dim', 30),
-        )
-    else:
-        raise ValueError(f"Unknown method: {method_name}")
+    # Create detector from config
+    model = get_detector(method_key)
 
     # Fit and predict
     model.fit(x_tr)
@@ -106,7 +107,7 @@ def run_single_trial(
 
 
 def run_experiments(
-    methods: Dict[str, dict],
+    method_keys: List[str],
     tasks: List[FoldTask],
     base_seed: int = 42
 ) -> Dict[str, Dict[str, Tuple[float, float]]]:
@@ -114,19 +115,20 @@ def run_experiments(
     Run experiments for all methods with k-fold cross-validation.
 
     Args:
-        methods: Dict mapping method name to kwargs
+        method_keys: List of method keys from DETECTOR_CONFIGS
         tasks: List of FoldTask objects (one per fold)
         base_seed: Base random seed for model training
 
     Returns:
-        Dict mapping method name to dict of metric -> (mean, std)
+        Dict mapping display name to dict of metric -> (mean, std)
     """
     results = {}
     n_folds = len(tasks)
 
-    for method_name, method_kwargs in methods.items():
+    for method_key in method_keys:
+        display_name = METHOD_DISPLAY_NAMES.get(method_key, method_key)
         print(f"\n{'='*60}")
-        print(f"Running {method_name}...")
+        print(f"Running {display_name}...")
         print(f"{'='*60}")
 
         fold_results = []
@@ -136,9 +138,7 @@ def run_experiments(
             print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
 
             try:
-                tn, fp, fn, tp, f2 = run_single_trial(
-                    method_name, task, seed, **method_kwargs
-                )
+                tn, fp, fn, tp, f2 = run_single_trial(method_key, task, seed)
                 fold_results.append((tn, fp, fn, tp, f2))
                 print(f"TN={tn:.1f}%, FP={fp:.1f}%, FN={fn:.1f}%, TP={tp:.1f}%, F2={f2:.3f}")
 
@@ -148,7 +148,7 @@ def run_experiments(
 
         if fold_results:
             fold_results = np.array(fold_results)
-            results[method_name] = {
+            results[display_name] = {
                 'TN': (fold_results[:, 0].mean(), fold_results[:, 0].std()),
                 'FP': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
                 'FN': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
@@ -156,7 +156,7 @@ def run_experiments(
                 'F2': (fold_results[:, 4].mean(), fold_results[:, 4].std()),
             }
         else:
-            print(f"  WARNING: No successful folds for {method_name}")
+            print(f"  WARNING: No successful folds for {display_name}")
 
     return results
 
@@ -327,7 +327,7 @@ def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     }
 
 
-def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
+def run_env(env_name: str, method_keys: List[str], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -350,7 +350,7 @@ def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed
     tasks = create_fold_tasks(cfg, n_folds=n_folds, seed=base_seed)
 
     # Run experiments
-    results = run_experiments(methods, tasks=tasks, base_seed=base_seed)
+    results = run_experiments(method_keys, tasks=tasks, base_seed=base_seed)
 
     # Print summary
     print_summary(results, env_name)
@@ -385,7 +385,7 @@ def run_env(env_name: str, methods: Dict[str, dict], n_folds: int = 5, base_seed
             npz_file,
             results={k: dict(v) for k, v in results.items()},
             stats=stats,
-            methods=list(methods.keys()),
+            methods=method_keys,
             n_folds=n_folds
         )
         print(f"Raw results saved to: {npz_file}")
@@ -397,37 +397,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run failure prediction experiments.')
     parser.add_argument('--env', type=str, required=True,
                         help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}")
+    parser.add_argument('--methods', type=str, default=None,
+                        help=f"Comma-separated method keys. Available: {list(DETECTOR_CONFIGS.keys())}. Default: {DEFAULT_METHODS}")
     parser.add_argument('--n-folds', type=int, default=5, help='Number of CV folds')
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
     args = parser.parse_args()
 
-    # Define methods with their hyperparameters
-    methods = {
-        "Full FFT": {
-            'gamma': 0.5,
-            'lam': 1e-3,
-            'max_windows': 100,
-        },
-        "Sig Kernel": {
-            'gamma': 0.001,
-            'lam': 1e-3,
-            'max_windows': 100,
-        },
-        "ConvAE w/ Recon Loss": {
-            'window': 70,
-            'stride': 35,
-            'lr': 3e-4,
-            'epochs': 5,
-            'latent_dim': 30,
-        },
-        "ConvAE w/ Lat": {
-            'window': 70,
-            'stride': 35,
-            'lr': 3e-4,
-            'epochs': 5,
-            'latent_dim': 30,
-        },
-    }
+    # Parse methods
+    if args.methods:
+        method_keys = [m.strip() for m in args.methods.split(',')]
+        # Validate
+        for m in method_keys:
+            if m not in DETECTOR_CONFIGS:
+                raise ValueError(f"Unknown method: {m}. Available: {list(DETECTOR_CONFIGS.keys())}")
+    else:
+        method_keys = DEFAULT_METHODS
 
     # Determine which environments to run
     if args.env == 'all':
@@ -441,7 +425,7 @@ if __name__ == "__main__":
     all_results = {}
     for env_name in envs:
         try:
-            results, stats = run_env(env_name, methods, n_folds=args.n_folds, base_seed=args.seed, output_latex=output_latex)
+            results, stats = run_env(env_name, method_keys, n_folds=args.n_folds, base_seed=args.seed, output_latex=output_latex)
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
