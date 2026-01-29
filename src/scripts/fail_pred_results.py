@@ -23,16 +23,20 @@ from detectors.kernel import KernDetector
 from detectors.conv import ConvAEDetector
 from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
 from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
+from config.envs import ENV_INFO
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
 
 
-# Display names for methods (config key -> display name)
-METHOD_DISPLAY_NAMES = {
-    "fft": "FFT Kernel",
-    "sig": "Sig Kernel",
-    "rec": "ConvAE Recon",
-    "lat": "ConvAE Latent",
-}
+def get_method_display_name(method_key: str) -> str:
+    """Get display name for a method from config."""
+    config = DETECTOR_CONFIGS.get(method_key, {})
+    return config.get('display_name', method_key)
+
+
+def get_env_display_name(env_key: str) -> str:
+    """Get display name for an environment from config."""
+    info = ENV_INFO.get(env_key)
+    return info.display_name if info else env_key
 
 
 def get_detector(method_key: str):
@@ -126,7 +130,7 @@ def run_experiments(
     n_folds = len(tasks)
 
     for method_key in method_keys:
-        display_name = METHOD_DISPLAY_NAMES.get(method_key, method_key)
+        display_name = get_method_display_name(method_key)
         print(f"\n{'='*60}")
         print(f"Running {display_name}...")
         print(f"{'='*60}")
@@ -174,6 +178,7 @@ def format_latex_table(
     """
     Format results as a LaTeX table matching the paper style.
     """
+    display_name = get_env_display_name(env_name)
 
     # Build stats table header
     stats_table = f"""
@@ -182,9 +187,9 @@ def format_latex_table(
 \\begin{{tabular}}{{|l|c|c|c|c|c|c|}}
 \\hline
 Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures in test \\\\ \\hline
-{env_name} & {window or '?'} & {horizon or '?'} & {obs_dim} & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\ \\hline
+{display_name} & {window or '?'} & {horizon or '?'} & {obs_dim} & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\ \\hline
 \\end{{tabular}}
-\\caption{{Training and testing data statistics for {env_name}.}}
+\\caption{{Training and testing data statistics for {display_name}.}}
 \\label{{tab:{env_name.lower()}_stats}}
 \\end{{table}}
 """
@@ -196,7 +201,7 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
 \\begin{{tabular}}{{|l|cccc|}}
 \\hline
 \\multirow{{2}}{{*}}{{Method}}
-  & \\multicolumn{{4}}{{c|}}{{{env_name}}} \\\\ \\cline{{2-5}}
+  & \\multicolumn{{4}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-5}}
  & TN (\\%) & FP (\\%) & FN (\\%) & TP (\\%) \\\\ \\hline
 """
 
@@ -214,7 +219,7 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
     results_table += """
 \\hline
 \\end{tabular}
-\\caption{Results for the """ + env_name + """ environment.}
+\\caption{Results for the """ + display_name + """ environment.}
 \\label{tab:""" + env_name.lower() + """}
 \\end{table}
 """
@@ -256,7 +261,8 @@ def print_f2_summary(all_results: Dict[str, Dict[str, Dict[str, Tuple[float, flo
     # Header
     header = f"{'Method':<25}"
     for env in envs:
-        header += f" {env:<20}"
+        display_name = get_env_display_name(env)
+        header += f" {display_name:<20}"
     print(header)
     print("-" * (25 + 21 * len(envs)))
 
@@ -282,7 +288,8 @@ def format_f2_latex_table(
 
     # Build table header
     col_spec = "|l|" + "c|" * len(envs)
-    header_row = " & ".join(envs)
+    env_display_names = [get_env_display_name(env) for env in envs]
+    header_row = " & ".join(env_display_names)
 
     latex = f"""
 \\begin{{table}}[h!]

@@ -104,9 +104,9 @@ DATASETS = {
         env='ant',
         platform='mujoco',
         policy='ant-v5-sac-expert.zip',
-        mass_range=(0.6, 1.8),
-        friction_range=(0.6, 1.4),
-        damping_range=(0.6, 2.8),
+        mass_range=(0.4, 3.0),
+        friction_range=(0.4, 3.0),
+        damping_range=(0.4, 3.0),
     ),
 
     # --- Humanoid ---
