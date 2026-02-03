@@ -46,6 +46,7 @@ def get_detector(method_key: str):
 
     config = DETECTOR_CONFIGS[method_key].copy()
     cls_name = config.pop('cls')
+    config.pop('display_name', None)
 
     if cls_name == 'KernDetector':
         return KernDetector(**config)
@@ -198,11 +199,11 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
     results_table = f"""
 \\begin{{table}}[h!]
 \\centering
-\\begin{{tabular}}{{|l|cccc|}}
+\\begin{{tabular}}{{|l|ccccc|}}
 \\hline
 \\multirow{{2}}{{*}}{{Method}}
-  & \\multicolumn{{4}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-5}}
- & TN (\\%) & FP (\\%) & FN (\\%) & TP (\\%) \\\\ \\hline
+  & \\multicolumn{{5}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-6}}
+ & TN (\\%) & FP (\\%) & FN (\\%) & TP (\\%) & F2 \\\\ \\hline
 """
 
     for method_name, metrics in results.items():
@@ -210,10 +211,11 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
         fp_mean, fp_std = metrics['FP']
         fn_mean, fn_std = metrics['FN']
         tp_mean, tp_std = metrics['TP']
+        f2_mean, f2_std = metrics['F2']
 
         results_table += f"""
 {method_name}
- & {tn_mean:.2f} $\\pm$ {tn_std:.2f} & {fp_mean:.2f} $\\pm$ {fp_std:.2f} & {fn_mean:.2f} $\\pm$ {fn_std:.2f} & {tp_mean:.2f} $\\pm$ {tp_std:.2f}\\\\
+ & {tn_mean:.2f} $\\pm$ {tn_std:.2f} & {fp_mean:.2f} $\\pm$ {fp_std:.2f} & {fn_mean:.2f} $\\pm$ {fn_std:.2f} & {tp_mean:.2f} $\\pm$ {tp_std:.2f} & {f2_mean:.3f} $\\pm$ {f2_std:.3f}\\\\
 """
 
     results_table += """
@@ -282,9 +284,22 @@ def format_f2_latex_table(
 ) -> str:
     """
     Format F2 scores as a single LaTeX table with environments as columns.
+    The method with the highest mean F2 score for each environment is bolded.
     """
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values()))['results'].keys())
+
+    # Find best method for each environment
+    best_method_per_env = {}
+    for env in envs:
+        best_mean = -1
+        best_method = None
+        for method in methods:
+            f2_mean, _ = all_results[env]['results'][method]['F2']
+            if f2_mean > best_mean:
+                best_mean = f2_mean
+                best_method = method
+        best_method_per_env[env] = best_method
 
     # Build table header
     col_spec = "|l|" + "c|" * len(envs)
@@ -304,7 +319,10 @@ Method & {header_row} \\\\ \\hline
         cells = [method]
         for env in envs:
             f2_mean, f2_std = all_results[env]['results'][method]['F2']
-            cells.append(f"{f2_mean:.3f} $\\pm$ {f2_std:.3f}")
+            cell = f"{f2_mean:.3f} $\\pm$ {f2_std:.3f}"
+            if method == best_method_per_env[env]:
+                cell = f"\\textbf{{{cell}}}"
+            cells.append(cell)
         latex += " & ".join(cells) + " \\\\\n"
 
     latex += """\\hline
@@ -426,7 +444,7 @@ if __name__ == "__main__":
         output_latex = False  # Don't output per-env LaTeX for "all" mode
     else:
         envs = [args.env]
-        output_latex = False  # Single env mode: no LaTeX output
+        output_latex = True  # Single env mode: output LaTeX with full metrics
 
     # Run experiments
     all_results = {}
