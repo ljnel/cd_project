@@ -7,11 +7,14 @@ outlier detectors. Concrete implementations wrap underlying algorithms:
 - ConvAEOutlierDetector wraps models.conv_ae.ConvAE
 """
 
+import logging
 from abc import abstractmethod
 from typing import Optional
 import numpy as np
 from sklearn.base import BaseEstimator, OutlierMixin
 from sklearn.model_selection import train_test_split
+
+logger = logging.getLogger("cd.detectors")
 
 
 class AnomalyDetector(BaseEstimator, OutlierMixin):
@@ -62,19 +65,22 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         
         # episode-level train/cal split
         X_train, X_cal = train_test_split(X, test_size=self.cal_fraction)
-        
+        logger.info(f"Train/cal split: {len(X_train)}/{len(X_cal)} episodes")
+
         # implementation-specific fitting and scoring
         self._fit_impl(X_train)
 
         if self.window is None:
             raise RuntimeError(f"{self.__class__.__name__}._fit_impl() must set self.window_")
-        print(f'Successfully fit model w/ window length {self.window}')
     
         X_cal_windows = self._get_cal_windows(X_cal)
         
         cal_scores = self._score_impl(X_cal_windows)
         self.threshold_ = np.quantile(cal_scores, self.threshold_quantile)
-        
+        logger.info(f"Threshold: {self.threshold_:.3g} "
+                    f"(scores: {cal_scores.min():.2g}/{np.median(cal_scores):.2g}/{cal_scores.max():.2g} min/med/max, "
+                    f"q={self.threshold_quantile})")
+
         return self
     
     def predict(self, X_windows: np.ndarray) -> np.ndarray:

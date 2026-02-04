@@ -1,6 +1,9 @@
+import logging
 from typing import Union, Literal
 from .kernels import Kernel
 import numpy as np
+
+logger = logging.getLogger("cd.algs.kern_cd")
 from scipy.linalg import solve_triangular
 from sklearn.base import BaseEstimator
 
@@ -57,6 +60,12 @@ class KernCD(BaseEstimator):
         self.K = K + self.lam_ * m * np.eye(m)
         self.L = np.linalg.cholesky(self.K)  # (m, m)
         self.data = X
+
+        # Diagnostic info
+        cond = np.linalg.cond(self.K)
+        reg_str = self.reg if isinstance(self.reg, str) else f"fixed={self.reg}"
+        logger.info(f"λ={self.lam_:.2e} ({reg_str}), cond={cond:.2e}, m={m}")
+
         return self
 
     def predict(self, X):

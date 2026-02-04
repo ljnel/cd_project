@@ -20,5 +20,6 @@ def get_method(name: str):
 
     config = DETECTOR_CONFIGS[name].copy()
     cls_name = config.pop('cls')
+    config.pop('display_name', None)  # remove non-constructor keys
     cls = _CLASSES[cls_name]
     return cls(**config)

@@ -1,7 +1,10 @@
+import logging
 from typing import Optional
 import numpy as np
 
 from .base import AnomalyDetector
+
+logger = logging.getLogger("cd.detectors.conv")
 from utils.windows import WindowDataset, strided_window_view
 from utils.misc import median_heuristic
 
@@ -85,6 +88,7 @@ class ConvAEDetector(AnomalyDetector):
         self.stride_ = max(1, int(self.window * (1 - self.overlap)))
         self.latent_dim_ = max(2, int(obs_dim * self.latent_dim_mult))
         self.in_chan_ = obs_dim
+        logger.info(f"Window: {self.window} (window_frac={self.window_frac})")
 
         # Extract training windows with stride
         X_windows = strided_window_view(
@@ -115,6 +119,8 @@ class ConvAEDetector(AnomalyDetector):
         opt = torch.optim.Adam(self.model_.parameters(), lr=self.lr)
 
         epochs = 5 if self.method == "reconstruction" else self.epochs
+        logger.info(f"Training: method={self.method}, "
+                    f"stride={self.stride_}, latent_dim={self.latent_dim_}, epochs={epochs}")
         train(self.model_, dl, opt, epochs=epochs, device=self.device)
 
         # For latent method, fit KernCD on latent representations
@@ -133,12 +139,12 @@ class ConvAEDetector(AnomalyDetector):
                 z_sub = z
             self.latent_detector_ = KernCD(
                 RBF(gamma="median"), reg="adaptive").fit(z_sub)
-            print(f'fit latent det {z_sub.shape}')
+            logger.debug(f"Latent detector fitted on {z_sub.shape[0]} samples")
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
         X_windows = strided_window_view(X, window=self.window, stride=self.stride_)
         X_windows = X_windows.reshape((-1, self.window, X.shape[-1]))
-        print(f'Cal windows: {X_windows.shape}')
+        logger.debug(f"Cal windows: {X_windows.shape}")
         return X_windows
 
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:

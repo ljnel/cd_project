@@ -4,9 +4,12 @@ This module provides sklearn-compatible wrappers around kernel methods.
 The underlying algorithm (KernCD) lives in algs.kern_cd.
 """
 
+import logging
 import warnings
 
 from algs.kern_cd import KernCD
+
+logger = logging.getLogger("cd.detectors.kernel")
 from algs.kernels import RBF, GaussFFT, SigKernel
 from .base import AnomalyDetector
 from utils.signals import estimate_window, low_pass
@@ -86,15 +89,17 @@ class KernDetector(AnomalyDetector):
         if self.window_frac is not None:
             ep_len = X.shape[1]
             self.window = max(10, int(ep_len * self.window_frac))
+            logger.info(f"Window: {self.window} (window_frac={self.window_frac})")
         else:
             self.window = estimate_window(X, period=self.n_periods, method='mean')
+            logger.info(f"Window: {self.window} (auto-estimated, {self.n_periods} period(s))")
 
         # Store windows per episode so calibration uses same density
         n_train_episodes = X.shape[0]
         self._windows_per_episode = max(1, self.max_windows // n_train_episodes)
 
         X_windows = self._get_windows(X, self.max_windows)
-        print(f'Train windows: {X_windows.shape}')
+        logger.debug(f"Train windows: {X_windows.shape}")
 
         if self.kernel_type == "rbf":
             X_flat = X_windows.reshape(len(X_windows), -1)
@@ -117,11 +122,15 @@ class KernDetector(AnomalyDetector):
         else:
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")
 
+        # Log kernel info (gamma is resolved after fit)
+        gamma_val = self.model_.kernel.gamma
+        logger.info(f"Kernel: {self.kernel_type}, γ={gamma_val:.3g}")
+
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
         n_cal_episodes = X.shape[0]
         max_cal = self._windows_per_episode * n_cal_episodes
         X_windows = self._get_windows(X, max_cal)
-        print(f'Cal windows: {X_windows.shape}')
+        logger.debug(f"Cal windows: {X_windows.shape}")
         return X_windows
 
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:

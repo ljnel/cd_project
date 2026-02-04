@@ -1,6 +1,9 @@
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import lfilter
+
+logger = logging.getLogger("cd.utils.signals")
 
 
 def estimate_freq(x: np.ndarray, fs: float) -> float:
@@ -39,8 +42,10 @@ def estimate_window(x: np.ndarray, period: int = 1, method: str = 'median') -> i
     # Convert average frequency back to total window length
     # Period = 1 / Frequency
     estimated_window = period / avg_frequency
-        
-    return int(round(estimated_window))
+    window = int(round(estimated_window))
+    logger.debug(f"periods={period}, freq={avg_frequency:.4f} ({method}) → window={window}")
+
+    return window
 
 def analyze(x: np.ndarray, max_f=None, fs: float = 1):
     "Analyze a scalar signal."
