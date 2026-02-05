@@ -9,16 +9,7 @@ Test data: Windows sampled from all trajectories, labeled by whether failure occ
 """
 
 from tasks.experiment import Experiment
-from config.tasks import (
-    SafetyMonitorConfig,
-    TASK_CONFIGS,
-    inv_pend_cfg,
-    hopper_cfg,
-    half_cheetah_cfg,
-    ant_cfg,
-    humanoid_cfg,
-    upkie_cfg,
-)
+from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
 from utils.paths import get_root
 from utils.windows import sample_test_windows
 
@@ -28,17 +19,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 
-# Re-export for backwards compatibility
 __all__ = [
     'SafetyMonitor',
     'SafetyMonitorConfig',
     'TASK_CONFIGS',
-    'inv_pend_cfg',
-    'hopper_cfg',
-    'half_cheetah_cfg',
-    'ant_cfg',
-    'humanoid_cfg',
-    'upkie_cfg',
 ]
 
 

@@ -115,7 +115,7 @@ DATASETS = {
         env='humanoid',
         platform='mujoco',
         policy='humanoid-v5-sac-expert.zip',
-        mass_range=(0.99, 1.01),
+        mass_range=(0.997, 1.003),        
         friction_range=(1.0, 1.0),
         damping_range=(1.0, 1.0),
     ),
