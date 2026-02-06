@@ -52,7 +52,7 @@ def analyze(x: np.ndarray, max_f=None, fs: float = 1):
     dt = 1.0 / fs
     t = np.arange(0, len(x) * dt, step=dt)
     est_freq = estimate_freq(x, fs)
-    print(f'est. freq.: {est_freq}')
+    logger.debug(f'est. freq.: {est_freq}')
 
     fig, ax = plt.subplots(1, 3, figsize=(14, 4))
 

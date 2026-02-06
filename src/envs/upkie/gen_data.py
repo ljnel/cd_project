@@ -37,6 +37,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="gymnasium")
 logging.getLogger("loop_rate_limiters").setLevel(logging.ERROR)
 logging.getLogger("upkie").setLevel(logging.ERROR)
 
+logger = logging.getLogger("cd.envs.upkie.gen_data")
+
 upkie.envs.register()
 
 # PPO config
@@ -191,7 +193,7 @@ def _run_episodes(
         _restore_parameters(robot_id, base_params)
 
         if verbose and (i + 1) % 10 == 0:
-            print(f"Episode {i+1}/{n_batch}")
+            logger.info(f"Episode {i+1}/{n_batch}")
 
     env.close()
 
@@ -261,7 +263,7 @@ def _gen_data_parallel(
     batches = np.array_split(all_indices, n_workers)
     batches = [b.tolist() for b in batches if len(b) > 0]
 
-    print(f"Running {len(batches)} parallel workers...")
+    logger.info(f"Running {len(batches)} parallel workers...")
 
     # Run episodes in parallel
     results = Parallel(n_jobs=n_jobs, verbose=10)(
@@ -325,17 +327,17 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1, render: bool = False) -> dict
     friction_scales = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=n_episodes).astype(np.float32)
     damping_scales = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=n_episodes).astype(np.float32)
 
-    print(f"Generating {n_episodes} episodes, {cfg.time}s @ {frequency}Hz")
-    print(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
-    print(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
-    print(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
+    logger.info(f"Generating {n_episodes} episodes, {cfg.time}s @ {frequency}Hz")
+    logger.info(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
+    logger.info(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
+    logger.info(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
     if disturbance:
-        print(f"  Disturbance: {disturbance.__class__.__name__}")
-    print(f"  Balancer: {'PPO' if use_ppo else 'MPC'}")
+        logger.info(f"  Disturbance: {disturbance.__class__.__name__}")
+    logger.info(f"  Balancer: {'PPO' if use_ppo else 'MPC'}")
 
     # Dispatch: use sequential when render needed, parallel otherwise
     if render:
-        print("Using sequential execution (render enabled)")
+        logger.info("Using sequential execution (render enabled)")
         result = _gen_data_sequential(
             n_episodes=n_episodes,
             n_steps=n_steps,
@@ -373,7 +375,7 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1, render: bool = False) -> dict
     result['seeds'] = episode_seeds
 
     n_failed = (result['fail'] >= 0).sum()
-    print(f"Done: X={result['X'].shape}, actions={result['actions'].shape}, failed={n_failed}/{n_episodes}")
+    logger.info(f"Done: X={result['X'].shape}, actions={result['actions'].shape}, failed={n_failed}/{n_episodes}")
 
     return result
 
@@ -426,6 +428,8 @@ def compare_plots(data: dict, num_samples=3, title=""):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
     import time
     from argparse import ArgumentParser
 
@@ -451,7 +455,7 @@ if __name__ == "__main__":
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(output_path, **data)
 
-    print(f"Generated in {elapsed:.1f}s")
-    print(f"Saved to {output_path}")
+    logger.info(f"Generated in {elapsed:.1f}s")
+    logger.info(f"Saved to {output_path}")
 
     compare_plots(data, title=f"Dataset: {cfg.key}")

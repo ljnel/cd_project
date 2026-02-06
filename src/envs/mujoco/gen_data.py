@@ -14,16 +14,20 @@ Returns dict with:
 Example: python gen_data.py --dataset half_cheetah/domain_rand
 """
 
+import logging
+import time
+from argparse import ArgumentParser
+
+import numpy as np
+import gymnasium as gym
+from stable_baselines3 import SAC
+
 from config.datasets import DatasetConfig, DATASETS
 from data.datasets import get_dataset_path
 from config.envs import ENV_INFO
 from utils.paths import get_root
 
-import numpy as np
-import gymnasium as gym
-from stable_baselines3 import SAC
-import time
-from argparse import ArgumentParser
+logger = logging.getLogger("cd.envs.mujoco.gen_data")
 
 
 def _run_episodes(
@@ -88,7 +92,7 @@ def _run_episodes(
             obs = next_obs
 
         if verbose and (i + 1) % 50 == 0:
-            print(f"Generated {i + 1}/{n_batch} episodes")
+            logger.info(f"Generated {i + 1}/{n_batch} episodes")
 
     env.close()
 
@@ -153,7 +157,7 @@ def _gen_data_parallel(
     batches = np.array_split(all_indices, n_workers)
     batches = [b.tolist() for b in batches if len(b) > 0]
 
-    print(f"Running {len(batches)} parallel workers...")
+    logger.info(f"Running {len(batches)} parallel workers...")
 
     # Run episodes in parallel
     results = Parallel(n_jobs=n_jobs, verbose=10)(
@@ -211,14 +215,14 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     friction_scale = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=cfg.n_episodes).astype(np.float32)
     damping_scale = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=cfg.n_episodes).astype(np.float32)
 
-    print(f"Generating {cfg.n_episodes} episodes for {gym_name}")
-    print(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
-    print(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
-    print(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
+    logger.info(f"Generating {cfg.n_episodes} episodes for {gym_name}")
+    logger.info(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
+    logger.info(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
+    logger.info(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
 
     # Dispatch: sequential or parallel
     if n_jobs == 1:
-        print("Using sequential execution")
+        logger.info("Using sequential execution")
         result = _gen_data_sequential(
             gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
             seeds, mass_scale, friction_scale, damping_scale
@@ -236,12 +240,14 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     result['seeds'] = seeds
 
     n_failed = (result['fail'] >= 0).sum()
-    print(f"Done: {n_failed}/{cfg.n_episodes} failures ({100*n_failed/cfg.n_episodes:.1f}%)")
+    logger.info(f"Done: {n_failed}/{cfg.n_episodes} failures ({100*n_failed/cfg.n_episodes:.1f}%)")
 
     return result
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
     parser = ArgumentParser()
     parser.add_argument('--dataset', required=True, help='Dataset key (e.g., half_cheetah/domain_rand)')
     parser.add_argument('--n_jobs', type=int, default=-1, help='Number of parallel workers (-1 for all cores, 1 for sequential)')
@@ -263,5 +269,5 @@ if __name__ == "__main__":
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(output_path, **data)
 
-    print(f"Generated in {elapsed:.1f}s")
-    print(f"Saved to {output_path}")
+    logger.info(f"Generated in {elapsed:.1f}s")
+    logger.info(f"Saved to {output_path}")

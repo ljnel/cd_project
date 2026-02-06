@@ -14,12 +14,15 @@ Usage:
 
 import argparse
 import gc
+import logging
 from pathlib import Path
 
 import numpy as np
 
 from config.datasets import DatasetConfig, DATASETS
 from utils.paths import get_root
+
+logger = logging.getLogger("cd.data.datasets")
 
 
 # =============================================================================
@@ -100,10 +103,10 @@ def get_or_generate(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
         Dataset dict
     """
     if dataset_exists(cfg):
-        print(f"Loading existing dataset: {cfg.key}")
+        logger.info(f"Loading existing dataset: {cfg.key}")
         return load_dataset(cfg)
     else:
-        print(f"Generating new dataset: {cfg.key}")
+        logger.info(f"Generating new dataset: {cfg.key}")
         data = generate_dataset(cfg, n_jobs=n_jobs)
         return data
 
@@ -132,7 +135,7 @@ def generate_dataset(cfg: DatasetConfig, n_jobs: int = -1, overwrite: bool = Fal
         raise ValueError(f"Unknown platform: {cfg.platform}")
 
     save_dataset(cfg, data, overwrite=True)
-    print(f"Saved dataset to: {path}")
+    logger.info(f"Saved dataset to: {path}")
     return data
 
 
@@ -192,10 +195,10 @@ def report_fail_proportions() -> dict:
     for row, count_str in zip(rows, count_strs):
         key = row[0]
         if row[1] is None:
-            print(f"{key:<{key_width}}  dataset not found")
+            logger.info(f"{key:<{key_width}}  dataset not found")
         else:
             proportion = row[3]
-            print(f"{key:<{key_width}}  {count_str:>{count_width}}  ({proportion:>6.2%}) failed")
+            logger.info(f"{key:<{key_width}}  {count_str:>{count_width}}  ({proportion:>6.2%}) failed")
 
     return results
 
@@ -216,18 +219,19 @@ def main():
 
     for key in keys:
         if key not in DATASETS:
-            print(f"Unknown dataset: {key}")
+            logger.warning(f"Unknown dataset: {key}")
             continue
 
         cfg = DATASETS[key]
         if args.skip_existing and dataset_exists(cfg):
-            print(f"Skipping existing: {key}")
+            logger.info(f"Skipping existing: {key}")
             continue
 
-        print(f"\n{'='*50}\nGenerating: {key}\n{'='*50}")
+        logger.info(f"Generating: {key}")
         generate_dataset(cfg, overwrite=args.overwrite)
         gc.collect()
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     main()

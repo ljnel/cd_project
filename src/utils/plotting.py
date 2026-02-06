@@ -1,9 +1,12 @@
 import inspect
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+
+logger = logging.getLogger("cd.utils.plotting")
 
 
 def plot_contours(f, ax, **plot_kwargs):
@@ -62,14 +65,14 @@ def plot_channels(x, y, max_channels=9, max_batches=20):
         channel_indices = np.random.choice(
             n_channel, max_channels, replace=False)
         channel_indices.sort()
-        print(f"Sampling {max_channels} random channels out of {n_channel}...")
+        logger.debug(f"Sampling {max_channels} random channels out of {n_channel}...")
     else:
         channel_indices = np.arange(n_channel)
 
     if n_batch > max_batches:
         batch_indices = np.random.choice(n_batch, max_batches, replace=False)
         batch_indices.sort()
-        print(f"Sampling {max_batches} random batches out of {n_batch}...")
+        logger.debug(f"Sampling {max_batches} random batches out of {n_batch}...")
     else:
         batch_indices = np.arange(n_batch)
 
@@ -125,7 +128,7 @@ def save_plot(
 
     fig = ax.figure if ax is not None else plt.gcf()
     fig.savefig(outfile, dpi=dpi, bbox_inches=bbox_inches)
-    print(f"Plot saved to: {outfile}")
+    logger.info(f"Plot saved to: {outfile}")
     return outfile
 
 

@@ -281,11 +281,6 @@ def run_env(env_name: str, method_keys: List[str], n_folds: int = 5, base_seed: 
             failure_prop=f"{stats.get('failure_prop', 0):.3f}" if stats.get('failure_prop') else None
         )
 
-        print("\n" + "="*80)
-        print("LATEX OUTPUT")
-        print("="*80)
-        print(latex_output)
-
         # Save to results/fail_pred/
         output_dir = get_root() / "results" / "fail_pred"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -366,10 +361,6 @@ if __name__ == "__main__":
 
         # Generate and save combined F2 LaTeX table
         latex_output = format_f2_latex_table(all_results)
-        print("\n" + "="*80)
-        print("COMBINED F2 LATEX TABLE")
-        print("="*80)
-        print(latex_output)
 
         output_dir = get_root() / "results" / "fail_pred"
         output_dir.mkdir(parents=True, exist_ok=True)

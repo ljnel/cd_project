@@ -5,6 +5,8 @@ Provides a FoldTask class that mimics the SafetyMonitor interface,
 allowing k-fold CV without modifying SafetyMonitor itself.
 """
 
+import logging
+
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -13,6 +15,8 @@ from typing import List
 from config.tasks import SafetyMonitorConfig
 from utils.paths import get_root
 from utils.windows import sample_test_windows
+
+logger = logging.getLogger("cd.tasks.fold_task")
 
 
 class FoldTask:
@@ -87,8 +91,8 @@ class FoldTask:
 
         if verbose:
             fold_str = f"Fold {self.fold_id}: " if self.fold_id is not None else ""
-            print(f"{fold_str}Train: {x_train.shape} (successes from {len(self.train_idx)} eps)")
-            print(f"{fold_str}Test: {x_test.shape} ({self.y_true.sum():.0f} failures, {(~self.y_true).sum():.0f} successes)")
+            logger.info(f"{fold_str}Train: {x_train.shape} (successes from {len(self.train_idx)} eps)")
+            logger.info(f"{fold_str}Test: {x_test.shape} ({self.y_true.sum():.0f} failures, {(~self.y_true).sum():.0f} successes)")
 
         return x_train, x_test
 

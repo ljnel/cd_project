@@ -1,7 +1,11 @@
+import logging
+
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
 from typing import Tuple
 import torch
+
+logger = logging.getLogger("cd.utils.windows")
 
 
 def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> Tuple[np.ndarray, np.ndarray]:
@@ -47,7 +51,7 @@ def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: i
 
             if start_min > start_max:  # includes the case start_max < 0
                 if verbose:
-                    print(
+                    logger.info(
                         f"Skipping traj {i} with fail {fail[i]}: No valid window found.")
                 continue
             start = np.random.randint(start_min, start_max + 1)
@@ -58,7 +62,7 @@ def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: i
         j += 1
 
     if verbose:
-        print(
+        logger.info(
             f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] > -1).mean()}')
 
     return x_out[:j], fail_out[:j]
