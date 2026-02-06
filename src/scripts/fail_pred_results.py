@@ -14,7 +14,7 @@ Usage:
 import argparse
 import gc
 import numpy as np
-from sklearn.metrics import confusion_matrix, fbeta_score
+from sklearn.metrics import confusion_matrix, fbeta_score, roc_auc_score
 from typing import Dict, List, Tuple, Union
 import warnings
 warnings.filterwarnings("ignore")
@@ -25,6 +25,8 @@ from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
 from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
 from config.envs import ENV_INFO
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
+from utils.latex import format_latex_table, format_f2_latex_table
+from utils.paths import get_root
 
 
 def get_method_display_name(method_key: str) -> str:
@@ -60,7 +62,7 @@ def run_single_trial(
     method_key: str,
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
-) -> Tuple[float, float, float, float, float]:
+) -> Tuple[float, float, float, float]:
     """
     Run a single trial of anomaly detection.
 
@@ -70,7 +72,7 @@ def run_single_trial(
         seed: Random seed for reproducibility
 
     Returns:
-        Tuple of (TN, FP, FN, TP) as percentages and F2 score
+        Tuple of (TNR, TPR, F2, AUROC) - TNR and TPR as percentages, F2 and AUROC scores
     """
     np.random.seed(seed)
 
@@ -82,7 +84,8 @@ def run_single_trial(
 
     # Fit and predict
     model.fit(x_tr)
-    y_pred = model.predict(x_te)
+    scores = model.score_samples(x_te)
+    y_pred = np.where(scores > model.threshold_, 1, 0)
 
     # Compute confusion matrix (normalized by true labels)
     cm = confusion_matrix(task.y_true, y_pred, normalize='true')
@@ -92,23 +95,27 @@ def run_single_trial(
         tn, fp, fn, tp = cm.ravel()
     else:
         # Edge case: only one class present
-        tn, fp, fn, tp = 0, 0, 0, 0
+        tn, tp = 1.0, 1.0
         if len(np.unique(task.y_true)) == 1:
             if task.y_true[0] == 0:
-                tn = cm[0, 0] if y_pred[0] == 0 else 0
-                fp = cm[0, 1] if cm.shape[1] > 1 else 0
+                tn = 1.0 - (cm[0, 1] if cm.shape[1] > 1 else 0)
             else:
-                fn = cm[0, 0] if y_pred[0] == 0 else 0
-                tp = cm[0, 1] if cm.shape[1] > 1 else 0
+                tp = 1.0 - (cm[0, 0] if y_pred[0] == 0 else 0)
 
     # Compute F2 score
     f2 = fbeta_score(task.y_true, y_pred, beta=2)
+
+    # Compute AUROC
+    if len(np.unique(task.y_true)) > 1:
+        auroc = roc_auc_score(task.y_true, scores)
+    else:
+        auroc = float('nan')
 
     # Cleanup to prevent memory accumulation
     del model
     gc.collect()
 
-    return tn * 100, fp * 100, fn * 100, tp * 100, f2
+    return tn * 100, tp * 100, f2, auroc
 
 
 def run_experiments(
@@ -143,9 +150,9 @@ def run_experiments(
             print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
 
             try:
-                tn, fp, fn, tp, f2 = run_single_trial(method_key, task, seed)
-                fold_results.append((tn, fp, fn, tp, f2))
-                print(f"TN={tn:.1f}%, FP={fp:.1f}%, FN={fn:.1f}%, TP={tp:.1f}%, F2={f2:.3f}")
+                tnr, tpr, f2, auroc = run_single_trial(method_key, task, seed)
+                fold_results.append((tnr, tpr, f2, auroc))
+                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%, F2={f2:.3f}, AUROC={auroc:.3f}")
 
             except Exception as e:
                 print(f"FAILED: {e}")
@@ -154,79 +161,15 @@ def run_experiments(
         if fold_results:
             fold_results = np.array(fold_results)
             results[display_name] = {
-                'TN': (fold_results[:, 0].mean(), fold_results[:, 0].std()),
-                'FP': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
-                'FN': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
-                'TP': (fold_results[:, 3].mean(), fold_results[:, 3].std()),
-                'F2': (fold_results[:, 4].mean(), fold_results[:, 4].std()),
+                'TNR': (fold_results[:, 0].mean(), fold_results[:, 0].std()),
+                'TPR': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
+                'F2': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
+                'AUROC': (np.nanmean(fold_results[:, 3]), np.nanstd(fold_results[:, 3])),
             }
         else:
             print(f"  WARNING: No successful folds for {display_name}")
 
     return results
-
-
-def format_latex_table(
-    results: Dict[str, Dict[str, Tuple[float, float]]],
-    env_name: str,
-    window: int = None,
-    horizon: int = None,
-    obs_dim: int = 4,
-    train_size: int = 100,
-    test_size: int = None,
-    failure_prop: float = None
-) -> str:
-    """
-    Format results as a LaTeX table matching the paper style.
-    """
-    display_name = get_env_display_name(env_name)
-
-    # Build stats table header
-    stats_table = f"""
-\\begin{{table}}[h!]
-\\centering
-\\begin{{tabular}}{{|l|c|c|c|c|c|c|}}
-\\hline
-Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures in test \\\\ \\hline
-{display_name} & {window or '?'} & {horizon or '?'} & {obs_dim} & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\ \\hline
-\\end{{tabular}}
-\\caption{{Training and testing data statistics for {display_name}.}}
-\\label{{tab:{env_name.lower()}_stats}}
-\\end{{table}}
-"""
-
-    # Build results table
-    results_table = f"""
-\\begin{{table}}[h!]
-\\centering
-\\begin{{tabular}}{{|l|ccccc|}}
-\\hline
-\\multirow{{2}}{{*}}{{Method}}
-  & \\multicolumn{{5}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-6}}
- & TN (\\%) & FP (\\%) & FN (\\%) & TP (\\%) & F2 \\\\ \\hline
-"""
-
-    for method_name, metrics in results.items():
-        tn_mean, tn_std = metrics['TN']
-        fp_mean, fp_std = metrics['FP']
-        fn_mean, fn_std = metrics['FN']
-        tp_mean, tp_std = metrics['TP']
-        f2_mean, f2_std = metrics['F2']
-
-        results_table += f"""
-{method_name}
- & {tn_mean:.2f} $\\pm$ {tn_std:.2f} & {fp_mean:.2f} $\\pm$ {fp_std:.2f} & {fn_mean:.2f} $\\pm$ {fn_std:.2f} & {tp_mean:.2f} $\\pm$ {tp_std:.2f} & {f2_mean:.3f} $\\pm$ {f2_std:.3f}\\\\
-"""
-
-    results_table += """
-\\hline
-\\end{tabular}
-\\caption{Results for the """ + display_name + """ environment.}
-\\label{tab:""" + env_name.lower() + """}
-\\end{table}
-"""
-
-    return stats_table + "\n" + results_table
 
 
 def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: str):
@@ -237,18 +180,18 @@ def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: 
     print("="*80)
 
     # Header
-    print(f"\n{'Method':<25} {'TN (%)':<15} {'FP (%)':<15} {'FN (%)':<15} {'TP (%)':<15}")
-    print("-" * 85)
+    print(f"\n{'Method':<25} {'TNR (%)':<18} {'TPR (%)':<18} {'F2':<18} {'AUROC':<18}")
+    print("-" * 97)
 
     for method_name, metrics in results.items():
-        tn_str = f"{metrics['TN'][0]:.2f} +/- {metrics['TN'][1]:.2f}"
-        fp_str = f"{metrics['FP'][0]:.2f} +/- {metrics['FP'][1]:.2f}"
-        fn_str = f"{metrics['FN'][0]:.2f} +/- {metrics['FN'][1]:.2f}"
-        tp_str = f"{metrics['TP'][0]:.2f} +/- {metrics['TP'][1]:.2f}"
+        tnr_str = f"{metrics['TNR'][0]:.2f} +/- {metrics['TNR'][1]:.2f}"
+        tpr_str = f"{metrics['TPR'][0]:.2f} +/- {metrics['TPR'][1]:.2f}"
+        f2_str = f"{metrics['F2'][0]:.3f} +/- {metrics['F2'][1]:.3f}"
+        auroc_str = f"{metrics['AUROC'][0]:.3f} +/- {metrics['AUROC'][1]:.3f}"
 
-        print(f"{method_name:<25} {tn_str:<15} {fp_str:<15} {fn_str:<15} {tp_str:<15}")
+        print(f"{method_name:<25} {tnr_str:<18} {tpr_str:<18} {f2_str:<18} {auroc_str:<18}")
 
-    print("-" * 85)
+    print("-" * 79)
 
 
 def print_f2_summary(all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]):
@@ -277,61 +220,6 @@ def print_f2_summary(all_results: Dict[str, Dict[str, Dict[str, Tuple[float, flo
         print(row)
 
     print("-" * (25 + 21 * len(envs)))
-
-
-def format_f2_latex_table(
-    all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]
-) -> str:
-    """
-    Format F2 scores as a single LaTeX table with environments as columns.
-    The method with the highest mean F2 score for each environment is bolded.
-    """
-    envs = list(all_results.keys())
-    methods = list(next(iter(all_results.values()))['results'].keys())
-
-    # Find best method for each environment
-    best_method_per_env = {}
-    for env in envs:
-        best_mean = -1
-        best_method = None
-        for method in methods:
-            f2_mean, _ = all_results[env]['results'][method]['F2']
-            if f2_mean > best_mean:
-                best_mean = f2_mean
-                best_method = method
-        best_method_per_env[env] = best_method
-
-    # Build table header
-    col_spec = "|l|" + "c|" * len(envs)
-    env_display_names = [get_env_display_name(env) for env in envs]
-    header_row = " & ".join(env_display_names)
-
-    latex = f"""
-\\begin{{table}}[h!]
-\\centering
-\\begin{{tabular}}{{{col_spec}}}
-\\hline
-Method & {header_row} \\\\ \\hline
-"""
-
-    # Add rows for each method
-    for method in methods:
-        cells = [method]
-        for env in envs:
-            f2_mean, f2_std = all_results[env]['results'][method]['F2']
-            cell = f"{f2_mean:.3f} $\\pm$ {f2_std:.3f}"
-            if method == best_method_per_env[env]:
-                cell = f"\\textbf{{{cell}}}"
-            cells.append(cell)
-        latex += " & ".join(cells) + " \\\\\n"
-
-    latex += """\\hline
-\\end{tabular}
-\\caption{F2 scores across all environments.}
-\\label{tab:f2_all_envs}
-\\end{table}
-"""
-    return latex
 
 
 def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
@@ -398,14 +286,17 @@ def run_env(env_name: str, method_keys: List[str], n_folds: int = 5, base_seed: 
         print("="*80)
         print(latex_output)
 
-        # Save LaTeX to file
-        latex_file = f"{env_name}_results_latex.tex"
+        # Save to results/fail_pred/
+        output_dir = get_root() / "results" / "fail_pred"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        latex_file = output_dir / f"{env_name}_results.tex"
         with open(latex_file, "w") as f:
             f.write(latex_output)
         print(f"\nLaTeX table saved to: {latex_file}")
 
         # Also save raw results to numpy file for later analysis
-        npz_file = f"{env_name}_experiment_results.npz"
+        npz_file = output_dir / f"{env_name}_experiment_results.npz"
         np.savez(
             npz_file,
             results={k: dict(v) for k, v in results.items()},
@@ -426,7 +317,13 @@ if __name__ == "__main__":
                         help=f"Comma-separated method keys. Available: {list(DETECTOR_CONFIGS.keys())}. Default: {DEFAULT_METHODS}")
     parser.add_argument('--n-folds', type=int, default=5, help='Number of CV folds')
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable info-level logging')
     args = parser.parse_args()
+
+    # Set up logging
+    if args.verbose:
+        import logging
+        logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
 
     # Parse methods
     if args.methods:
@@ -474,7 +371,9 @@ if __name__ == "__main__":
         print("="*80)
         print(latex_output)
 
-        latex_file = "all_envs_f2_results.tex"
+        output_dir = get_root() / "results" / "fail_pred"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        latex_file = output_dir / "all_envs_f2_results.tex"
         with open(latex_file, "w") as f:
             f.write(latex_output)
         print(f"\nCombined F2 LaTeX table saved to: {latex_file}")

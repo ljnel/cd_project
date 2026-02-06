@@ -10,7 +10,7 @@ import warnings
 from algs.kern_cd import KernCD
 
 logger = logging.getLogger("cd.detectors.kernel")
-from algs.kernels import RBF, GaussFFT, SigKernel
+from algs.kernels import RBF, GaussFFT, SigKernel, ScatteringKernel
 from .base import AnomalyDetector
 from utils.signals import estimate_window, low_pass
 
@@ -119,6 +119,12 @@ class KernDetector(AnomalyDetector):
             kernel = SigKernel(gamma=gamma)
             self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
             self._flatten = False
+
+        elif self.kernel_type == "scatter":
+            gamma = self.gamma if self.gamma is not None else "median"
+            kernel = ScatteringKernel(J=3, Q=2, order=1, gamma=gamma)
+            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
+            self._flatten = False
         else:
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")
 
@@ -127,6 +133,7 @@ class KernDetector(AnomalyDetector):
         logger.info(f"Kernel: {self.kernel_type}, γ={gamma_val:.3g}")
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
+        X = low_pass(X, alpha=0.8)  # must match _fit_impl preprocessing
         n_cal_episodes = X.shape[0]
         max_cal = self._windows_per_episode * n_cal_episodes
         X_windows = self._get_windows(X, max_cal)

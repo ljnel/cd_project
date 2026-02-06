@@ -22,6 +22,14 @@ DETECTOR_CONFIGS = {
         reg=0.0001,
         gamma=0.005,
     ),
+    "scatter": dict(
+        cls='KernDetector',
+        kernel_type='scatter',
+        window_frac=0.02,
+        max_windows=1000,
+        display_name='Scatter-CD',
+        reg=0.005,
+    ),
     "rec": dict(
         cls='ConvAEDetector',
         window_frac=0.1,
