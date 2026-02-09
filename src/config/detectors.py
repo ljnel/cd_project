@@ -19,8 +19,7 @@ DETECTOR_CONFIGS = {
         window_frac=0.01,
         max_windows=500,
         display_name='Sig-CD',
-        reg=0.0001,
-        gamma=0.005,
+        reg=0.01,
     ),
     "scatter": dict(
         cls='KernDetector',
@@ -29,6 +28,14 @@ DETECTOR_CONFIGS = {
         max_windows=1000,
         display_name='Scatter-CD',
         reg=0.005,
+    ),
+    "minirocket": dict(
+        cls='KernDetector',
+        kernel_type='minirocket',
+        window_frac=0.07,
+        max_windows=1000,
+        display_name='MiniRocket-CD',
+        reg=0.001,
     ),
     "rec": dict(
         cls='ConvAEDetector',
@@ -51,4 +58,4 @@ DETECTOR_CONFIGS = {
     ),
 }
 
-DEFAULT_METHODS = ["fft", "sig", "rec", "lat"]
+DEFAULT_METHODS = ["fft", "sig", "minirocket", "rec", "lat"]

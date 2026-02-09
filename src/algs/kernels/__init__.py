@@ -17,6 +17,7 @@ from .rbf import RBF
 from .fft import PolyFFT, GaussFFT
 from .signature import SigKernel
 from .scattering import ScatteringKernel
+from .minirocket import MiniRocketKernel
 
 __all__ = [
     "Kernel",
@@ -25,4 +26,5 @@ __all__ = [
     "GaussFFT",
     "SigKernel",
     "ScatteringKernel",
+    "MiniRocketKernel",
 ]

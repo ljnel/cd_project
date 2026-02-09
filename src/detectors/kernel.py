@@ -10,7 +10,7 @@ import warnings
 from algs.kern_cd import KernCD
 
 logger = logging.getLogger("cd.detectors.kernel")
-from algs.kernels import RBF, GaussFFT, SigKernel, ScatteringKernel
+from algs.kernels import RBF, GaussFFT, SigKernel, ScatteringKernel, MiniRocketKernel
 from .base import AnomalyDetector
 from utils.signals import estimate_window, low_pass
 
@@ -123,6 +123,12 @@ class KernDetector(AnomalyDetector):
         elif self.kernel_type == "scatter":
             gamma = self.gamma if self.gamma is not None else "median"
             kernel = ScatteringKernel(J=3, Q=2, order=1, gamma=gamma)
+            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
+            self._flatten = False
+
+        elif self.kernel_type == "minirocket":
+            gamma = self.gamma if self.gamma is not None else "median"
+            kernel = MiniRocketKernel(gamma=gamma)
             self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
             self._flatten = False
         else:
