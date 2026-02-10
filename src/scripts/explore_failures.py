@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from config.datasets import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
+from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.scripts.explore_failures")
@@ -50,7 +51,6 @@ def run_mujoco_failures(cfg: DatasetConfig, n_failures: int, steps_before: int,
     env_info = ENV_INFO[cfg.env]
     gym_name = env_info.gym_name
     policy_path = str(get_root() / 'src/policies' / cfg.policy)
-    is_cheetah = gym_name == 'HalfCheetah-v5'
 
     env = gym.make(gym_name)
     policy = SAC.load(policy_path, env=env)
@@ -101,7 +101,7 @@ def run_mujoco_failures(cfg: DatasetConfig, n_failures: int, steps_before: int,
             next_obs, _, terminated, truncated, _ = env.step(action)
             frame_buffer.append(render_frame())
 
-            if is_cheetah and abs(next_obs[1]) > 0.9:
+            if check_custom_termination(gym_name, next_obs):
                 terminated = True
 
             if terminated:

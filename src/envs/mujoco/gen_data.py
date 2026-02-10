@@ -25,6 +25,7 @@ from stable_baselines3 import SAC
 from config.datasets import DatasetConfig, DATASETS
 from data.datasets import get_dataset_path
 from config.envs import ENV_INFO
+from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.envs.mujoco.gen_data")
@@ -44,8 +45,6 @@ def _run_episodes(
     """Run a batch of episodes. Used by both sequential and parallel paths."""
     env = gym.make(gym_name)
     policy = SAC.load(policy_path, env=env)
-    is_cheetah = gym_name == 'HalfCheetah-v5'
-
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
 
@@ -77,8 +76,7 @@ def _run_episodes(
 
             next_obs, _, terminated, truncated, info = env.step(action)
 
-            # Custom failure condition for HalfCheetah
-            if is_cheetah and abs(next_obs[1]) > 0.9:
+            if check_custom_termination(gym_name, next_obs):
                 terminated = True
 
             if terminated:
