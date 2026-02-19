@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+
 import numpy as np
 
 """
@@ -14,7 +14,7 @@ class Experiment(ABC):
         self.params = params
 
     @abstractmethod
-    def get_train_test(self) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
+    def get_train_test(self) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
         "Return x_tr, y_tr (optional), x_te"
         pass
 

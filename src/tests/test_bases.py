@@ -1,6 +1,9 @@
-from algs.poly_basis import *
 import numpy as np
+import torch
 from sklearn.preprocessing import PolynomialFeatures
+
+from algs.poly_basis import BasisSpec, ChebyshevBasis, MonomialBasis
+
 
 def test_shape():
     bs = BasisSpec(n_vars=3, degree=4)

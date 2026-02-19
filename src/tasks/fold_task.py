@@ -10,7 +10,6 @@ import logging
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-from typing import List
 
 from config.tasks import SafetyMonitorConfig
 from utils.paths import get_root
@@ -107,7 +106,7 @@ def create_fold_tasks(
     cfg: SafetyMonitorConfig,
     n_folds: int = 5,
     seed: int = None,
-) -> List[FoldTask]:
+) -> list[FoldTask]:
     """
     Generate k FoldTask objects from a single dataset.
 

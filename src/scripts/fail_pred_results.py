@@ -13,18 +13,20 @@ Usage:
 
 import argparse
 import gc
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
-from typing import Dict, List, Tuple, Union
 import warnings
+from typing import Union
+
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+
 warnings.filterwarnings("ignore")
 
-from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector, get_method_display_name
+from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.envs import ENV_INFO
+from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
-from utils.latex import format_latex_table, format_metric_latex_table, compute_avg_ranks
+from utils.latex import compute_avg_ranks, format_latex_table, format_metric_latex_table
 from utils.paths import get_root
 
 
@@ -39,7 +41,7 @@ def run_single_trial(
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
     env_name: str = None,
-) -> Tuple[float, float, np.ndarray, np.ndarray]:
+) -> tuple[float, float, np.ndarray, np.ndarray]:
     """
     Run a single trial of anomaly detection.
 
@@ -88,11 +90,11 @@ def run_single_trial(
 
 
 def run_experiments(
-    method_keys: List[str],
-    tasks: List[FoldTask],
+    method_keys: list[str],
+    tasks: list[FoldTask],
     base_seed: int = 42,
     env_name: str = None,
-) -> Dict[str, Dict[str, Tuple[float, float]]]:
+) -> dict[str, dict[str, tuple[float, float]]]:
     """
     Run experiments for all methods with k-fold cross-validation.
 
@@ -156,7 +158,7 @@ def run_experiments(
     return results
 
 
-def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: str):
+def print_summary(results: dict[str, dict[str, tuple[float, float]]], env_name: str):
     """Print a nicely formatted summary of results."""
 
     print("\n" + "="*80)
@@ -178,7 +180,7 @@ def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: 
     print("-" * 97)
 
 
-def plot_roc_curves(results: Dict[str, Dict], env_name: str):
+def plot_roc_curves(results: dict[str, dict], env_name: str):
     """Plot and save ROC curves for all methods in a single figure."""
     output_dir = get_root() / "results" / "fail_pred"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -205,7 +207,7 @@ def plot_roc_curves(results: Dict[str, Dict], env_name: str):
     print(f"ROC curve saved to: {roc_file}")
 
 
-def print_metric_summary(all_results: Dict[str, Dict], metric_key: str):
+def print_metric_summary(all_results: dict[str, dict], metric_key: str):
     """Print a summary table of a metric across all environments, with average ranks."""
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values()))['results'].keys())
@@ -255,7 +257,7 @@ def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     }
 
 
-def run_env(env_name: str, method_keys: List[str], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
+def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:

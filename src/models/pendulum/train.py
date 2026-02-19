@@ -1,9 +1,11 @@
-from models.pendulum.model import CD_Detector
-import lightning as L
 from argparse import ArgumentParser
-import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+
+import lightning as L
 import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset, random_split
+
+from models.pendulum.model import CD_Detector
 
 bs = 128
 
@@ -24,7 +26,7 @@ class ContrastiveDataset(Dataset):
     
 
 def contrastive_collate(batch):
-    inliers, outliers = zip(*batch)
+    inliers, outliers = zip(*batch, strict=False)
     inliers = torch.stack(inliers)
     outliers = torch.stack(outliers)
     return torch.cat([inliers, outliers], dim=0)

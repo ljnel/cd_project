@@ -1,17 +1,16 @@
-from utils.signals import *
-from algs.kern_cd import KernCD
-from algs.kernels import *
-from tasks.safety_monitor import *
-from algs.dim_red import *
-#from algs.cd_poly import CDPolynomial   
-
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from argparse import ArgumentParser
-from sklearn.decomposition import PCA
-from sklearn.metrics import roc_auc_score, precision_recall_curve
 
+#from algs.cd_poly import CDPolynomial   
+import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.metrics import confusion_matrix, precision_recall_curve
+from sklearn.model_selection import train_test_split
+
+from algs.dim_red import PCA_FFT
+from algs.kern_cd import KernCD
+from algs.kernels import RBF, GaussFFT, SigKernel
+from tasks.safety_monitor import TASK_CONFIGS, SafetyMonitor
+from utils.signals import estimate_freq, low_pass
 
 CAL = 0.3  # calibration set size
 N_PERIOD = 1
@@ -50,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument('--alg', type=str)
     args = parser.parse_args()
 
-    sm_cfg = SM_CFG[args.env]
+    sm_cfg = TASK_CONFIGS[args.env]
 
     task = SafetyMonitor(args.env, sm_cfg)
     x_tr, x_te = task.get_train_test()
@@ -109,7 +108,7 @@ if __name__ == "__main__":
             
 
         q = np.quantile(model.predict(x_cal), q=.95)
-        print(f'Finished training')
+        print('Finished training')
         #y_pred = model.predict(x_te_trial) > q
         y_pred = model.predict(x_te_trial) > q
 

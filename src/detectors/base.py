@@ -9,7 +9,7 @@ outlier detectors. Concrete implementations wrap underlying algorithms:
 
 import logging
 from abc import abstractmethod
-from typing import Optional
+
 import numpy as np
 from sklearn.base import BaseEstimator, OutlierMixin
 from sklearn.model_selection import train_test_split

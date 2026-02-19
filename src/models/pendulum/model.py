@@ -1,11 +1,11 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-import lightning as L
-import math
 
+import lightning as L
+import torch
+import torch.nn.functional as F
 from algs.triple_ae import TripleAE
+
 from algs.cd_loss2 import CDLoss
+
 
 class CD_Detector(L.LightningModule):
 
@@ -21,7 +21,7 @@ class CD_Detector(L.LightningModule):
 
     def training_step(self, x, batch_idx):
         rec, lat = self.ae(x)
-        rec_loss = F.mse_loss(rec, x)
+        F.mse_loss(rec, x)
 
         in_loss = (lat[:self.hparams.bs//2] ** 2).mean()
         out_loss = -torch.log(self.cd_loss(lat[self.hparams.bs//2:])).mean()

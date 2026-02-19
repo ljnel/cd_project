@@ -8,16 +8,17 @@ Train data: Only successful trajectories (fail == -1)
 Test data: Windows sampled from all trajectories, labeled by whether failure occurs within horizon
 """
 
+from pathlib import Path
+
+import numpy as np
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
 from tasks.experiment import Experiment
-from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
 from utils.paths import get_root
 from utils.windows import sample_test_windows
-
-from pathlib import Path
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix
 
 __all__ = [
     'SafetyMonitor',
@@ -71,7 +72,7 @@ class SafetyMonitor(Experiment):
         # Train: only successes
         train_success_idx = train_idx[success_mask[train_idx]]
         x_train = X[train_success_idx]
-        fail_train = fail[train_success_idx]
+        fail[train_success_idx]
 
         # Test: all episodes (success + failure)
         x_test_full = X[test_idx]

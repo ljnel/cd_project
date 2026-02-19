@@ -1,4 +1,3 @@
-from typing import Dict, List, Tuple
 
 import numpy as np
 from scipy.stats import rankdata
@@ -13,11 +12,11 @@ def get_env_display_name(env_key: str) -> str:
 
 
 def compute_avg_ranks(
-    all_results: Dict[str, Dict],
+    all_results: dict[str, dict],
     metric_key: str,
-    methods: List[str],
-    envs: List[str],
-) -> Dict[str, float]:
+    methods: list[str],
+    envs: list[str],
+) -> dict[str, float]:
     """Compute average rank of each method across environments (lower is better).
 
     Rank 1 = best. Ties get the average of tied ranks.
@@ -34,7 +33,7 @@ def compute_avg_ranks(
 
 
 def format_latex_table(
-    results: Dict[str, Dict[str, Tuple[float, float]]],
+    results: dict[str, dict[str, tuple[float, float]]],
     env_name: str,
     window: int = None,
     horizon: int = None,
@@ -94,7 +93,7 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
 
 
 def format_metric_latex_table(
-    all_results: Dict[str, Dict],
+    all_results: dict[str, dict],
     metric_key: str,
     caption: str,
     label: str,

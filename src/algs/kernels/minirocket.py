@@ -1,9 +1,11 @@
-from typing import Union, Literal
+from typing import Literal
+
 import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
-from .base import Kernel
 from utils.misc import median_heuristic
+
+from .base import Kernel
 
 
 class MiniRocketKernel(Kernel):
@@ -30,7 +32,7 @@ class MiniRocketKernel(Kernel):
 
     def __init__(
         self,
-        gamma: Union[float, Literal["median"]] = "median",
+        gamma: float | Literal["median"] = "median",
         num_kernels: int = 1_00,
     ):
         self._gamma_param = gamma

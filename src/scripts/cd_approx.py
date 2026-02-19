@@ -1,9 +1,9 @@
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import rankdata, spearmanr, kendalltau
+import numpy as np
+from algs.cd_pcs import CDApprox
+from scipy.stats import kendalltau, rankdata, spearmanr
 
 from algs.cd_poly import CDPolynomial
-from algs.cd_pcs import CDApprox
 from utils.plotting import save_plot
 
 
@@ -63,11 +63,8 @@ def values_experiment():
     # values plot: Binom(10 + 5, 5) = 3003
     dim = 10
     degree = 5
-    n_train = 10_000
-    n_test = 10_000
     ks = [100, 400, 1500]
     n_bins = 20
-    random_state = 0
 
     X_train = np.random.standard_normal((10_000, dim))
     models = {
@@ -102,7 +99,7 @@ def values_experiment():
     plt.figure(figsize=(7, 5))
     for k in ks:
         plt.plot(bin_centers, mean_scores[k], label=f"n_components={k}")
-    plt.plot(bin_centers, mean_scores_true, label=f'True')
+    plt.plot(bin_centers, mean_scores_true, label='True')
 
     plt.xlabel(r"Distance from origin  $\|x\|_2$")
     plt.ylabel("Average approximate CD value")

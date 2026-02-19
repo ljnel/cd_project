@@ -98,9 +98,9 @@ _CLS_REGISTRY = {}
 def _ensure_registry():
     if _CLS_REGISTRY:
         return
-    from detectors.kernel import KernDetector
-    from detectors.conv import ConvAEDetector
     from detectors.basis import BasisDetector
+    from detectors.conv import ConvAEDetector
+    from detectors.kernel import KernDetector
     from detectors.tucker import TuckerDetector
     _CLS_REGISTRY.update({
         'KernDetector': KernDetector,

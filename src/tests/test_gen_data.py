@@ -10,14 +10,14 @@ Tests cover:
 Run with: pytest src/tests/test_gen_data.py -v
 """
 
-import pytest
+
 import numpy as np
-from unittest.mock import patch, MagicMock
+import pytest
 
 # Test whether the upkie environment is available
 try:
-    import pybullet
-    import upkie.envs
+    import pybullet  # noqa: F401
+    import upkie.envs  # noqa: F401
     UPKIE_AVAILABLE = True
 except ImportError:
     UPKIE_AVAILABLE = False

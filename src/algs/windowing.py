@@ -1,4 +1,5 @@
 import logging
+
 import numpy as np
 
 logger = logging.getLogger("cd.algs.windowing")
@@ -21,10 +22,7 @@ def estimate_window(x: np.ndarray, period: int = 1, method: str = 'median') -> i
 
     frequencies = peak_indices / steps
 
-    if method == 'mean':
-        avg_frequency = np.mean(frequencies)
-    else:
-        avg_frequency = np.median(frequencies)
+    avg_frequency = np.mean(frequencies) if method == 'mean' else np.median(frequencies)
 
     # Convert average frequency back to total window length
     # Period = 1 / Frequency

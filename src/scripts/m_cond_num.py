@@ -1,13 +1,13 @@
-from algs.cd_cheb import CDPolyCheb
-from algs.cd_poly import CDPolynomial
-from utils.plotting import save_plot
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.pyplot as plt
+from algs.cd_cheb import CDPolyCheb
 from sklearn.preprocessing import MinMaxScaler
-import os
+
+from algs.cd_poly import CDPolynomial
+from utils.plotting import save_plot
 
 runs = 1
 

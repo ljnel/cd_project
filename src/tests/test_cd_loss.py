@@ -1,7 +1,9 @@
 # tests for cd_loss.py (including consistency with cd_poly.py)
 
-from algs.cd_loss import CDLoss
 import torch
+
+from algs.cd_loss import CDLoss
+
 
 def test():
     cd_loss = CDLoss(degree=3, bufsize=1000, n_vars=10, eps=1e-6)

@@ -14,29 +14,29 @@ Usage:
 import argparse
 import gc
 import time
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
-from typing import Dict, List
 import warnings
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 warnings.filterwarnings("ignore")
 
+from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector, get_method_display_name
 from tasks.fold_task import create_fold_tasks
 
 OUTPUT_DIR = Path("results/compute_cost")
 
 
 def run_cost_experiment(
-    method_keys: List[str],
+    method_keys: list[str],
     X_train: np.ndarray,
     X_test: np.ndarray,
     env_name: str = None,
     n_repeats: int = 5,
     seed: int = 42,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """
     Benchmark training and prediction time for each method.
 
@@ -102,7 +102,7 @@ def run_cost_experiment(
 
 
 def plot_results(
-    results: Dict[str, Dict[str, float]],
+    results: dict[str, dict[str, float]],
     n_train_episodes: int,
     n_test_windows: int,
     env_name: str,
@@ -146,7 +146,7 @@ def plot_results(
     return fig
 
 
-def print_summary(results: Dict[str, Dict[str, float]], env_name: str):
+def print_summary(results: dict[str, dict[str, float]], env_name: str):
     """Print formatted summary."""
     print("\n" + "=" * 80)
     print(f"COMPUTATIONAL COST SUMMARY - {env_name}")
@@ -166,12 +166,12 @@ def print_summary(results: Dict[str, Dict[str, float]], env_name: str):
 
 def run_env(
     env_name: str,
-    method_keys: List[str],
+    method_keys: list[str],
     n_repeats: int = 5,
     seed: int = 42,
     realtime_budget_ms: float = None,
     save_outputs: bool = True,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """Run computational cost experiment for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -239,10 +239,7 @@ if __name__ == "__main__":
         method_keys = DEFAULT_METHODS
 
     # Determine environments
-    if args.env == 'all':
-        envs = list(TASK_CONFIGS.keys())
-    else:
-        envs = [args.env]
+    envs = list(TASK_CONFIGS.keys()) if args.env == 'all' else [args.env]
 
     # Run experiments
     all_results = {}

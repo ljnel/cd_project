@@ -19,6 +19,8 @@ ipykernel = "*"
 lightning = "*"
 sktime = "*"
 numba = "*"
+ruff = "*"
+pybullet = ">=3.25,<4"
 
 [pypi-dependencies]
 stable-baselines3 = "*"
@@ -29,4 +31,5 @@ upkie = "*"
 cd_project = { path = ".", editable = true }
 
 [tasks]
+gen_data = "python -m data.datasets --overwrite"
 fail_pred = "python src/scripts/fail_pred_results.py"

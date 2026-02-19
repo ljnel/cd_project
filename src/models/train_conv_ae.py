@@ -1,11 +1,13 @@
-import numpy as np
-from models.state_window_ae import EpisodeWindowDataset
-from models.conv_ae import ConvAE
-import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from pathlib import Path
+
+import lightning as L
+import numpy as np
+from lightning.pytorch.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader
+
+from models.conv_ae import ConvAE
+from models.state_window_ae import EpisodeWindowDataset
 
 n_eps = 1000
 ep_len = 1000

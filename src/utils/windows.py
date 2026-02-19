@@ -1,14 +1,13 @@
 import logging
 
 import numpy as np
-from numpy.lib.stride_tricks import as_strided
-from typing import Tuple
 import torch
+from numpy.lib.stride_tricks import as_strided
 
 logger = logging.getLogger("cd.utils.windows")
 
 
-def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> Tuple[np.ndarray, np.ndarray]:
+def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: int, verbose=False) -> tuple[np.ndarray, np.ndarray]:
     """
     Extract testing windows according to an array of fail steps.
 

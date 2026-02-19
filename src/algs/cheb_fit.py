@@ -1,10 +1,11 @@
 "Fit the Chebyshev basis to a function that can be sampled near the Chebyshev points."
 
-from scipy.fft import dct
-from numpy.polynomial.chebyshev import chebval
-from utils.paths import closest_indices
 import numpy as np
 from numpy import ndarray
+from numpy.polynomial.chebyshev import chebval
+from scipy.fft import dct
+
+from utils.paths import closest_indices
 
 
 def chebyshev_nodes(a, b, n):
@@ -25,10 +26,12 @@ def cheb_from_node_samples(fx):
     return coeffs
 
 
-class Cheb():
+class Cheb:
     "A class to keep track of interval mapping."
 
-    def __init__(self, deg: int, interval=[-1., 1.]):
+    def __init__(self, deg: int, interval=None):
+        if interval is None:
+            interval = [-1.0, 1.0]
         self.deg = deg
         self.a, self.b = interval
         self.nodes = chebyshev_nodes(self.a, self.b, self.deg)

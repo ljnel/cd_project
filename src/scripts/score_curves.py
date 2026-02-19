@@ -13,23 +13,26 @@ Usage:
 
 import argparse
 import gc
+
+import matplotlib
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import warnings
+
+import matplotlib.pyplot as plt
+
 warnings.filterwarnings("ignore")
 
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
-from config.envs import ENV_INFO
+from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS
 from config.tasks import TASK_CONFIGS
+
+# Import the factory function from fail_pred_results
+from scripts.fail_pred_results import get_detector, get_env_display_name, get_method_display_name
 from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
 from utils.windows import strided_window_view
-
-# Import the factory function from fail_pred_results
-from scripts.fail_pred_results import get_detector, get_method_display_name, get_env_display_name
 
 N_EPISODES = 5  # number of success / failure episodes to plot
 
@@ -118,7 +121,7 @@ def run_env(env_name: str, method_keys: list[str], n_episodes: int, seed: int):
             ax.plot(ts, scores, color="green", alpha=0.6, linewidth=0.8)
 
         # Score failure episodes
-        for ep, fs in zip(episodes_failure, fail_steps):
+        for ep, fs in zip(episodes_failure, fail_steps, strict=False):
             ts, scores = score_episode(detector, ep)
             ax.plot(ts, scores, color="red", alpha=0.6, linewidth=0.8)
             ax.plot(fs, np.interp(fs, ts, scores), "rx", markersize=8, markeredgewidth=2)

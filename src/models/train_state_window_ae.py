@@ -1,10 +1,12 @@
-import numpy as np
-from models.state_window_ae import StateSeqAutoencoder, EpisodeWindowDataset
-import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from pathlib import Path
+
+import lightning as L
+import numpy as np
+from lightning.pytorch.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader
+
+from models.state_window_ae import EpisodeWindowDataset, StateSeqAutoencoder
 
 n_eps = 1000
 n_steps = 50

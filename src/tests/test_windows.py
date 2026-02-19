@@ -1,7 +1,8 @@
-from utils.windows import sample_test_windows
-from utils.paths import get_root
-
 import numpy as np
+
+from utils.paths import get_root
+from utils.windows import sample_test_windows
+
 
 def test_windows():
 

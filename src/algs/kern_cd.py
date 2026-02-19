@@ -1,7 +1,9 @@
 import logging
-from typing import Union, Literal
-from .kernels import Kernel
+from typing import Literal
+
 import numpy as np
+
+from .kernels import Kernel
 
 logger = logging.getLogger("cd.algs.kern_cd")
 from scipy.linalg import solve_triangular
@@ -35,7 +37,7 @@ class KernCD(BaseEstimator):
     def __init__(
         self,
         kernel: Kernel,
-        reg: Union[float, Literal["adaptive", "condition"]] = "adaptive",
+        reg: float | Literal["adaptive", "condition"] = "adaptive",
     ):
         self.kernel = kernel
         self.reg = reg
@@ -252,7 +254,7 @@ class KernCD(BaseEstimator):
         K_perm = P @ self.K @ P.T
         
         # Recompute Cholesky of permuted matrix (needed for stability)
-        L_perm = np.linalg.cholesky(K_perm)
+        np.linalg.cholesky(K_perm)
         
         # Now the point to remove is at position m-1
         # Extract the reduced (m-1 × m-1) Cholesky factor

@@ -1,13 +1,12 @@
-import numpy as np
 import matplotlib.pyplot as plt
-from algs.cd_poly import CDPolynomial
-from models.window_ds import WindowDataset
-from torch.utils.data import DataLoader
-from conv_seq_ae import ConvSeqAutoencoder
-import lightning as L
+import numpy as np
 import torch
-
+from conv_seq_ae import ConvSeqAutoencoder
+from models.window_ds import WindowDataset
 from sklearn.metrics import confusion_matrix
+from torch.utils.data import DataLoader
+
+from algs.cd_poly import CDPolynomial
 
 
 def get_lat_fail(model, dl):
@@ -35,8 +34,8 @@ def bench_window(model, deg, dl_tr, dl_te):
     y_pred = y_vals > quant
 
     print(confusion_matrix(fail_te, y_pred, normalize='true'))
-    y_vals_ep = y_vals.reshape((1000, -1))
-    mask = fail_te.reshape((1000, -1)).max(axis=1)
+    y_vals.reshape((1000, -1))
+    fail_te.reshape((1000, -1)).max(axis=1)
     #plt.plot(y_vals_ep[~mask].T, alpha=0.2, color='green')
     #plt.plot(y_vals_ep[mask].T, alpha=0.2, color='red')
     plt.hist(np.log(p(lat_te[~fail_te])), alpha=.3, color='green', density=True, bins=50)

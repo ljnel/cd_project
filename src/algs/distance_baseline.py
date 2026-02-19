@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.metrics import pairwise_distances
 
+
 class DistanceBasedOneClass:
     def __init__(self, threshold=None, metric="euclidean"):
         """

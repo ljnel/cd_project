@@ -2,10 +2,8 @@
 
 import numpy as np
 import pytest
-from scipy.spatial.distance import pdist
 
-from algs.kernels import RBF, GaussFFT, PolyFFT, Kernel
-
+from algs.kernels import RBF, GaussFFT, PolyFFT
 
 # =============================================================================
 # Fixtures

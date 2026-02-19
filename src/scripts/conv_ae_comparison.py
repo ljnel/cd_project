@@ -1,20 +1,20 @@
 """Script to compare reconstruction error and latent space approaches to OOD detection with a ConvAE."""
 
-from models.conv_ae import *
-from config.conv_ae import CAE_CFG
-from tasks.safety_monitor import *
-from utils.windows import WindowDataset
-from utils.paths import get_root
-from algs.kern_cd import *
-from algs.kernels import RBF
-
-from sklearn.metrics.pairwise import euclidean_distances
 from argparse import ArgumentParser
-from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import train_test_split
+
+import numpy as np
 import torch
-from torch.utils.data import TensorDataset, DataLoader
-import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader
+
+from algs.kern_cd import KernCD
+from algs.kernels import RBF
+from config.conv_ae import CAE_CFG
+from models.conv_ae import ConvAE, train
+from tasks.safety_monitor import TASK_CONFIGS, SafetyMonitor
+from utils.windows import WindowDataset
 
 BS = 128
 CAL = 0.3
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     parser.add_argument('--alg', type=str)
     args = parser.parse_args()
 
-    task = SafetyMonitor(args.env, SM_CFG[args.env])
+    task = SafetyMonitor(args.env, TASK_CONFIGS[args.env])
     x_tr, x_te = task.get_train_test()
     x_tr = x_tr.astype(np.float32)
 
@@ -78,8 +78,8 @@ if __name__ == "__main__":
             x_cal_trial shape: {x_cal_trial.shape}, \
             x_te shape: {x_te.shape}')
 
-        ds_tr = WindowDataset(x_tr_trial, window=SM_CFG[args.env].win, stride=10)
-        ds_cal = WindowDataset(x_cal_trial, window=SM_CFG[args.env].win, stride=10)
+        ds_tr = WindowDataset(x_tr_trial, window=TASK_CONFIGS[args.env].win, stride=10)
+        ds_cal = WindowDataset(x_cal_trial, window=TASK_CONFIGS[args.env].win, stride=10)
         print(f'{len(ds_tr)} and {len(x_te)} test windows w/ {y_true.mean()} fails')
         dl_tr = DataLoader(ds_tr, batch_size=BS, shuffle=True)
         dl_cal = DataLoader(ds_cal, batch_size=BS, shuffle=True)

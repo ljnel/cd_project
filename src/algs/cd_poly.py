@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 import jax.numpy as jnp
 import jax.scipy as jsp
 
 from algs.poly_basis import BasisSpec, ChebyshevBasis, MonomialBasis
-from utils.plotting import plot_contours, plot_map
+from utils.plotting import plot_contours
 
 Method = Literal["chol", "qr"]
 BasisName = Literal["mon", "cheb"]
@@ -26,8 +26,8 @@ class CDState:
 
     # factorization cache (one of these is used depending on `method`)
     method: Method
-    L: Optional[jnp.ndarray]  # Cholesky factor of M (lower-triangular)
-    R: Optional[jnp.ndarray]  # R from reduced QR of X_bar
+    L: jnp.ndarray | None  # Cholesky factor of M (lower-triangular)
+    R: jnp.ndarray | None  # R from reduced QR of X_bar
 
     # We re-create the basis from (basis_name, degree, n_vars) when needed.
 

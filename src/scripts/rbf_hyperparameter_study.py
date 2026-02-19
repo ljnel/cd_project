@@ -13,14 +13,13 @@ Outputs:
    - Anomaly test: N(μ, I) where μ = [offset, 0, ..., 0]
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Dict, List, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 from algs.kern_cd import KernCD
 from algs.kernels import RBF
-
 
 # =============================================================================
 # Configuration
@@ -96,7 +95,7 @@ def generate_heatmap_training_data(m: int, seed: int) -> np.ndarray:
     return X
 
 
-def generate_heatmap_classification_data(seed: int) -> Tuple[np.ndarray, np.ndarray]:
+def generate_heatmap_classification_data(seed: int) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate classification test data for heatmap experiment.
 
@@ -340,11 +339,11 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
 # =============================================================================
 
 def compute_accuracy_grid(
-    var1_values: List,
-    var2_values: List,
+    var1_values: list,
+    var2_values: list,
     var1_name: str,
     var2_name: str,
-    fixed_params: Dict,
+    fixed_params: dict,
 ) -> np.ndarray:
     """
     Compute accuracy grid by varying two parameters.
@@ -458,7 +457,7 @@ if __name__ == "__main__":
     print("RBF KERNEL HYPERPARAMETER STUDY")
     print("=" * 70)
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Sample sizes (m): {SAMPLE_SIZES}")
     print(f"  Score plots - γ values: {GAMMAS}")
     print(f"  Score plots - λ values: {LAMBDAS}")

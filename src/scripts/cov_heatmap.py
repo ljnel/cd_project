@@ -3,15 +3,17 @@ over success windows."""
 
 import argparse
 import sys
+
 sys.path.insert(0, ".")
 
-import numpy as np
 import matplotlib.pyplot as plt
-from config.tasks import TASK_CONFIGS
+import numpy as np
+
+from algs.tucker import Tucker13
 from config.envs import ENV_INFO
+from config.tasks import TASK_CONFIGS
 from tasks.safety_monitor import SafetyMonitor
 from utils.windows import strided_window_view
-from algs.tucker import Tucker13
 
 parser = argparse.ArgumentParser(description="Covariance heatmap for any environment.")
 parser.add_argument("--env", type=str, required=True,

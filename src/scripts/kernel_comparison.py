@@ -1,15 +1,13 @@
-from utils.windows import sample_test_windows
-from utils.signals import *
-from utils.plotting import plot_kern_mat
-from algs.kernels import *
-from tasks.safety_monitor import *
-
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from numpy.fft import fft, fftfreq
 from argparse import ArgumentParser
+
+import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
+
+from algs.kernels import GaussFFT, SigKernel
+from tasks.safety_monitor import SafetyMonitor, SafetyMonitorConfig
+from utils.plotting import plot_kern_mat
+from utils.signals import estimate_freq, spectral_entropy
 
 N_PERIOD = 2
 WIN = 200

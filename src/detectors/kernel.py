@@ -10,15 +10,16 @@ import warnings
 from algs.kern_cd import KernCD
 
 logger = logging.getLogger("cd.detectors.kernel")
-from algs.kernels import RBF, GaussFFT, SigKernel, ScatteringKernel, MiniRocketKernel
-from .base import AnomalyDetector
+
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+
 from algs.downsampling import downsample_regular
+from algs.kernels import RBF, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
 from algs.windowing import estimate_window, estimate_window_acf
 from utils.signals import low_pass
 
-from sklearn.preprocessing import StandardScaler
-from typing import Optional
-import numpy as np
+from .base import AnomalyDetector
 
 
 class KernDetector(AnomalyDetector):
@@ -39,9 +40,9 @@ class KernDetector(AnomalyDetector):
                  threshold_quantile: float = 0.95,
                  n_periods: int = 1,
                  kernel_type: str = "fft",
-                 gamma: Optional[float] = None,
+                 gamma: float | None = None,
                  reg: float | str = "adaptive",
-                 window_frac: Optional[float] = None,
+                 window_frac: float | None = None,
                  max_windows: int = 200):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
@@ -98,7 +99,7 @@ class KernDetector(AnomalyDetector):
         if max_windows < n_episodes:
             warnings.warn(
                 f"max_windows ({max_windows}) < n_episodes ({n_episodes}). "
-                f"Sampling {max_windows} episodes with 1 window each."
+                f"Sampling {max_windows} episodes with 1 window each.", stacklevel=2
             )
             ep_idx = np.linspace(0, n_episodes - 1, max_windows).astype(int)
             start = n_possible // 2

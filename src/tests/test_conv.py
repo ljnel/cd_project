@@ -5,12 +5,10 @@ Tests both 'reconstruction' and 'latent' detection methods.
 Run with: pytest test_conv_detector.py -v
 """
 
-import pytest
 import numpy as np
-import torch
+import pytest
 
 from detectors.conv import ConvAEDetector
-
 
 # =============================================================================
 # Fixtures
@@ -559,7 +557,7 @@ class TestIntegration:
         from sklearn.metrics import accuracy_score, precision_score, recall_score
         
         acc = accuracy_score(y_true, y_pred)
-        print(f"\nReconstruction method performance:")
+        print("\nReconstruction method performance:")
         print(f"  Accuracy: {acc:.3f}")
         if y_pred.sum() > 0:
             prec = precision_score(y_true, y_pred)
@@ -593,7 +591,7 @@ class TestIntegration:
         
         from sklearn.metrics import accuracy_score
         acc = accuracy_score(y_true, y_pred)
-        print(f"\nLatent method performance:")
+        print("\nLatent method performance:")
         print(f"  Accuracy: {acc:.3f}")
 
 

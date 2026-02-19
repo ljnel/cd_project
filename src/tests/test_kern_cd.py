@@ -7,7 +7,6 @@ from numpy.testing import assert_allclose
 from algs.kern_cd import KernCD
 from algs.kernels import RBF, GaussFFT
 
-
 # =============================================================================
 # Custom Kernels for Testing (support Kernel interface)
 # =============================================================================

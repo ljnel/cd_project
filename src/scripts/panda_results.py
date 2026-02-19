@@ -18,17 +18,17 @@ Usage:
 import argparse
 import gc
 import os
+import warnings
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
-from typing import Dict, List, Tuple
-import warnings
+
 warnings.filterwarnings("ignore")
 
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector, get_method_display_name
+from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from utils.paths import get_root
 
 
@@ -77,7 +77,7 @@ def run_single_trial(
     X_test: np.ndarray,
     y_test: np.ndarray,
     seed: int = 42,
-) -> Tuple[float, float, np.ndarray, np.ndarray]:
+) -> tuple[float, float, np.ndarray, np.ndarray]:
     """Run a single detector on the panda data.
 
     Returns
@@ -116,12 +116,12 @@ def run_single_trial(
 
 
 def run_experiments(
-    method_keys: List[str],
+    method_keys: list[str],
     X_train: np.ndarray,
     X_test: np.ndarray,
     y_test: np.ndarray,
     seed: int = 42,
-) -> Dict[str, Dict]:
+) -> dict[str, dict]:
     """Run all methods and collect results."""
     results = {}
 
@@ -156,7 +156,7 @@ def run_experiments(
     return results
 
 
-def print_summary(results: Dict[str, Dict]):
+def print_summary(results: dict[str, dict]):
     """Print formatted summary table."""
     print("\n" + "=" * 80)
     print("SUMMARY — Panda Trajectory-Level Detection")
@@ -173,7 +173,7 @@ def print_summary(results: Dict[str, Dict]):
     print("-" * 68)
 
 
-def plot_roc_curves(results: Dict[str, Dict]):
+def plot_roc_curves(results: dict[str, dict]):
     """Plot and save ROC curves."""
     output_dir = get_root() / "results" / "panda"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,7 @@ def plot_roc_curves(results: Dict[str, Dict]):
     print(f"\nROC curve saved to: {roc_file}")
 
 
-def save_latex_table(results: Dict[str, Dict], n_train: int, n_test: int, anomaly_prop: float):
+def save_latex_table(results: dict[str, dict], n_train: int, n_test: int, anomaly_prop: float):
     """Save a simple LaTeX results table."""
     output_dir = get_root() / "results" / "panda"
     output_dir.mkdir(parents=True, exist_ok=True)

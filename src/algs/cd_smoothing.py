@@ -28,7 +28,7 @@ def gaussian_moment(gamma, mu, sigma):
         # The moment of a centered Gaussian is non-zero only if all exponents are even
         if all(val % 2 == 0 for val in k):
             # Binomial coefficient term: C(gamma_1, k_1) * C(gamma_2, k_2) * ...
-            binom_prod = np.prod([comb(g, ki) for g, ki in zip(gamma, k)])
+            binom_prod = np.prod([comb(g, ki) for g, ki in zip(gamma, k, strict=False)])
 
             # Term for the mean: mu_1^(gamma_1-k_1) * mu_2^(gamma_2-k_2) * ...
             mu_term = np.prod(mu ** (gamma - k))
@@ -79,7 +79,7 @@ def ball_moment(gamma, center, epsilon):
 
     total_integral = 0
     for k in iterate_sub_indices(gamma):
-        binom_prod = np.prod([comb(g, ki) for g, ki in zip(gamma, k)])
+        binom_prod = np.prod([comb(g, ki) for g, ki in zip(gamma, k, strict=False)])
         center_term = np.prod(center ** (gamma - k))
         integral_term = integral_monomial_centered_ball(k, epsilon, n_dim)
 
@@ -166,7 +166,7 @@ def create_smooth_ball(points, degree, epsilon, analytic=True):
     for i, j in itertools.combinations_with_replacement(range(basis_size), 2):
         alpha = monomial_basis[i]
         beta = monomial_basis[j]
-        gamma = tuple(a + b for a, b in zip(alpha, beta))
+        gamma = tuple(a + b for a, b in zip(alpha, beta, strict=False))
 
         if analytic:
             total_ball_moment = sum(ball_moment(gamma, p, epsilon) for p in points)
@@ -191,7 +191,7 @@ def create_smooth_gauss(points, degree, epsilon, analytic=True):
     for i, j in itertools.combinations_with_replacement(range(basis_size), 2):
         alpha = monomial_basis[i]
         beta = monomial_basis[j]
-        gamma = tuple(a + b for a, b in zip(alpha, beta))
+        gamma = tuple(a + b for a, b in zip(alpha, beta, strict=False))
 
         if analytic:
             total_gauss_moment = sum(gaussian_moment(gamma, p, epsilon) for p in points)

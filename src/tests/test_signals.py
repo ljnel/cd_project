@@ -1,7 +1,7 @@
-from algs.windowing import estimate_window
-
 import numpy as np
 import pytest
+
+from algs.windowing import estimate_window
 
 
 def generate_sine_wave(batch, steps, channels, period_length):

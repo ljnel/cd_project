@@ -14,20 +14,19 @@ Datasets are cached to disk and reused on reruns if parameters match.
 import argparse
 import hashlib
 import json
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
-from typing import Dict, List, Tuple
 import warnings
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
 
-from detectors.kernel import KernDetector
-from detectors.conv import ConvAEDetector
 from config.datasets import DatasetConfig
+from detectors.conv import ConvAEDetector
+from detectors.kernel import KernDetector
 from envs.upkie.gen_data import gen_data
-
 
 # =============================================================================
 # Configuration
@@ -79,7 +78,7 @@ def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float
 
 
 def _get_test_cache_path(
-    mass_range: Tuple[float, float],
+    mass_range: tuple[float, float],
     n_episodes: int,
     episode_time: float,
     frequency: float,
@@ -103,7 +102,7 @@ def _get_test_cache_path(
 # Binning Utilities
 # =============================================================================
 
-def make_bins(mass_range: Tuple[float, float], bin_width: float, center: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+def make_bins(mass_range: tuple[float, float], bin_width: float, center: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     """Generate bin edges with `center` as a bin center.
 
     Returns:
@@ -200,10 +199,10 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
 
 
 def generate_test_data(
-    mass_range: Tuple[float, float],
+    mass_range: tuple[float, float],
     n_episodes: int,
     seed: int
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate or load cached test data with mass uniformly sampled from range.
 
@@ -268,9 +267,9 @@ def generate_test_data(
 # =============================================================================
 
 def run_experiment(
-    methods: List[str],
+    methods: list[str],
     seed: int,
-) -> Tuple[np.ndarray, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+) -> tuple[np.ndarray, dict[str, tuple[np.ndarray, np.ndarray]]]:
     """
     Run the mass sensitivity experiment.
 
@@ -343,7 +342,7 @@ def run_experiment(
 
 def plot_mass_sensitivity(
     bin_centers: np.ndarray,
-    results: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    results: dict[str, tuple[np.ndarray, np.ndarray]],
     output_path: Path = None,
 ) -> plt.Figure:
     """Plot binned score percentiles with error bars vs mass scale."""
@@ -366,7 +365,7 @@ def plot_mass_sensitivity(
     for method_name, data in results.items():
         if data is not None:
             bin_means, bin_se = data
-            color = colors.get(method_name, None)
+            color = colors.get(method_name)
             marker = markers.get(method_name, "o")
             ax.errorbar(bin_centers, bin_means, yerr=bin_se, label=method_name,
                         color=color, marker=marker, capsize=3, capthick=1, linewidth=1.5, markersize=5)
@@ -417,7 +416,7 @@ if __name__ == "__main__":
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Mass range (test): [{MASS_RANGE[0]:.2f}, {MASS_RANGE[1]:.2f}]")
     print(f"  Mass range (train): [{1.0-TOL:.2f}, {1.0+TOL:.2f}] (TOL={TOL})")
     print(f"  Training episodes: {N_TRAIN_EPISODES}")

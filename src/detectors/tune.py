@@ -5,13 +5,13 @@ GridSearchCV but use a custom scorer that actually fits on x_tr (stored globally
 and evaluates on the input.
 """
 
+import numpy as np
+from scipy.stats import loguniform, uniform
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.model_selection import RandomizedSearchCV
+
 from detectors.kernel import KernDetector
 from tasks.safety_monitor import SafetyMonitor, hopper_cfg
-
-from sklearn.model_selection import RandomizedSearchCV, PredefinedSplit
-from sklearn.metrics import make_scorer, balanced_accuracy_score
-from scipy.stats import loguniform, uniform
-import numpy as np
 
 # Load data
 task = SafetyMonitor(hopper_cfg)
@@ -69,8 +69,9 @@ best_model.fit(x_tr)
 y_pred = best_model.predict(x_te)
 
 from sklearn.metrics import confusion_matrix
+
 cm = confusion_matrix(y_true, y_pred, normalize='true').ravel()
-print(f"\nFinal Results:")
+print("\nFinal Results:")
 print(f"TN: {cm[0]*100:.2f}%")
 print(f"FP: {cm[1]*100:.2f}%")
 print(f"FN: {cm[2]*100:.2f}%")
@@ -78,6 +79,7 @@ print(f"TP: {cm[3]*100:.2f}%")
 
 # Show top 10 configurations
 import pandas as pd
+
 results_df = pd.DataFrame(search.cv_results_)
 results_df = results_df.sort_values('mean_test_score', ascending=False)
 print("\nTop 10 configurations:")

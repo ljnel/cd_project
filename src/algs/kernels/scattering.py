@@ -1,9 +1,11 @@
-from typing import Union, Literal
+from typing import Literal
+
 import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
-from .base import Kernel
 from utils.misc import median_heuristic
+
+from .base import Kernel
 
 
 class ScatteringKernel(Kernel):
@@ -38,7 +40,7 @@ class ScatteringKernel(Kernel):
         J: int = 6,
         Q: int = 1,
         order: int = 2,
-        gamma: Union[float, Literal["median"]] = "median",
+        gamma: float | Literal["median"] = "median",
     ):
         self.J = J
         self.Q = Q

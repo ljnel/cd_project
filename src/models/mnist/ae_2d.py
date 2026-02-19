@@ -1,6 +1,7 @@
-from typing import Tuple
+
 import torch
 from torch import nn
+
 
 class Encoder(nn.Module):
     def __init__(self, latent_dim: int):
@@ -55,7 +56,7 @@ class ConvAutoencoder(nn.Module):
         self.encoder = Encoder(latent_dim)
         self.decoder = Decoder(latent_dim)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         z = self.encoder(x)
         rec = self.decoder(z)
         return rec, z

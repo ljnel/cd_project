@@ -13,11 +13,11 @@
 #   ScatteringKernel - Wavelet scattering transform + RBF
 
 from .base import Kernel
-from .rbf import RBF
-from .fft import PolyFFT, GaussFFT
-from .signature import SigKernel
-from .scattering import ScatteringKernel
+from .fft import GaussFFT, PolyFFT
 from .minirocket import MiniRocketKernel
+from .rbf import RBF
+from .scattering import ScatteringKernel
+from .signature import SigKernel
 
 __all__ = [
     "Kernel",

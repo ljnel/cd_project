@@ -7,11 +7,11 @@ that can be applied during episode rollouts to induce failures.
 These are mechanisms for generating diverse failure modes, not objects of detection.
 """
 
-import numpy as np
-from typing import Tuple, Any, List
 from abc import ABC, abstractmethod
-from upkie.utils.external_force import ExternalForce
+from typing import Any
 
+import numpy as np
+from upkie.utils.external_force import ExternalForce
 
 # =============================================================================
 # Helper
@@ -35,7 +35,7 @@ class Disturbance(ABC):
 
     @abstractmethod
     def apply(self, step: int, obs: np.ndarray, action: np.ndarray,
-              simulator: Any) -> Tuple[np.ndarray, np.ndarray]:
+              simulator: Any) -> tuple[np.ndarray, np.ndarray]:
         """Apply disturbance at timestep. Returns (obs, action)."""
         pass
 
@@ -262,7 +262,7 @@ class Latency(Disturbance):
 class CompositeDisturbance(Disturbance):
     """Combines multiple disturbances."""
 
-    def __init__(self, disturbances: List[Disturbance]):
+    def __init__(self, disturbances: list[Disturbance]):
         self.disturbances = disturbances
 
     def reset(self, n_steps, rng):

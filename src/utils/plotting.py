@@ -3,8 +3,8 @@ import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
+import seaborn as sns
 
 logger = logging.getLogger("cd.utils.plotting")
 
@@ -83,10 +83,7 @@ def plot_channels(x, y, max_channels=9, max_batches=20):
     fig, axes = plt.subplots(rows, cols, figsize=(
         4 * cols, 3 * rows), constrained_layout=True)
 
-    if num_plots > 1:
-        axes = axes.flatten()
-    else:
-        axes = [axes]
+    axes = axes.flatten() if num_plots > 1 else [axes]
 
     for i, ch_idx in enumerate(channel_indices):
         ax = axes[i]

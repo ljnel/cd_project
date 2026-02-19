@@ -3,9 +3,8 @@ Detector factory and exports.
 """
 
 from config.detectors import DETECTOR_CONFIGS
-from detectors.kernel import KernDetector
 from detectors.conv import ConvAEDetector
-
+from detectors.kernel import KernDetector
 
 _CLASSES = {
     'KernDetector': KernDetector,

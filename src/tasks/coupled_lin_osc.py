@@ -1,12 +1,13 @@
-from tasks.experiment import Experiment
-from utils.paths import get_root
-
-from scipy.linalg import expm, block_diag
 from dataclasses import dataclass
+
 import numpy as np
+from scipy.linalg import expm
+
+from tasks.experiment import Experiment
+
 
 @dataclass
-class CLO_Config():
+class CLO_Config:
     dim: int
     coupling: float
     t: float

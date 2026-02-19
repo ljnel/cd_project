@@ -1,7 +1,8 @@
-import numpy as np
-import gymnasium as gym
-from stable_baselines3 import SAC
 from argparse import ArgumentParser
+
+import gymnasium as gym
+import numpy as np
+from stable_baselines3 import SAC
 
 if __name__ == "__main__":
     parser = ArgumentParser()

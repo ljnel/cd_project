@@ -1,7 +1,6 @@
-import numpy as np
+import lightning as L
 import torch
 from torch import nn
-import lightning as L
 
 
 class StateSeqAutoencoder(L.LightningModule):

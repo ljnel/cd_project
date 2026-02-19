@@ -1,9 +1,11 @@
-from typing import Union, Literal
+from typing import Literal
+
 import numpy as np
 from sktime.dists_kernels import SignatureKernel
 
-from .base import Kernel
 from utils.misc import median_heuristic
+
+from .base import Kernel
 
 
 class SigKernel(Kernel):
@@ -23,7 +25,7 @@ class SigKernel(Kernel):
         - If a float, used directly.
     """
 
-    def __init__(self, gamma: Union[float, Literal["median"]] = "median"):
+    def __init__(self, gamma: float | Literal["median"] = "median"):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
         self.k = None  # Will be initialized after fit or when gamma is known

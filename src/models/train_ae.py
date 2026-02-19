@@ -1,10 +1,12 @@
-import numpy as np
-from models.pair_ae import PairAE
-import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from pathlib import Path
+
+import lightning as L
+import numpy as np
+from lightning.pytorch.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader
+
+from models.pair_ae import PairAE
 
 if __name__ == "__main__":
     parser = ArgumentParser()

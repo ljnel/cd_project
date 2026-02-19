@@ -1,21 +1,16 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import torch
+import glob
 from argparse import ArgumentParser
 from pathlib import Path
-from utils.misc import time_call
 
-import glob
-from sklearn.metrics import precision_recall_curve, auc
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from sklearn.random_projection import GaussianRandomProjection
+
 from algs.cd_poly import CDPolynomial
-from models.state_window_ae import StateSeqAutoencoder  # or wherever you place it
 from models.conv_ae import ConvAE
 from models.pair_ae import PairAE
-import lightning as L
-from torch.utils.data import DataLoader
-from sklearn.random_projection import GaussianRandomProjection
-from models.pair_ae import PairAE
+from utils.misc import time_call
 
 np.random.seed(0)
 
@@ -92,7 +87,7 @@ def get_tpss(ds: dict):
     s = ds['s']
     # prev = shift s one step right, pad first with itself
     prev_s = np.concatenate([s[:, :1], s[:, :-1]], axis=1)
-    t = np.tile(ds['t'], n_eps)[:, None]
+    np.tile(ds['t'], n_eps)[:, None]
     #return np.concatenate([t, prev_s.reshape(-1, s_dim), s.reshape(-1, s_dim)], axis=1)
     return np.concatenate([prev_s.reshape(-1, s_dim), s.reshape(-1, s_dim)], axis=1)
 
@@ -220,7 +215,7 @@ def cd_rp(ds_tr: dict, cal_mask, ds_te: dict, args):
         tau = np.quantile(scores_cal.max(axis=1), q)
         proj_thresh.append(tau)
 
-    votes = [(S >= tau) for S, tau in zip(scores_te_all, proj_thresh)]  # list of bools
+    votes = [(tau <= S) for S, tau in zip(scores_te_all, proj_thresh, strict=False)]  # list of bools
     votes = np.stack(votes, axis=0)  # (m, n_eps, n_steps)
 
     pred = (votes.sum(axis=0) >= k)          # k-of-m voting
@@ -901,12 +896,13 @@ if __name__ == "__main__":
     # --------- Full-episode video with red flash on detection + score plot ----------
 if args.video:
     try:
+        import os
+        from pathlib import Path
+
         import gymnasium as gym
         import imageio.v2 as imageio
-        from pathlib import Path
-        from PIL import Image, ImageDraw
-        import os
         import numpy as np  # (in case it's not already imported up top)
+        from PIL import Image, ImageDraw
 
         # --- Choose a representative failing episode ---
         mask_detected = fail_eps & flagged

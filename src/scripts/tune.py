@@ -13,16 +13,16 @@ Usage:
 """
 
 import argparse
+import gc
 import itertools
 import json
 import logging
-import gc
 
 import numpy as np
 from scipy.stats import iqr as compute_iqr
 
+from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector
 from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
 
@@ -67,7 +67,7 @@ def grid_search(method_key: str, space: dict,
     Objective: score_spread on normal test windows only.
     """
     if not space:
-        print(f"    No tunable params, skipping")
+        print("    No tunable params, skipping")
         return {}
 
     param_names = list(space.keys())
@@ -80,7 +80,7 @@ def grid_search(method_key: str, space: dict,
     best_combo = {}
 
     for combo in combos:
-        overrides = dict(zip(param_names, combo))
+        overrides = dict(zip(param_names, combo, strict=False))
         combo_str = ", ".join(f"{k}={v}" for k, v in overrides.items())
 
         try:
@@ -199,10 +199,7 @@ def main():
         method_keys = [m for m in DEFAULT_METHODS if m in SEARCH_SPACE]
 
     # Determine environments
-    if args.env == "all":
-        envs = list(TASK_CONFIGS.keys())
-    else:
-        envs = [args.env]
+    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
 
     for env_name in envs:
         try:

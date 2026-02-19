@@ -1,14 +1,12 @@
+from argparse import ArgumentParser
+
+import lightning as L
+from torch.utils.data import random_split
+from torchvision import datasets, transforms
+
 from models.mnist.ae_cd import AE_CD
 from models.mnist.contrastive_dl import make_contrastive_loader
 from utils.paths import get_root
-
-import torch
-import lightning as L
-from argparse import ArgumentParser
-from torchvision import datasets, transforms
-from torch.utils.data import random_split
-
-import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     parser = ArgumentParser()

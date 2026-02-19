@@ -4,8 +4,9 @@ Projects trajectories onto localized basis functions, producing compact
 weight vectors suitable for downstream anomaly detection (e.g. KernCD).
 """
 
-import numpy as np
 from abc import ABC, abstractmethod
+
+import numpy as np
 
 
 class BasisGenerator(ABC):

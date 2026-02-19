@@ -12,15 +12,15 @@ Usage:
 """
 
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 
-from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
-from tasks.safety_monitor import SafetyMonitor
-from config.tasks import TASK_CONFIGS
-from utils.plotting import plot_kern_mat
+import matplotlib.pyplot as plt
+import numpy as np
 
+from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
+from config.tasks import TASK_CONFIGS
+from tasks.safety_monitor import SafetyMonitor
+from utils.plotting import plot_kern_mat
 
 # Output directory
 OUTPUT_DIR = Path("results/kernel_matrices")
@@ -88,7 +88,7 @@ def main():
         axes = [axes]
 
     # Compute and plot kernel matrices
-    for ax, (name, kernel) in zip(axes, kernels):
+    for ax, (name, kernel) in zip(axes, kernels, strict=False):
         print(f"\nComputing {name} kernel matrix...")
 
         # Fit kernel on test windows (to set gamma via median heuristic)

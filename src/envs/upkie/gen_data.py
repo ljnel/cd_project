@@ -19,17 +19,15 @@ Example: python gen_data.py --dataset upkie/impulse
 import copy
 import logging
 import warnings
-from typing import Optional
 
-import numpy as np
 import gymnasium as gym
+import numpy as np
 import pybullet as p
 import upkie.envs
 
-from config.datasets import DatasetConfig, DATASETS
+from config.datasets import DATASETS, DatasetConfig
 from data.datasets import get_dataset_path
 from envs.upkie.disturbances import Disturbance, clear_external_forces
-from envs.upkie.obs_hist_wrapper import ObsHistoryWrapper
 from utils.paths import get_root
 
 # Suppress warnings
@@ -108,7 +106,7 @@ def _run_episodes(
     mass_scales: np.ndarray,
     friction_scales: np.ndarray,
     damping_scales: np.ndarray,
-    disturbance: Optional[Disturbance],
+    disturbance: Disturbance | None,
     use_ppo: bool,
     policy_path: str,
     deterministic: bool,
@@ -136,7 +134,8 @@ def _run_episodes(
     if use_ppo:
         from stable_baselines3 import PPO
         model = PPO.load(policy_path or DEFAULT_PPO_PATH)
-        get_action = lambda obs, info: model.predict(obs, deterministic=deterministic)[0]
+        def get_action(obs, info):
+            return model.predict(obs, deterministic=deterministic)[0]
     else:
         # from upkie.controllers import MPCBalancer
         # mpc = None
@@ -216,7 +215,7 @@ def _gen_data_sequential(
     friction_scales: np.ndarray,
     damping_scales: np.ndarray,
     frequency: float,
-    disturbance: Optional[Disturbance],
+    disturbance: Disturbance | None,
     use_ppo: bool,
     policy_path: str,
     deterministic: bool,
@@ -251,7 +250,7 @@ def _gen_data_parallel(
     friction_scales: np.ndarray,
     damping_scales: np.ndarray,
     frequency: float,
-    disturbance: Optional[Disturbance],
+    disturbance: Disturbance | None,
     use_ppo: bool,
     policy_path: str,
     deterministic: bool,

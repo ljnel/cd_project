@@ -1,9 +1,10 @@
+import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import lightning as L
 
 from algs.poly_basis import BasisSpec, MonomialBasis
+
 
 class ConvSeqAutoencoder(L.LightningModule):
     def __init__(self, 
@@ -114,11 +115,12 @@ class ConvSeqAutoencoder(L.LightningModule):
 if __name__ == "__main__":
 
     from argparse import ArgumentParser
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
+    from lightning.pytorch.loggers import TensorBoardLogger
     from models.window_ds import WindowDataset
     from torch.utils.data import DataLoader
-    from lightning.pytorch.loggers import TensorBoardLogger    
 
     parser = ArgumentParser()
     parser.add_argument('--env')

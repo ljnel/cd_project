@@ -1,6 +1,6 @@
-import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
+
 
 class KLDecomp(BaseEstimator, TransformerMixin):
     """

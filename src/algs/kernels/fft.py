@@ -1,9 +1,11 @@
-from typing import Union, Literal
+from typing import Literal
+
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 
-from .base import Kernel
 from utils.misc import median_heuristic
+
+from .base import Kernel
 
 
 class PolyFFT(Kernel):
@@ -83,7 +85,7 @@ class GaussFFT(Kernel):
         - If a float, used directly.
     """
 
-    def __init__(self, gamma: Union[float, Literal["median"]] = "median"):
+    def __init__(self, gamma: float | Literal["median"] = "median"):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
 

@@ -1,16 +1,17 @@
 import logging
-from typing import Optional
+
 import numpy as np
 
 from .base import AnomalyDetector
 
 logger = logging.getLogger("cd.detectors.conv")
-from utils.windows import WindowDataset, strided_window_view
-from utils.misc import median_heuristic
-
 import torch
 from torch.utils.data import DataLoader
+
 from models.conv_ae import ConvAE, train
+from utils.misc import median_heuristic
+from utils.windows import strided_window_view
+
 
 class ConvAEDetector(AnomalyDetector):
     """Sklearn-compatible outlier detector wrapping ConvAE.
@@ -125,12 +126,12 @@ class ConvAEDetector(AnomalyDetector):
 
         # For latent method, fit KernCD on latent representations
         if self.method == "latent":
+
             from algs.kern_cd import KernCD
             from algs.kernels import RBF
-            from sklearn.svm import OneClassSVM
 
             z = self._get_latent(X_windows)
-            gamma = median_heuristic(z)
+            median_heuristic(z)
             # Subsample for efficiency
             if len(z) > self.max_samples:
                 indices = np.random.choice(len(z), self.max_samples, replace=False)

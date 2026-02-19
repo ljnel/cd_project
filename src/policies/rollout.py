@@ -1,5 +1,7 @@
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 
 def collect_trajectories(env, policy, n_episodes=10, max_steps=200):
     """

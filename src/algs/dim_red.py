@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
 
+
 class KL_Decomp(BaseEstimator, TransformerMixin):
     def __init__(self, k: int):
         self.k = k

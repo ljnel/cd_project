@@ -1,10 +1,9 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
 import lightning as L
+import torch
+import torch.nn.functional as F
 
-from models.mnist.ae_2d import ConvAutoencoder
 from algs.cd_loss import CDLoss
+from models.mnist.ae_2d import ConvAutoencoder
 
 
 class AE_CD(L.LightningModule):

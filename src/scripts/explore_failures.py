@@ -15,8 +15,8 @@ from argparse import ArgumentParser
 from collections import deque
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from config.datasets import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
@@ -167,15 +167,14 @@ def _upkie_find_failures(
     Returns list of (episode_index, fail_step) for episodes that failed.
     """
     import gymnasium as gym
-    import pybullet as p
     import upkie.envs
 
     from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.gen_data import _get_base_parameters, _apply_parameter_scales, _restore_parameters
+    from envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters, _restore_parameters
 
     upkie.envs.register()
 
-    OBS_DIM, ACTION_DIM = 4, 1
+    _OBS_DIM, _ACTION_DIM = 4, 1
     use_ppo = (cfg_balancer == 'ppo')
 
     base_env = gym.make("Upkie-PyBullet-Pendulum", frequency=cfg_frequency, gui=False)
@@ -188,7 +187,8 @@ def _upkie_find_failures(
     if use_ppo:
         from stable_baselines3 import PPO
         model = PPO.load(policy_path)
-        get_action = lambda obs, info: model.predict(obs, deterministic=True)[0]
+        def get_action(obs, info):
+            return model.predict(obs, deterministic=True)[0]
     else:
         mpc = None
         def get_action(obs, info):
@@ -255,15 +255,14 @@ def _upkie_render_failure(
     Returns (before_frame, fail_frame, fail_step).
     """
     import gymnasium as gym
-    import pybullet as p
     import upkie.envs
 
     from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.gen_data import _get_base_parameters, _apply_parameter_scales, _restore_parameters
+    from envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters
 
     upkie.envs.register()
 
-    OBS_DIM, ACTION_DIM = 4, 1
+    _OBS_DIM, _ACTION_DIM = 4, 1
     use_ppo = (cfg_balancer == 'ppo')
 
     base_env = gym.make("Upkie-PyBullet-Pendulum", frequency=cfg_frequency, gui=False)
@@ -276,7 +275,8 @@ def _upkie_render_failure(
     if use_ppo:
         from stable_baselines3 import PPO
         model = PPO.load(policy_path)
-        get_action = lambda obs, info: model.predict(obs, deterministic=True)[0]
+        def get_action(obs, info):
+            return model.predict(obs, deterministic=True)[0]
     else:
         mpc = None
         def get_action(obs, info):
@@ -334,8 +334,9 @@ def run_upkie_failures(cfg: DatasetConfig, n_failures: int, steps_before: int,
         logger.warning(f"Skipping upkie: {e}")
         return []
 
-    from joblib import Parallel, delayed
     import os
+
+    from joblib import Parallel, delayed
 
     # Pre-sample parameters for all episodes
     rng = np.random.default_rng(seed)

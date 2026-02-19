@@ -18,13 +18,13 @@ import logging
 import time
 from argparse import ArgumentParser
 
-import numpy as np
 import gymnasium as gym
+import numpy as np
 from stable_baselines3 import SAC
 
-from config.datasets import DatasetConfig, DATASETS
-from data.datasets import get_dataset_path
+from config.datasets import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
+from data.datasets import get_dataset_path
 from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
 

@@ -10,18 +10,18 @@ For this experiment, want a heatmap of "percentage classified as outlier"
 This file should take the trained model(s) and produce experimental data and plots.
 """
 
-from models.mnist.ae_cd import AE_CD
-from models.mnist.contrastive_dl import make_contrastive_loader
-from utils.paths import *
+import glob
+import os
 
-import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import os
-import glob
+import torch
+from torchvision import datasets, transforms
 
+from models.mnist.ae_cd import AE_CD
+from models.mnist.contrastive_dl import make_contrastive_loader
+from utils.paths import get_root, save_plot
 
 test_ds = datasets.MNIST(root=str(get_root() / "data"), 
                          train=False, download=True, transform=transforms.ToTensor())

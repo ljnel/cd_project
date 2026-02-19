@@ -5,7 +5,7 @@ For utilities (load, save, generate), see data.datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Literal
+from typing import Literal
 
 
 @dataclass
@@ -20,9 +20,9 @@ class DatasetConfig:
     policy: str                 # policy filename
 
     # Parameter ranges (1.0, 1.0) means no variation
-    mass_range: Tuple[float, float] = (1.0, 1.0)
-    friction_range: Tuple[float, float] = (1.0, 1.0)
-    damping_range: Tuple[float, float] = (1.0, 1.0)
+    mass_range: tuple[float, float] = (1.0, 1.0)
+    friction_range: tuple[float, float] = (1.0, 1.0)
+    damping_range: tuple[float, float] = (1.0, 1.0)
 
     # Generation parameters
     n_episodes: int = 1000
@@ -37,7 +37,7 @@ class DatasetConfig:
     balancer: Literal['ppo', 'mpc'] = 'mpc'  # controller type, only for upkie
 
     # Disturbance (upkie-only, ignored for mujoco)
-    disturbance_type: Optional[str] = None  # e.g., "ImpulseForce"
+    disturbance_type: str | None = None  # e.g., "ImpulseForce"
     disturbance_kwargs: dict = field(default_factory=dict)  # e.g., {"force_magnitude": 5.0}
 
     @property
@@ -152,7 +152,7 @@ DATASETS = {
 def list_datasets(env: str = None) -> list:
     """List available dataset configurations."""
     if env:
-        return [k for k in DATASETS.keys() if k.startswith(f"{env}/")]
+        return [k for k in DATASETS if k.startswith(f"{env}/")]
     return list(DATASETS.keys())
 
 

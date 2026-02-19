@@ -4,14 +4,15 @@ Right now, only monomial basis and chebyshev basis are implemented.
 """
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
 
 import torch
 
 Tensor = torch.Tensor
-MultiIndex = Tuple[int, ...]
+MultiIndex = tuple[int, ...]
 
 def _validate_shape(X: Tensor, n_vars: int) -> Tensor:
     X = torch.as_tensor(X, dtype=torch.get_default_dtype())
@@ -22,7 +23,7 @@ def _validate_shape(X: Tensor, n_vars: int) -> Tensor:
     return X
 
 
-def total_degree_index_set(n_vars: int, degree: int) -> List[MultiIndex]:
+def total_degree_index_set(n_vars: int, degree: int) -> list[MultiIndex]:
     """
     All multi-indices in n_vars variables with sum <= degree, in graded-lex order.
     """
@@ -31,9 +32,9 @@ def total_degree_index_set(n_vars: int, degree: int) -> List[MultiIndex]:
     if n_vars <= 0:
         raise ValueError("n_vars must be >= 1")
 
-    indices: List[MultiIndex] = []
+    indices: list[MultiIndex] = []
 
-    def rec(prefix: List[int], remaining_vars: int, remaining_deg: int):
+    def rec(prefix: list[int], remaining_vars: int, remaining_deg: int):
         if remaining_vars == 1:
             indices.append(tuple(prefix + [remaining_deg]))
             return
@@ -50,7 +51,7 @@ class BasisSpec:
     n_vars: int
     degree: int
     # Optional per-variable domain [(a1, b1), ..., (an, bn)].
-    domain: Optional[Sequence[Tuple[float, float]]] = None
+    domain: Sequence[tuple[float, float]] | None = None
 
 
 class Basis(ABC):
@@ -65,7 +66,7 @@ class Basis(ABC):
         self.n_vars = spec.n_vars
         self.degree = spec.degree
         self.domain = spec.domain
-        self._index_set: List[MultiIndex] = total_degree_index_set(self.n_vars, self.degree)
+        self._index_set: list[MultiIndex] = total_degree_index_set(self.n_vars, self.degree)
 
     # ---- Hooks for subclasses ----
 
@@ -79,7 +80,7 @@ class Basis(ABC):
     # ---- Public API ----
 
     @property
-    def index_set(self) -> List[MultiIndex]:
+    def index_set(self) -> list[MultiIndex]:
         return self._index_set
 
     @property
@@ -95,7 +96,7 @@ class Basis(ABC):
         n, d = X.shape
 
         # Per-dimension tables V_d: shape (n, degree+1)
-        values: List[Tensor] = []
+        values: list[Tensor] = []
         for dim in range(d):
             x = self._preprocess_var(X[:, dim], dim)
             Vd = torch.stack(
@@ -105,7 +106,7 @@ class Basis(ABC):
             values.append(Vd)
 
         # Assemble multivariate products for each multi-index alpha
-        cols: List[Tensor] = []
+        cols: list[Tensor] = []
         for alpha in self._index_set:
             per_dim = [values[dim][:, alpha[dim]] for dim in range(d)]  # each (n,)
             v = torch.prod(torch.stack(per_dim, dim=1), dim=1)  # (n,)
@@ -116,7 +117,7 @@ class Basis(ABC):
             Phi = Phi[:, 1:]  # drop alpha=(0,...,0)
         return Phi
 
-    def basis_names(self, var_names: Optional[Sequence[str]] = None) -> List[str]:
+    def basis_names(self, var_names: Sequence[str] | None = None) -> list[str]:
         if var_names is None:
             var_names = [f"x{j}" for j in range(self.n_vars)]
         names = []

@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import Sampler
 
+
 class PosNegBatchSampler(Sampler):
     """
     Yields batches of indices: half positives, half negatives (no replacement).
