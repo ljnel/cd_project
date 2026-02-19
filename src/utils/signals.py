@@ -24,29 +24,6 @@ def estimate_freq(x: np.ndarray, fs: float) -> float:
     return freqs[np.argmax(magnitudes)]
 
 
-def estimate_window(x: np.ndarray, period: int = 1, method: str = 'median') -> int:
-    steps = x.shape[1]
-    fft_magnitudes = np.abs(np.fft.rfft(x, axis=1))
-    fft_magnitudes[:, 0, :] = 0
-    
-    peak_indices = np.argmax(fft_magnitudes, axis=1)
-    peak_indices[peak_indices == 0] = 1
-    
-    frequencies = peak_indices / steps
-    
-    if method == 'mean':
-        avg_frequency = np.mean(frequencies)
-    else:
-        avg_frequency = np.median(frequencies)
-        
-    # Convert average frequency back to total window length
-    # Period = 1 / Frequency
-    estimated_window = period / avg_frequency
-    window = int(round(estimated_window))
-    logger.debug(f"periods={period}, freq={avg_frequency:.4f} ({method}) → window={window}")
-
-    return window
-
 def analyze(x: np.ndarray, max_f=None, fs: float = 1):
     "Analyze a scalar signal."
     dt = 1.0 / fs

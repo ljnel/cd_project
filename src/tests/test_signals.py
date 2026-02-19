@@ -1,4 +1,4 @@
-from utils.signals import estimate_window
+from algs.windowing import estimate_window
 
 import numpy as np
 import pytest
