@@ -125,12 +125,26 @@ DATASETS = {
         name='fail_pred',
         env='upkie',
         platform='upkie',
-        policy='ppo_balancer/params.zip',
+        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
+        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
         balancer='ppo',
         frequency=200.0,
         mass_range=(0.6, 3.0),
+        friction_range=(0.6, 2.0),
+        damping_range=(0.6, 2.0),
         disturbance_type='ImpulseForce',
-        disturbance_kwargs={'force_magnitude': 5.0},
+        disturbance_kwargs={'force_magnitude': 15.0},
+    ),
+
+    'upkie/nominal': DatasetConfig(
+        name='nominal',
+        env='upkie',
+        platform='upkie',
+        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
+        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
+        balancer='ppo',
+        frequency=200.0,
+        n_episodes=10,
     ),
 }
 
