@@ -22,41 +22,18 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from detectors.kernel import KernDetector
-from detectors.conv import ConvAEDetector
 from config.tasks import TASK_CONFIGS
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
+from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector, get_method_display_name
 from tasks.fold_task import create_fold_tasks
 
-
-def get_method_display_name(method_key: str) -> str:
-    """Get display name for a method from config."""
-    config = DETECTOR_CONFIGS.get(method_key, {})
-    return config.get('display_name', method_key)
-
 OUTPUT_DIR = Path("results/compute_cost")
-
-
-def get_detector(method_key: str):
-    """Factory function to create a detector from config."""
-    if method_key not in DETECTOR_CONFIGS:
-        raise ValueError(f"Unknown method: {method_key}. Available: {list(DETECTOR_CONFIGS.keys())}")
-
-    config = DETECTOR_CONFIGS[method_key].copy()
-    cls_name = config.pop('cls')
-
-    if cls_name == 'KernDetector':
-        return KernDetector(**config)
-    elif cls_name == 'ConvAEDetector':
-        return ConvAEDetector(**config)
-    else:
-        raise ValueError(f"Unknown detector class: {cls_name}")
 
 
 def run_cost_experiment(
     method_keys: List[str],
     X_train: np.ndarray,
     X_test: np.ndarray,
+    env_name: str = None,
     n_repeats: int = 5,
     seed: int = 42,
 ) -> Dict[str, Dict[str, float]]:
@@ -67,6 +44,7 @@ def run_cost_experiment(
         method_keys: List of method keys from DETECTOR_CONFIGS
         X_train: Training data
         X_test: Test data
+        env_name: Environment name (for loading tuned hyperparams)
         n_repeats: Number of timing repeats
         seed: Random seed
 
@@ -87,7 +65,7 @@ def run_cost_experiment(
             print(f"  Repeat {i + 1}/{n_repeats}...", end=" ")
 
             try:
-                model = get_detector(method_key)
+                model = get_detector(method_key, env=env_name)
 
                 # Time training
                 start = time.perf_counter()
@@ -219,7 +197,7 @@ def run_env(
 
     results = run_cost_experiment(
         method_keys, X_train, X_test,
-        n_repeats=n_repeats, seed=seed
+        env_name=env_name, n_repeats=n_repeats, seed=seed
     )
 
     # Print summary

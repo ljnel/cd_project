@@ -14,25 +14,18 @@ Usage:
 import argparse
 import gc
 import numpy as np
-from sklearn.metrics import confusion_matrix, fbeta_score, roc_auc_score
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from typing import Dict, List, Tuple, Union
 import warnings
 warnings.filterwarnings("ignore")
 
-from detectors.kernel import KernDetector
-from detectors.conv import ConvAEDetector
 from config.tasks import SafetyMonitorConfig, TASK_CONFIGS
-from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS
+from config.detectors import DETECTOR_CONFIGS, DEFAULT_METHODS, get_detector, get_method_display_name
 from config.envs import ENV_INFO
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
-from utils.latex import format_latex_table, format_f2_latex_table
+from utils.latex import format_latex_table, format_metric_latex_table, compute_avg_ranks
 from utils.paths import get_root
-
-
-def get_method_display_name(method_key: str) -> str:
-    """Get display name for a method from config."""
-    config = DETECTOR_CONFIGS.get(method_key, {})
-    return config.get('display_name', method_key)
 
 
 def get_env_display_name(env_key: str) -> str:
@@ -41,28 +34,12 @@ def get_env_display_name(env_key: str) -> str:
     return info.display_name if info else env_key
 
 
-def get_detector(method_key: str):
-    """Factory function to create a detector from config."""
-    if method_key not in DETECTOR_CONFIGS:
-        raise ValueError(f"Unknown method: {method_key}. Available: {list(DETECTOR_CONFIGS.keys())}")
-
-    config = DETECTOR_CONFIGS[method_key].copy()
-    cls_name = config.pop('cls')
-    config.pop('display_name', None)
-
-    if cls_name == 'KernDetector':
-        return KernDetector(**config)
-    elif cls_name == 'ConvAEDetector':
-        return ConvAEDetector(**config)
-    else:
-        raise ValueError(f"Unknown detector class: {cls_name}")
-
-
 def run_single_trial(
     method_key: str,
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
-) -> Tuple[float, float, float, float]:
+    env_name: str = None,
+) -> Tuple[float, float, np.ndarray, np.ndarray]:
     """
     Run a single trial of anomaly detection.
 
@@ -70,9 +47,10 @@ def run_single_trial(
         method_key: Key from DETECTOR_CONFIGS (e.g., "fft", "sig", "rec", "lat")
         task: FoldTask with train/test data
         seed: Random seed for reproducibility
+        env_name: Environment name, used to load tuned hyperparameters
 
     Returns:
-        Tuple of (TNR, TPR, F2, AUROC) - TNR and TPR as percentages, F2 and AUROC scores
+        Tuple of (TNR%, TPR%, y_true, scores) for pooled ROC computation
     """
     np.random.seed(seed)
 
@@ -80,7 +58,7 @@ def run_single_trial(
     x_tr, x_te = task.get_train_test()
 
     # Create detector from config
-    model = get_detector(method_key)
+    model = get_detector(method_key, env=env_name)
 
     # Fit and predict
     model.fit(x_tr)
@@ -102,26 +80,18 @@ def run_single_trial(
             else:
                 tp = 1.0 - (cm[0, 0] if y_pred[0] == 0 else 0)
 
-    # Compute F2 score
-    f2 = fbeta_score(task.y_true, y_pred, beta=2)
-
-    # Compute AUROC
-    if len(np.unique(task.y_true)) > 1:
-        auroc = roc_auc_score(task.y_true, scores)
-    else:
-        auroc = float('nan')
-
     # Cleanup to prevent memory accumulation
     del model
     gc.collect()
 
-    return tn * 100, tp * 100, f2, auroc
+    return tn * 100, tp * 100, task.y_true, scores
 
 
 def run_experiments(
     method_keys: List[str],
     tasks: List[FoldTask],
-    base_seed: int = 42
+    base_seed: int = 42,
+    env_name: str = None,
 ) -> Dict[str, Dict[str, Tuple[float, float]]]:
     """
     Run experiments for all methods with k-fold cross-validation.
@@ -143,28 +113,42 @@ def run_experiments(
         print(f"Running {display_name}...")
         print(f"{'='*60}")
 
-        fold_results = []
+        fold_tnr_tpr = []
+        all_y_true = []
+        all_scores = []
 
         for fold, task in enumerate(tasks):
             seed = base_seed + fold * 100
             print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
 
             try:
-                tnr, tpr, f2, auroc = run_single_trial(method_key, task, seed)
-                fold_results.append((tnr, tpr, f2, auroc))
-                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%, F2={f2:.3f}, AUROC={auroc:.3f}")
+                tnr, tpr, y_true, scores = run_single_trial(method_key, task, seed, env_name=env_name)
+                fold_tnr_tpr.append((tnr, tpr))
+                all_y_true.append(y_true)
+                all_scores.append(scores)
+                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%")
 
             except Exception as e:
                 print(f"FAILED: {e}")
                 continue
 
-        if fold_results:
-            fold_results = np.array(fold_results)
+        if fold_tnr_tpr:
+            fold_tnr_tpr = np.array(fold_tnr_tpr)
+
+            # Pool scores across folds for ROC-based metrics
+            pooled_y = np.concatenate(all_y_true)
+            pooled_scores = np.concatenate(all_scores)
+            fpr, tpr_curve, _ = roc_curve(pooled_y, pooled_scores)
+            tpr_at_5 = np.interp(0.05, fpr, tpr_curve)
+            auroc = roc_auc_score(pooled_y, pooled_scores)
+            print(f"  Pooled: TPR@5%FPR={tpr_at_5:.3f}, AUROC={auroc:.3f}")
+
             results[display_name] = {
-                'TNR': (fold_results[:, 0].mean(), fold_results[:, 0].std()),
-                'TPR': (fold_results[:, 1].mean(), fold_results[:, 1].std()),
-                'F2': (fold_results[:, 2].mean(), fold_results[:, 2].std()),
-                'AUROC': (np.nanmean(fold_results[:, 3]), np.nanstd(fold_results[:, 3])),
+                'TNR': (fold_tnr_tpr[:, 0].mean(), fold_tnr_tpr[:, 0].std()),
+                'TPR': (fold_tnr_tpr[:, 1].mean(), fold_tnr_tpr[:, 1].std()),
+                'TPR@5%FPR': tpr_at_5,
+                'AUROC': auroc,
+                'roc': (fpr, tpr_curve),
             }
         else:
             print(f"  WARNING: No successful folds for {display_name}")
@@ -180,46 +164,77 @@ def print_summary(results: Dict[str, Dict[str, Tuple[float, float]]], env_name: 
     print("="*80)
 
     # Header
-    print(f"\n{'Method':<25} {'TNR (%)':<18} {'TPR (%)':<18} {'F2':<18} {'AUROC':<18}")
+    print(f"\n{'Method':<25} {'TNR (%)':<18} {'TPR (%)':<18} {'TPR@5%FPR':<18} {'AUROC':<18}")
     print("-" * 97)
 
     for method_name, metrics in results.items():
         tnr_str = f"{metrics['TNR'][0]:.2f} +/- {metrics['TNR'][1]:.2f}"
         tpr_str = f"{metrics['TPR'][0]:.2f} +/- {metrics['TPR'][1]:.2f}"
-        f2_str = f"{metrics['F2'][0]:.3f} +/- {metrics['F2'][1]:.3f}"
-        auroc_str = f"{metrics['AUROC'][0]:.3f} +/- {metrics['AUROC'][1]:.3f}"
+        tpr5_str = f"{metrics['TPR@5%FPR']:.3f}"
+        auroc_str = f"{metrics['AUROC']:.3f}"
 
-        print(f"{method_name:<25} {tnr_str:<18} {tpr_str:<18} {f2_str:<18} {auroc_str:<18}")
+        print(f"{method_name:<25} {tnr_str:<18} {tpr_str:<18} {tpr5_str:<18} {auroc_str:<18}")
 
-    print("-" * 79)
+    print("-" * 97)
 
 
-def print_f2_summary(all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]):
-    """Print a summary table of F2 scores across all environments."""
+def plot_roc_curves(results: Dict[str, Dict], env_name: str):
+    """Plot and save ROC curves for all methods in a single figure."""
+    output_dir = get_root() / "results" / "fail_pred"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    for method_name, metrics in results.items():
+        if 'roc' not in metrics:
+            continue
+        fpr, tpr = metrics['roc']
+        ax.plot(fpr, tpr, label=f"{method_name} (AUC={metrics['AUROC']:.3f})")
+
+    ax.plot([0, 1], [0, 1], 'k--', lw=0.8, label='Random')
+    ax.set_xlabel('False Positive Rate')
+    ax.set_ylabel('True Positive Rate')
+    ax.set_title(f'ROC Curves — {get_env_display_name(env_name)}')
+    ax.legend(loc='lower right')
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1.05])
+    fig.tight_layout()
+
+    roc_file = output_dir / f"{env_name}_roc.pdf"
+    fig.savefig(roc_file)
+    plt.close(fig)
+    print(f"ROC curve saved to: {roc_file}")
+
+
+def print_metric_summary(all_results: Dict[str, Dict], metric_key: str):
+    """Print a summary table of a metric across all environments, with average ranks."""
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values()))['results'].keys())
+    avg_ranks = compute_avg_ranks(all_results, metric_key, methods, envs)
 
     print("\n" + "="*80)
-    print("F2 SCORE SUMMARY - ALL ENVIRONMENTS")
+    print(f"{metric_key} SUMMARY - ALL ENVIRONMENTS")
     print("="*80)
 
     # Header
-    header = f"{'Method':<25}"
+    header = f"{'Method':<20}"
     for env in envs:
         display_name = get_env_display_name(env)
-        header += f" {display_name:<20}"
+        header += f" {display_name:<15}"
+    header += f" {'Avg. Rank':<10}"
     print(header)
-    print("-" * (25 + 21 * len(envs)))
+    sep_len = 20 + 16 * len(envs) + 10
+    print("-" * sep_len)
 
     # Rows
     for method in methods:
-        row = f"{method:<25}"
+        row = f"{method:<20}"
         for env in envs:
-            f2_mean, f2_std = all_results[env]['results'][method]['F2']
-            row += f" {f2_mean:.3f} +/- {f2_std:.3f}  "
+            val = all_results[env]['results'][method][metric_key]
+            row += f" {val:<15.3f}"
+        row += f" {avg_ranks[method]:<10.1f}"
         print(row)
 
-    print("-" * (25 + 21 * len(envs)))
+    print("-" * sep_len)
 
 
 def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
@@ -263,10 +278,17 @@ def run_env(env_name: str, method_keys: List[str], n_folds: int = 5, base_seed: 
     tasks = create_fold_tasks(cfg, n_folds=n_folds, seed=base_seed)
 
     # Run experiments
-    results = run_experiments(method_keys, tasks=tasks, base_seed=base_seed)
+    results = run_experiments(method_keys, tasks=tasks, base_seed=base_seed, env_name=env_name)
 
     # Print summary
     print_summary(results, env_name)
+
+    # Plot ROC curves
+    plot_roc_curves(results, env_name)
+
+    # Strip roc data before LaTeX / npz output
+    for v in results.values():
+        v.pop('roc', None)
 
     if output_latex:
         # Generate LaTeX tables
@@ -357,14 +379,30 @@ if __name__ == "__main__":
         print("# FINAL SUMMARY - ALL ENVIRONMENTS")
         print("#"*80)
 
-        print_f2_summary(all_results)
-
-        # Generate and save combined F2 LaTeX table
-        latex_output = format_f2_latex_table(all_results)
+        print_metric_summary(all_results, 'AUROC')
+        print_metric_summary(all_results, 'TPR@5%FPR')
 
         output_dir = get_root() / "results" / "fail_pred"
         output_dir.mkdir(parents=True, exist_ok=True)
-        latex_file = output_dir / "all_envs_f2_results.tex"
-        with open(latex_file, "w") as f:
-            f.write(latex_output)
-        print(f"\nCombined F2 LaTeX table saved to: {latex_file}")
+
+        # Generate and save AUROC LaTeX table
+        auroc_latex = format_metric_latex_table(
+            all_results, 'AUROC',
+            caption='AUROC scores across all environments.',
+            label='auroc_all_envs',
+        )
+        auroc_file = output_dir / "all_envs_auroc_results.tex"
+        with open(auroc_file, "w") as f:
+            f.write(auroc_latex)
+        print(f"\nAUROC LaTeX table saved to: {auroc_file}")
+
+        # Generate and save TPR@5%FPR LaTeX table
+        tpr_latex = format_metric_latex_table(
+            all_results, 'TPR@5%FPR',
+            caption='TPR@5\\%FPR scores across all environments.',
+            label='tpr_all_envs',
+        )
+        tpr_file = output_dir / "all_envs_tpr_results.tex"
+        with open(tpr_file, "w") as f:
+            f.write(tpr_latex)
+        print(f"TPR@5%FPR LaTeX table saved to: {tpr_file}")

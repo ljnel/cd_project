@@ -1,4 +1,7 @@
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
+
+import numpy as np
+from scipy.stats import rankdata
 
 from config.envs import ENV_INFO
 
@@ -7,6 +10,27 @@ def get_env_display_name(env_key: str) -> str:
     """Get display name for an environment from config."""
     info = ENV_INFO.get(env_key)
     return info.display_name if info else env_key
+
+
+def compute_avg_ranks(
+    all_results: Dict[str, Dict],
+    metric_key: str,
+    methods: List[str],
+    envs: List[str],
+) -> Dict[str, float]:
+    """Compute average rank of each method across environments (lower is better).
+
+    Rank 1 = best. Ties get the average of tied ranks.
+    """
+    # (n_envs, n_methods) matrix of metric values
+    scores = np.array([
+        [all_results[env]['results'][method][metric_key] for method in methods]
+        for env in envs
+    ])
+    # Rank per env (higher metric = rank 1), then average across envs
+    ranks = np.array([rankdata(-row, method='average') for row in scores])
+    avg_ranks = ranks.mean(axis=0)
+    return {method: avg_ranks[i] for i, method in enumerate(methods)}
 
 
 def format_latex_table(
@@ -44,18 +68,18 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
 \\hline
 \\multirow{{2}}{{*}}{{Method}}
   & \\multicolumn{{4}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-5}}
- & TNR (\\%) & TPR (\\%) & F2 & AUROC \\\\ \\hline
+ & TNR (\\%) & TPR (\\%) & TPR@5\\%FPR & AUROC \\\\ \\hline
 """
 
     for method_name, metrics in results.items():
         tnr_mean, tnr_std = metrics['TNR']
         tpr_mean, tpr_std = metrics['TPR']
-        f2_mean, f2_std = metrics['F2']
-        auroc_mean, auroc_std = metrics['AUROC']
+        tpr5 = metrics['TPR@5%FPR']
+        auroc = metrics['AUROC']
 
         results_table += f"""
 {method_name}
- & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f} & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f} & {f2_mean:.3f} $\\pm$ {f2_std:.3f} & {auroc_mean:.3f} $\\pm$ {auroc_std:.3f}\\\\
+ & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f} & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f} & {tpr5:.3f} & {auroc:.3f}\\\\
 """
 
     results_table += """
@@ -69,12 +93,15 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
     return stats_table + "\n" + results_table
 
 
-def format_f2_latex_table(
-    all_results: Dict[str, Dict[str, Dict[str, Tuple[float, float]]]]
+def format_metric_latex_table(
+    all_results: Dict[str, Dict],
+    metric_key: str,
+    caption: str,
+    label: str,
 ) -> str:
     """
-    Format F2 scores as a single LaTeX table with environments as columns.
-    The method with the highest mean F2 score for each environment is bolded.
+    Format a single scalar metric as a LaTeX table with environments as columns.
+    The best method per environment is bolded.
     """
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values()))['results'].keys())
@@ -82,17 +109,17 @@ def format_f2_latex_table(
     # Find best method for each environment
     best_method_per_env = {}
     for env in envs:
-        best_mean = -1
+        best_val = -1
         best_method = None
         for method in methods:
-            f2_mean, _ = all_results[env]['results'][method]['F2']
-            if f2_mean > best_mean:
-                best_mean = f2_mean
+            val = all_results[env]['results'][method][metric_key]
+            if val > best_val:
+                best_val = val
                 best_method = method
         best_method_per_env[env] = best_method
 
     # Build table header
-    col_spec = "|l|" + "c|" * len(envs)
+    col_spec = "|l|" + "c" * len(envs) + "|c|"
     env_display_names = [get_env_display_name(env) for env in envs]
     header_row = " & ".join(env_display_names)
 
@@ -101,24 +128,32 @@ def format_f2_latex_table(
 \\centering
 \\begin{{tabular}}{{{col_spec}}}
 \\hline
-Method & {header_row} \\\\ \\hline
+Method & {header_row} & Avg. Rank \\\\ \\hline
 """
+
+    # Compute average ranks across environments
+    avg_ranks = compute_avg_ranks(all_results, metric_key, methods, envs)
+    best_rank_method = min(avg_ranks, key=avg_ranks.get)
 
     # Add rows for each method
     for method in methods:
         cells = [method]
         for env in envs:
-            f2_mean, f2_std = all_results[env]['results'][method]['F2']
-            cell = f"{f2_mean:.3f} $\\pm$ {f2_std:.3f}"
+            val = all_results[env]['results'][method][metric_key]
+            cell = f"{val:.3f}"
             if method == best_method_per_env[env]:
                 cell = f"\\textbf{{{cell}}}"
             cells.append(cell)
+        rank_val = f"{avg_ranks[method]:.1f}"
+        if method == best_rank_method:
+            rank_val = f"\\textbf{{{rank_val}}}"
+        cells.append(rank_val)
         latex += " & ".join(cells) + " \\\\\n"
 
-    latex += """\\hline
-\\end{tabular}
-\\caption{F2 scores across all environments.}
-\\label{tab:f2_all_envs}
-\\end{table}
+    latex += f"""\\hline
+\\end{{tabular}}
+\\caption{{{caption}}}
+\\label{{tab:{label}}}
+\\end{{table}}
 """
     return latex
