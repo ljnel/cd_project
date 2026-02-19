@@ -4,7 +4,6 @@ __pycache__/
 pinocchio/
 .DS_Store
 .ipynb_checkpoints/
-cd_project/egg_info
 .vscode/launch.json
 notes/
 benchmark/**/lightning_logs/
@@ -12,10 +11,10 @@ outputs/
 *.ckpt
 *.prof
 *.npz
-cd_project.egg-info/
 *.mp4
 *.tex
 *.pdf
 *.png
 results/
 videos/
+data/
