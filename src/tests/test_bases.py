@@ -1,4 +1,4 @@
-from algs.bases import *
+from algs.poly_basis import *
 import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 

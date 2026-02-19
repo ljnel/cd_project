@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from algs.bases import *
+from algs.poly_basis import *
 
 class CDLoss(nn.Module):
     "CD polynomial implemented in pytorch so that it can be differentiated and updated in batches."

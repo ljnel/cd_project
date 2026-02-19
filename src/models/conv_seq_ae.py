@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 
-from algs.bases import BasisSpec, MonomialBasis
+from algs.poly_basis import BasisSpec, MonomialBasis
 
 class ConvSeqAutoencoder(L.LightningModule):
     def __init__(self, 

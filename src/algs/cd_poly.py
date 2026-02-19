@@ -4,7 +4,7 @@ from typing import Literal, Optional
 import jax.numpy as jnp
 import jax.scipy as jsp
 
-from algs.bases import BasisSpec, ChebyshevBasis, MonomialBasis
+from algs.poly_basis import BasisSpec, ChebyshevBasis, MonomialBasis
 from utils.plotting import plot_contours, plot_map
 
 Method = Literal["chol", "qr"]
