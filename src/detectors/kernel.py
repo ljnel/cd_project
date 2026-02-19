@@ -12,7 +12,9 @@ from algs.kern_cd import KernCD
 logger = logging.getLogger("cd.detectors.kernel")
 from algs.kernels import RBF, GaussFFT, SigKernel, ScatteringKernel, MiniRocketKernel
 from .base import AnomalyDetector
-from utils.signals import estimate_window, low_pass
+from algs.downsampling import downsample_regular
+from algs.windowing import estimate_window, estimate_window_acf
+from utils.signals import low_pass
 
 from sklearn.preprocessing import StandardScaler
 from typing import Optional
@@ -50,12 +52,46 @@ class KernDetector(AnomalyDetector):
         self.max_windows = max_windows
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
 
+    def _preprocess(self, X_windows: np.ndarray) -> np.ndarray:
+        """Per-kernel preprocessing applied to windows."""
+        if self.kernel_type in ("fft", "rbf"):
+            X_windows = low_pass(X_windows, alpha=0.8)
+        if self.kernel_type == "rbf":
+            X_windows = X_windows.reshape(len(X_windows), -1)
+        if self.kernel_type == "sig":
+            n_steps = X_windows.shape[1]
+            if n_steps > 30:
+                step = (n_steps + 29) // 30  # ceil division
+                X_windows = downsample_regular(X_windows, step)
+        return X_windows
+
+    def _estimate_window(self, X: np.ndarray) -> int:
+        """Per-kernel window size estimation."""
+        ep_len = X.shape[1]
+        if self.window_frac is not None:
+            w = max(10, int(ep_len * self.window_frac))
+            logger.info(f"Window: {w} (window_frac={self.window_frac})")
+            return w
+        if self.kernel_type in ("fft", "rbf"):
+            w = estimate_window(X, period=self.n_periods, method='mean')
+            logger.info(f"Window: {w} (auto-estimated, {self.n_periods} period(s))")
+            return w
+        # sig, scatter, minirocket: ACF-based
+        w = estimate_window_acf(X)
+        logger.info(f"Window: {w} (ACF-estimated)")
+        return w
+
     def _get_windows(self, X: np.ndarray, max_windows: int) -> np.ndarray:
         """Extract windows using stratified uniform sampling.
 
         Samples uniformly spaced windows from each episode to achieve
         approximately max_windows total, with equal representation per episode.
         """
+        # Skip first period to exclude initial transient
+        # (skip when window covers the full trajectory)
+        if self.kernel_type == "fft" and X.shape[1] > self.window:
+            X = X[:, self.window:, :]
+
         n_episodes, seq_len, n_features = X.shape
         n_possible = seq_len - self.window + 1
 
@@ -82,74 +118,45 @@ class KernDetector(AnomalyDetector):
         return X_windows.reshape(-1, self.window, n_features)
 
     def _fit_impl(self, X: np.ndarray):
-        X = low_pass(X, alpha=0.8)  # ????
-        # X = self.scaler.fit_transform(X.reshape((-1, X.shape[-1]))).reshape(X.shape)
-
-        # Window estimation: use window_frac if provided, else auto-estimate
-        if self.window_frac is not None:
-            ep_len = X.shape[1]
-            self.window = max(10, int(ep_len * self.window_frac))
-            logger.info(f"Window: {self.window} (window_frac={self.window_frac})")
-        else:
-            self.window = estimate_window(X, period=self.n_periods, method='mean')
-            logger.info(f"Window: {self.window} (auto-estimated, {self.n_periods} period(s))")
+        self.window = self._estimate_window(X)
 
         # Store windows per episode so calibration uses same density
         n_train_episodes = X.shape[0]
         self._windows_per_episode = max(1, self.max_windows // n_train_episodes)
 
         X_windows = self._get_windows(X, self.max_windows)
+        X_windows = self._preprocess(X_windows)
         logger.debug(f"Train windows: {X_windows.shape}")
 
+        gamma = self.gamma if self.gamma is not None else "median"
+
         if self.kernel_type == "rbf":
-            X_flat = X_windows.reshape(len(X_windows), -1)
-            gamma = self.gamma if self.gamma is not None else "median"
             kernel = RBF(gamma=gamma)
-            self.model_ = KernCD(kernel, reg=self.reg).fit(X_flat)
-            self._flatten = True
-
         elif self.kernel_type == "fft":
-            gamma = self.gamma if self.gamma is not None else "median"
             kernel = GaussFFT(gamma=gamma)
-            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
-            self._flatten = False
-
         elif self.kernel_type == "sig":
-            gamma = self.gamma if self.gamma is not None else "median"
             kernel = SigKernel(gamma=gamma)
-            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
-            self._flatten = False
-
         elif self.kernel_type == "scatter":
-            gamma = self.gamma if self.gamma is not None else "median"
             kernel = ScatteringKernel(J=3, Q=2, order=1, gamma=gamma)
-            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
-            self._flatten = False
-
         elif self.kernel_type == "minirocket":
-            gamma = self.gamma if self.gamma is not None else "median"
             kernel = MiniRocketKernel(gamma=gamma)
-            self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
-            self._flatten = False
         else:
             raise ValueError(f"Unknown kernel type: {self.kernel_type}")
+
+        self.model_ = KernCD(kernel, reg=self.reg).fit(X_windows)
 
         # Log kernel info (gamma is resolved after fit)
         gamma_val = self.model_.kernel.gamma
         logger.info(f"Kernel: {self.kernel_type}, γ={gamma_val:.3g}")
 
     def _get_cal_windows(self, X: np.ndarray) -> np.ndarray:
-        X = low_pass(X, alpha=0.8)  # must match _fit_impl preprocessing
         n_cal_episodes = X.shape[0]
         max_cal = self._windows_per_episode * n_cal_episodes
         X_windows = self._get_windows(X, max_cal)
+        X_windows = self._preprocess(X_windows)
         logger.debug(f"Cal windows: {X_windows.shape}")
         return X_windows
 
     def _score_impl(self, X_windows: np.ndarray) -> np.ndarray:
-        # NB: scaler
-        # X_windows = low_pass(X_windows, alpha=0.5)
-
-        if self._flatten:
-            X_windows = X_windows.reshape(len(X_windows), -1)
+        X_windows = self._preprocess(X_windows)
         return self.model_.predict(X_windows)

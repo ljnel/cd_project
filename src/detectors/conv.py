@@ -118,7 +118,7 @@ class ConvAEDetector(AnomalyDetector):
                              ).to(self.device)
         opt = torch.optim.Adam(self.model_.parameters(), lr=self.lr)
 
-        epochs = 5 if self.method == "reconstruction" else self.epochs
+        epochs = self.epochs
         logger.info(f"Training: method={self.method}, "
                     f"stride={self.stride_}, latent_dim={self.latent_dim_}, epochs={epochs}")
         train(self.model_, dl, opt, epochs=epochs, device=self.device)
