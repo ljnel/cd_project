@@ -402,7 +402,7 @@ def compose_figure(frames_data: list, display_name: str, steps_before: int,
         frames_data: list of (before_frame, fail_frame, fail_step) tuples
         display_name: human-readable env name for title
         steps_before: number of steps before failure for column label
-        output_path: path without extension (will save .png and .pdf)
+        output_path: path without extension (will save .pdf)
     """
     n = len(frames_data)
     if n == 0:
@@ -430,10 +430,9 @@ def compose_figure(frames_data: list, display_name: str, steps_before: int,
     plt.tight_layout()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path.with_suffix('.png'), dpi=200, bbox_inches='tight')
     fig.savefig(output_path.with_suffix('.pdf'), bbox_inches='tight')
     plt.close(fig)
-    logger.info(f"Saved {output_path.with_suffix('.png')}")
+    logger.info(f"Saved {output_path.with_suffix('.pdf')}")
 
 
 def main():

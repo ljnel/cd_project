@@ -208,7 +208,6 @@ def run_env(
 
         # Save plot
         fig = plot_results(results, len(X_train), len(X_test), env_name, realtime_budget_ms)
-        fig.savefig(OUTPUT_DIR / f'{env_name}_compute_cost.png', dpi=150, bbox_inches='tight')
         fig.savefig(OUTPUT_DIR / f'{env_name}_compute_cost.pdf', bbox_inches='tight')
         plt.close(fig)
 

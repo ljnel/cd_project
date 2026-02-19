@@ -113,7 +113,7 @@ def main():
     output_dir = OUTPUT_DIR / args.env
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / f"kernel_matrices_n{len(x_test)}.png"
+    output_file = output_dir / f"kernel_matrices_n{len(x_test)}.pdf"
     fig.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"\nSaved to: {output_file}")
 

@@ -434,11 +434,8 @@ if __name__ == "__main__":
     fig = plot_mass_sensitivity(
         bin_centers,
         results,
-        output_path=OUTPUT_DIR / "mass_sensitivity.png"
+        output_path=OUTPUT_DIR / "mass_sensitivity.pdf"
     )
-
-    # Also save as PDF
-    fig.savefig(OUTPUT_DIR / "mass_sensitivity.pdf", bbox_inches='tight')
 
     # Save raw data
     save_dict = {

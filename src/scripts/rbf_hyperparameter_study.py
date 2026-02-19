@@ -476,8 +476,7 @@ if __name__ == "__main__":
 
     # Generate score function plots
     print("\n--- Generating Score Function Plots ---")
-    fig1 = generate_score_plots(OUTPUT_DIR / "score_functions.png")
-    fig1.savefig(OUTPUT_DIR / "score_functions.pdf", bbox_inches='tight')
+    fig1 = generate_score_plots(OUTPUT_DIR / "score_functions.pdf")
 
     # Generate classification accuracy heatmaps
     print("\n--- Generating Classification Accuracy Heatmaps ---")
@@ -488,8 +487,7 @@ if __name__ == "__main__":
         print_heuristics_for_heatmap(m)
 
     print()
-    fig2 = generate_heatmaps(OUTPUT_DIR / "accuracy_heatmaps.png")
-    fig2.savefig(OUTPUT_DIR / "accuracy_heatmaps.pdf", bbox_inches='tight')
+    fig2 = generate_heatmaps(OUTPUT_DIR / "accuracy_heatmaps.pdf")
 
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")
