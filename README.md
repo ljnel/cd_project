@@ -5,8 +5,8 @@ Kernel-based anomaly detection methods for trajectory data, with applications to
 ## Installation
 
 ```bash
-conda env create -f environment.yml
-conda activate cd_project
+pixi install
+pixi shell
 ```
 
 ## Quick Start

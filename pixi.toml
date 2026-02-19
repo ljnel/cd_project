@@ -1,0 +1,32 @@
+[project]
+name = "cd_project"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+python = "3.12.*"
+pytest = "*"
+matplotlib = "<3.10"
+numpy = "*"
+scikit-learn = "*"
+scipy = "*"
+pandas = "*"
+seaborn = "*"
+pytorch = "*"
+torchvision = "*"
+ipykernel = "*"
+lightning = "*"
+sktime = "*"
+numba = "*"
+
+[pypi-dependencies]
+stable-baselines3 = "*"
+gymnasium = { version = "*", extras = ["mujoco"] }
+tensorboard = "*"
+tensorboardX = "*"
+upkie = "*"
+cd_project = { path = ".", editable = true }
+
+[tasks]
+fail_pred = "python src/scripts/fail_pred_results.py"
