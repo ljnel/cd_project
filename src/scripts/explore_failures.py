@@ -171,12 +171,10 @@ def _upkie_find_failures(
     import upkie.envs
 
     from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.obs_hist_wrapper import ObsHistoryWrapper
     from envs.upkie.gen_data import _get_base_parameters, _apply_parameter_scales, _restore_parameters
 
     upkie.envs.register()
 
-    OBS_HISTORY = 10
     OBS_DIM, ACTION_DIM = 4, 1
     use_ppo = (cfg_balancer == 'ppo')
 
@@ -184,7 +182,7 @@ def _upkie_find_failures(
     base_env.unwrapped.update_init_rand(pitch=0.02)
     simulator = base_env.unwrapped.backend
     robot_id = simulator.robot_id
-    env = ObsHistoryWrapper(base_env, OBS_HISTORY, OBS_DIM, ACTION_DIM) if use_ppo else base_env
+    env = base_env
     base_params = _get_base_parameters(robot_id)
 
     if use_ppo:
@@ -221,8 +219,7 @@ def _upkie_find_failures(
         for step in range(n_steps):
             action = np.atleast_1d(get_action(obs, info)).reshape(base_env.action_space.shape)
             if disturbance:
-                raw_obs = env.raw_obs if use_ppo else obs
-                _, action = disturbance.apply(step, raw_obs.copy(), action.copy(), simulator)
+                _, action = disturbance.apply(step, obs.copy(), action.copy(), simulator)
             else:
                 clear_external_forces(simulator)
             obs, _, term, trunc, info = env.step(action)
@@ -262,12 +259,10 @@ def _upkie_render_failure(
     import upkie.envs
 
     from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.obs_hist_wrapper import ObsHistoryWrapper
     from envs.upkie.gen_data import _get_base_parameters, _apply_parameter_scales, _restore_parameters
 
     upkie.envs.register()
 
-    OBS_HISTORY = 10
     OBS_DIM, ACTION_DIM = 4, 1
     use_ppo = (cfg_balancer == 'ppo')
 
@@ -275,7 +270,7 @@ def _upkie_render_failure(
     base_env.unwrapped.update_init_rand(pitch=0.02)
     simulator = base_env.unwrapped.backend
     robot_id = simulator.robot_id
-    env = ObsHistoryWrapper(base_env, OBS_HISTORY, OBS_DIM, ACTION_DIM) if use_ppo else base_env
+    env = base_env
     base_params = _get_base_parameters(robot_id)
 
     if use_ppo:
@@ -313,8 +308,7 @@ def _upkie_render_failure(
     for step in range(fail_step + 1):
         action = np.atleast_1d(get_action(obs, info)).reshape(base_env.action_space.shape)
         if disturbance:
-            raw_obs = env.raw_obs if use_ppo else obs
-            _, action = disturbance.apply(step, raw_obs.copy(), action.copy(), simulator)
+            _, action = disturbance.apply(step, obs.copy(), action.copy(), simulator)
         else:
             clear_external_forces(simulator)
         obs, _, term, trunc, info = env.step(action)

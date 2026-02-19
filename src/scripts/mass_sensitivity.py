@@ -44,7 +44,7 @@ N_TRAIN_EPISODES = 100      # Normal episodes for training
 N_TEST_EPISODES = 1000       # Anomalous episodes (mass sampled uniformly)
 EPISODE_TIME = 5.0          # Seconds per episode
 FREQUENCY = 200.0           # Hz
-BALANCER = "mpc"
+BALANCER = "ppo"
 
 # Experiment parameters
 BASE_SEED = 42
@@ -171,7 +171,8 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
         name='_train_temp',
         env='upkie',
         platform='upkie',
-        policy='ppo_balancer/params.zip',
+        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
+        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
         n_episodes=n_episodes,
         ep_len=int(EPISODE_TIME * FREQUENCY),
         frequency=FREQUENCY,
@@ -231,7 +232,8 @@ def generate_test_data(
         name='_test_temp',
         env='upkie',
         platform='upkie',
-        policy='ppo_balancer/params.zip',
+        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
+        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
         n_episodes=n_episodes,
         ep_len=int(EPISODE_TIME * FREQUENCY),
         frequency=FREQUENCY,
@@ -400,8 +402,8 @@ if __name__ == "__main__":
         "--balancer",
         type=str,
         choices=["mpc", "ppo"],
-        default="mpc",
-        help="Balancer type to use (default: mpc)"
+        default="ppo",
+        help="Balancer type to use (default: ppo)"
     )
     args = parser.parse_args()
 

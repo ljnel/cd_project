@@ -126,7 +126,8 @@ def _run_episodes(
     base_env.unwrapped.update_init_rand(pitch=0.02)
     simulator = base_env.unwrapped.backend
     robot_id = simulator.robot_id
-    env = ObsHistoryWrapper(base_env, OBS_HISTORY, OBS_DIM, ACTION_DIM) if use_ppo else base_env
+    # For old policy (params.zip): env = ObsHistoryWrapper(base_env, OBS_HISTORY, OBS_DIM, ACTION_DIM) if use_ppo else base_env
+    env = base_env
 
     # Get base parameters for scaling
     base_params = _get_base_parameters(robot_id)
@@ -137,10 +138,11 @@ def _run_episodes(
         model = PPO.load(policy_path or DEFAULT_PPO_PATH)
         get_action = lambda obs, info: model.predict(obs, deterministic=deterministic)[0]
     else:
-        from upkie.controllers import MPCBalancer
-        mpc = None
-        def get_action(obs, info):
-            return mpc.compute_ground_velocity(0.0, info["spine_observation"], base_env.unwrapped.dt)
+        # from upkie.controllers import MPCBalancer
+        # mpc = None
+        # def get_action(obs, info):
+        #     return mpc.compute_ground_velocity(0.0, info["spine_observation"], base_env.unwrapped.dt)
+        raise ValueError("MPC balancer is currently disabled due to dependency issues")
 
     # Output arrays for this batch
     n_batch = len(episode_indices)
@@ -152,11 +154,11 @@ def _run_episodes(
         obs, info = env.reset(seed=int(episode_seeds[ep]))
         clear_external_forces(simulator)
 
-        # Fresh MPC each episode
-        if not use_ppo:
-            from upkie.controllers import MPCBalancer
-            mpc = MPCBalancer(fall_pitch=1.0, leg_length=0.58, max_ground_accel=10.0,
-                              max_ground_velocity=3.0, nb_timesteps=50, sampling_period=0.02)
+        # Fresh MPC each episode (disabled due to dependency issues)
+        # if not use_ppo:
+        #     from upkie.controllers import MPCBalancer
+        #     mpc = MPCBalancer(fall_pitch=1.0, leg_length=0.58, max_ground_accel=10.0,
+        #                       max_ground_velocity=3.0, nb_timesteps=50, sampling_period=0.02)
 
         # Apply parameter variations
         _apply_parameter_scales(
@@ -168,15 +170,16 @@ def _run_episodes(
             disturbance.reset(n_steps, rng)
 
         for step in range(n_steps):
-            raw_obs = env.raw_obs if use_ppo else obs
-            X[i, step] = raw_obs
+            # For old policy (params.zip): raw_obs = env.raw_obs if use_ppo else obs
+            X[i, step] = obs
 
             action = np.atleast_1d(get_action(obs, info)).reshape(base_env.action_space.shape)
             actions[i, step] = action
 
             # Apply disturbance if present
             if disturbance:
-                _, action = disturbance.apply(step, raw_obs.copy(), action.copy(), simulator)
+                # For old policy (params.zip): use raw_obs.copy() instead of obs.copy()
+                _, action = disturbance.apply(step, obs.copy(), action.copy(), simulator)
             else:
                 clear_external_forces(simulator)
 
