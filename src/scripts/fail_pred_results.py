@@ -23,17 +23,10 @@ from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
-from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
-from utils.latex import compute_avg_ranks, format_latex_table, format_metric_latex_table
+from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
-
-
-def get_env_display_name(env_key: str) -> str:
-    """Get display name for an environment from config."""
-    info = ENV_INFO.get(env_key)
-    return info.display_name if info else env_key
 
 
 def run_single_trial(
@@ -257,7 +250,7 @@ def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     }
 
 
-def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: int = 42, output_latex: bool = True):
+def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: int = 42):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -288,42 +281,22 @@ def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: 
     # Plot ROC curves
     plot_roc_curves(results, env_name)
 
-    # Strip roc data before LaTeX / npz output
+    # Strip roc data before npz output
     for v in results.values():
         v.pop('roc', None)
 
-    if output_latex:
-        # Generate LaTeX tables
-        latex_output = format_latex_table(
-            results,
-            env_name=env_name,
-            window=stats.get('win'),
-            horizon=stats.get('hor'),
-            obs_dim=stats.get('obs_dim', 4),
-            train_size=stats.get('n_successes'),
-            test_size=stats.get('eps_per_fold'),
-            failure_prop=f"{stats.get('failure_prop', 0):.3f}" if stats.get('failure_prop') else None
-        )
-
-        # Save to results/fail_pred/
-        output_dir = get_root() / "results" / "fail_pred"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        latex_file = output_dir / f"{env_name}_results.tex"
-        with open(latex_file, "w") as f:
-            f.write(latex_output)
-        print(f"\nLaTeX table saved to: {latex_file}")
-
-        # Also save raw results to numpy file for later analysis
-        npz_file = output_dir / f"{env_name}_experiment_results.npz"
-        np.savez(
-            npz_file,
-            results={k: dict(v) for k, v in results.items()},
-            stats=stats,
-            methods=method_keys,
-            n_folds=n_folds
-        )
-        print(f"Raw results saved to: {npz_file}")
+    # Save raw results to numpy file for later analysis
+    output_dir = get_root() / "results" / "fail_pred"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    npz_file = output_dir / f"{env_name}_experiment_results.npz"
+    np.savez(
+        npz_file,
+        results={k: dict(v) for k, v in results.items()},
+        stats=stats,
+        methods=method_keys,
+        n_folds=n_folds
+    )
+    print(f"Raw results saved to: {npz_file}")
 
     return results, stats
 
@@ -357,16 +330,14 @@ if __name__ == "__main__":
     # Determine which environments to run
     if args.env == 'all':
         envs = list(TASK_CONFIGS.keys())
-        output_latex = False  # Don't output per-env LaTeX for "all" mode
     else:
         envs = [args.env]
-        output_latex = True  # Single env mode: output LaTeX with full metrics
 
     # Run experiments
     all_results = {}
     for env_name in envs:
         try:
-            results, stats = run_env(env_name, method_keys, n_folds=args.n_folds, base_seed=args.seed, output_latex=output_latex)
+            results, stats = run_env(env_name, method_keys, n_folds=args.n_folds, base_seed=args.seed)
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
@@ -374,37 +345,11 @@ if __name__ == "__main__":
             print(f"\nError running {env_name}: {e}")
             raise
 
-    # Output depends on mode
-    if args.env == 'all' and len(all_results) > 1:
-        # All envs mode: print F2 summary and save combined LaTeX table
+    # Print cross-env summaries
+    if len(all_results) > 1:
         print("\n" + "#"*80)
         print("# FINAL SUMMARY - ALL ENVIRONMENTS")
         print("#"*80)
 
         print_metric_summary(all_results, 'AUROC')
         print_metric_summary(all_results, 'TPR@5%FPR')
-
-        output_dir = get_root() / "results" / "fail_pred"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate and save AUROC LaTeX table
-        auroc_latex = format_metric_latex_table(
-            all_results, 'AUROC',
-            caption='AUROC scores across all environments.',
-            label='auroc_all_envs',
-        )
-        auroc_file = output_dir / "all_envs_auroc_results.tex"
-        with open(auroc_file, "w") as f:
-            f.write(auroc_latex)
-        print(f"\nAUROC LaTeX table saved to: {auroc_file}")
-
-        # Generate and save TPR@5%FPR LaTeX table
-        tpr_latex = format_metric_latex_table(
-            all_results, 'TPR@5%FPR',
-            caption='TPR@5\\%FPR scores across all environments.',
-            label='tpr_all_envs',
-        )
-        tpr_file = output_dir / "all_envs_tpr_results.tex"
-        with open(tpr_file, "w") as f:
-            f.write(tpr_latex)
-        print(f"TPR@5%FPR LaTeX table saved to: {tpr_file}")

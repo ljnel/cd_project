@@ -24,9 +24,9 @@ from scipy.stats import binned_statistic
 warnings.filterwarnings("ignore")
 
 from config.datasets import DatasetConfig
-from detectors.conv import ConvAEDetector
-from detectors.kernel import KernDetector
+from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from envs.upkie.gen_data import gen_data
+from utils.paths import get_root
 
 # =============================================================================
 # Configuration
@@ -50,7 +50,7 @@ BASE_SEED = 42
 BIN_WIDTH = 0.1            # Width of mass bins (centered on 1.0)
 
 # Cache directory (shared across balancer types)
-CACHE_DIR = Path("results/mass_sensitivity/.cache")
+CACHE_DIR = get_root() / "results" / "mass_sensitivity" / ".cache"
 
 
 # =============================================================================
@@ -116,31 +116,6 @@ def make_bins(mass_range: tuple[float, float], bin_width: float, center: float =
     centers = np.concatenate([centers_below, centers_above])
     edges = np.concatenate([centers - bin_width/2, [centers[-1] + bin_width/2]])
     return edges, centers
-
-
-# =============================================================================
-# Method Factory
-# =============================================================================
-
-def get_method(method_name: str) -> object:
-    """Factory function to create detector instances."""
-
-    configs = {
-        "FFT-CD": dict(kernel_type='fft', max_windows=500),
-        "Sig-CD": dict(kernel_type='sig', max_windows=300),
-        "ConvAE": dict(window_frac=0.25, overlap=0.5, method='reconstruction', epochs=5, latent_dim_mult=3.0),
-        "Conv-CD": dict(window_frac=0.25, overlap=0.5, method='latent', epochs=10, latent_dim_mult=1.0),
-    }
-
-    if method_name not in configs:
-        raise ValueError(f"Unknown method: {method_name}")
-
-    config = configs[method_name]
-
-    if method_name in ["FFT-CD", "Sig-CD"]:
-        return KernDetector(**config, threshold_quantile=0.95)
-    else:
-        return ConvAEDetector(**config, threshold_quantile=0.95)
 
 
 # =============================================================================
@@ -267,7 +242,7 @@ def generate_test_data(
 # =============================================================================
 
 def run_experiment(
-    methods: list[str],
+    method_keys: list[str],
     seed: int,
 ) -> tuple[np.ndarray, dict[str, tuple[np.ndarray, np.ndarray]]]:
     """
@@ -275,7 +250,7 @@ def run_experiment(
 
     Returns:
         bin_centers: Array of bin center mass values
-        results: Dict mapping method name to (mean_percentiles, std_percentiles)
+        results: Dict mapping display name to (mean_percentiles, std_percentiles)
     """
     print("=" * 70)
     print("MASS ANOMALY SENSITIVITY EXPERIMENT")
@@ -292,24 +267,26 @@ def run_experiment(
 
     # --- Training Phase ---
     print("\n--- Training Phase ---")
-    print(f"Training {len(methods)} detectors...")
+    print(f"Training {len(method_keys)} detectors...")
 
     trained_models = {}
-    for method_name in methods:
-        print(f"  Training {method_name}...")
+    for method_key in method_keys:
+        display_name = get_method_display_name(method_key)
+        print(f"  Training {display_name}...")
         try:
-            model = get_method(method_name)
+            model = get_detector(method_key)
             model.fit(X_train)
-            trained_models[method_name] = model
+            trained_models[method_key] = model
         except Exception as e:
-            print(f"  {method_name} FAILED: {e}")
-            trained_models[method_name] = None
+            print(f"  {display_name} FAILED: {e}")
+            trained_models[method_key] = None
 
     # --- Scoring Phase ---
     print("\n--- Scoring Phase ---")
     results = {}
-    for method_name in methods:
-        model = trained_models[method_name]
+    for method_key in method_keys:
+        display_name = get_method_display_name(method_key)
+        model = trained_models[method_key]
         if model is not None:
             try:
                 # Score both training and test data
@@ -325,13 +302,13 @@ def run_experiment(
                 bin_counts, _, _ = binned_statistic(test_mass_values, percentiles, statistic='count', bins=bin_edges)
                 bin_se = bin_stds / np.sqrt(bin_counts)  # Standard error
 
-                results[method_name] = (bin_means, bin_se)
-                print(f"  {method_name}: test score range [{test_scores.min():.3f}, {test_scores.max():.3f}]")
+                results[display_name] = (bin_means, bin_se)
+                print(f"  {display_name}: test score range [{test_scores.min():.3f}, {test_scores.max():.3f}]")
             except Exception as e:
-                print(f"  {method_name} FAILED: {e}")
-                results[method_name] = None
+                print(f"  {display_name} FAILED: {e}")
+                results[display_name] = None
         else:
-            results[method_name] = None
+            results[display_name] = None
 
     return bin_centers, results
 
@@ -348,27 +325,14 @@ def plot_mass_sensitivity(
     """Plot binned score percentiles with error bars vs mass scale."""
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    colors = {
-        "FFT-CD": "#1f77b4",
-        "Sig-CD": "#ff7f0e",
-        "ConvAE": "#2ca02c",
-        "Conv-CD": "#d62728",
-    }
+    marker_cycle = ["o", "s", "^", "D", "v", "P", "X"]
 
-    markers = {
-        "FFT-CD": "o",
-        "Sig-CD": "s",
-        "ConvAE": "^",
-        "Conv-CD": "D",
-    }
-
-    for method_name, data in results.items():
+    for i, (method_name, data) in enumerate(results.items()):
         if data is not None:
             bin_means, bin_se = data
-            color = colors.get(method_name)
-            marker = markers.get(method_name, "o")
+            marker = marker_cycle[i % len(marker_cycle)]
             ax.errorbar(bin_centers, bin_means, yerr=bin_se, label=method_name,
-                        color=color, marker=marker, capsize=3, capthick=1, linewidth=1.5, markersize=5)
+                        marker=marker, capsize=3, capthick=1, linewidth=1.5, markersize=5)
 
     # Shaded band showing "normal" mass range [1-TOL, 1+TOL]
     ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2, label=f'Training range (1\u00b1{TOL})')
@@ -410,9 +374,10 @@ if __name__ == "__main__":
     BALANCER = args.balancer
 
     # Output directory includes balancer type to avoid overwrites
-    OUTPUT_DIR = Path(f"results/mass_sensitivity/{BALANCER}")
+    OUTPUT_DIR = get_root() / "results" / "mass_sensitivity" / BALANCER
 
-    METHODS = ["FFT-CD", "Sig-CD", "ConvAE", "Conv-CD"]
+    method_keys = DEFAULT_METHODS
+    display_names = [get_method_display_name(k) for k in method_keys]
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -422,11 +387,11 @@ if __name__ == "__main__":
     print(f"  Training episodes: {N_TRAIN_EPISODES}")
     print(f"  Test episodes: {N_TEST_EPISODES}")
     print(f"  Bin width: {BIN_WIDTH}")
-    print(f"  Methods: {METHODS}")
+    print(f"  Methods: {display_names}")
 
     # Run experiment
     bin_centers, results = run_experiment(
-        methods=METHODS,
+        method_keys=method_keys,
         seed=BASE_SEED,
     )
 
@@ -445,11 +410,11 @@ if __name__ == "__main__":
         "tol": TOL,
         "bin_width": BIN_WIDTH,
     }
-    for m in METHODS:
-        if results[m] is not None:
-            key = m.replace(' ', '_')
-            save_dict[f"mean_{key}"] = results[m][0]
-            save_dict[f"se_{key}"] = results[m][1]
+    for name in display_names:
+        if results.get(name) is not None:
+            key = name.replace(' ', '_').replace('-', '_')
+            save_dict[f"mean_{key}"] = results[name][0]
+            save_dict[f"se_{key}"] = results[name][1]
     np.savez(OUTPUT_DIR / "mass_sensitivity_data.npz", **save_dict)
     print(f"\nRaw data saved to {OUTPUT_DIR / 'mass_sensitivity_data.npz'}")
 

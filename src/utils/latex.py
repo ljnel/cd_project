@@ -1,9 +1,16 @@
 
+from pathlib import Path
+
 import numpy as np
 from scipy.stats import rankdata
 
+from config.detectors import DEFAULT_METHODS, get_method_display_name
 from config.envs import ENV_INFO
+from utils.paths import get_root
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def get_env_display_name(env_key: str) -> str:
     """Get display name for an environment from config."""
@@ -31,6 +38,10 @@ def compute_avg_ranks(
     avg_ranks = ranks.mean(axis=0)
     return {method: avg_ranks[i] for i, method in enumerate(methods)}
 
+
+# ---------------------------------------------------------------------------
+# Per-experiment formatting functions
+# ---------------------------------------------------------------------------
 
 def format_latex_table(
     results: dict[str, dict[str, tuple[float, float]]],
@@ -123,7 +134,7 @@ def format_metric_latex_table(
     header_row = " & ".join(env_display_names)
 
     latex = f"""
-\\begin{{table}}[h!]
+\\begin{{table*}}[h!]
 \\centering
 \\begin{{tabular}}{{{col_spec}}}
 \\hline
@@ -153,6 +164,182 @@ Method & {header_row} & Avg. Rank \\\\ \\hline
 \\end{{tabular}}
 \\caption{{{caption}}}
 \\label{{tab:{label}}}
-\\end{{table}}
+\\end{{table*}}
 """
     return latex
+
+
+def format_panda_table(
+    results: dict[str, dict[str, float]],
+    n_train: int | None = None,
+    n_test: int | None = None,
+    anomaly_prop: float | None = None,
+) -> str:
+    """Format panda trajectory-level results as a LaTeX table."""
+    latex = "\\begin{table}[h!]\n\\centering\n"
+    latex += "\\begin{tabular}{|l|cccc|}\n\\hline\n"
+    latex += "Method & TNR (\\%) & TPR (\\%) & TPR@5\\%FPR & AUROC \\\\ \\hline\n"
+
+    for name, m in results.items():
+        latex += (f"{name} & {m['TNR']:.2f} & {m['TPR']:.2f} "
+                  f"& {m['TPR@5%FPR']:.3f} & {m['AUROC']:.3f} \\\\\n")
+
+    latex += "\\hline\n\\end{tabular}\n"
+    latex += "\\caption{Trajectory-level anomaly detection on the Panda dataset."
+    if n_train is not None and n_test is not None and anomaly_prop is not None:
+        latex += (f" Train: {n_train} expert trajectories, "
+                  f"Test: {n_test} trajectories "
+                  f"(anomaly proportion: {anomaly_prop:.3f}).")
+    latex += "}\n\\label{tab:panda_results}\n\\end{table}\n"
+    return latex
+
+
+def format_compute_cost_table(
+    results: dict[str, dict[str, float]],
+    env_name: str,
+) -> str:
+    """Format computational cost results as a LaTeX table."""
+    display_name = get_env_display_name(env_name)
+
+    latex = "\n\\begin{table}[h!]\n\\centering\n"
+    latex += "\\begin{tabular}{|l|c|c|c|}\n\\hline\n"
+    latex += "Method & Train (s) & Predict Total (ms) & Predict/Sample (ms) \\\\ \\hline\n"
+
+    for method, m in results.items():
+        train = f"{m['train_time_mean']:.2f} $\\pm$ {m['train_time_std']:.2f}"
+        pred = f"{m['predict_time_mean']:.1f} $\\pm$ {m['predict_time_std']:.1f}"
+        per_sample = (f"{m['predict_per_sample_mean']:.3f} $\\pm$ "
+                      f"{m['predict_per_sample_std']:.3f}")
+        latex += f"{method} & {train} & {pred} & {per_sample} \\\\\n"
+
+    latex += "\\hline\n\\end{tabular}\n"
+    latex += f"\\caption{{Computational cost on {display_name.lower()}.}}\n"
+    latex += f"\\label{{tab:{env_name}_compute}}\n"
+    latex += "\\end{table}\n"
+    return latex
+
+
+# ---------------------------------------------------------------------------
+# Table generation from .npz files
+# ---------------------------------------------------------------------------
+
+def generate_fail_pred_tables(results_dir: Path):
+    """Generate all fail_pred LaTeX tables from .npz files."""
+    npz_files = sorted(results_dir.glob("*_experiment_results.npz"))
+    if not npz_files:
+        return
+
+    all_results = {}
+    for npz_file in npz_files:
+        env_name = npz_file.stem.replace("_experiment_results", "")
+        data = np.load(npz_file, allow_pickle=True)
+        results = data['results'].item()
+        stats = data['stats'].item()
+
+        # Per-env table
+        tex = format_latex_table(
+            results, env_name,
+            window=stats.get('win'),
+            horizon=stats.get('hor'),
+            obs_dim=stats.get('obs_dim', 4),
+            train_size=stats.get('n_successes'),
+            test_size=stats.get('eps_per_fold'),
+            failure_prop=(f"{stats['failure_prop']:.3f}"
+                          if stats.get('failure_prop') else None),
+        )
+        tex_file = results_dir / f"{env_name}_results.tex"
+        tex_file.write_text(tex)
+        print(f"  {tex_file}")
+
+        all_results[env_name] = {'results': results, 'stats': stats}
+
+    # Combined tables: use default methods, include envs that have all of them
+    default_display = [get_method_display_name(k) for k in DEFAULT_METHODS]
+    default_set = set(default_display)
+    eligible = {e: d for e, d in all_results.items()
+                if default_set.issubset(d['results'].keys())}
+    if len(eligible) > 1:
+        filtered = {}
+        for env, d in eligible.items():
+            filtered[env] = {
+                'results': {m: d['results'][m] for m in default_display},
+                'stats': d['stats'],
+            }
+
+        auroc_tex = format_metric_latex_table(
+            filtered, 'AUROC',
+            caption='AUROC scores across all environments.',
+            label='auroc_all_envs',
+        )
+        tex_file = results_dir / "all_envs_auroc_results.tex"
+        tex_file.write_text(auroc_tex)
+        print(f"  {tex_file}")
+
+        tpr_tex = format_metric_latex_table(
+            filtered, 'TPR@5%FPR',
+            caption='TPR@5\\%FPR scores across all environments.',
+            label='tpr_all_envs',
+        )
+        tex_file = results_dir / "all_envs_tpr_results.tex"
+        tex_file.write_text(tpr_tex)
+        print(f"  {tex_file}")
+
+
+def generate_panda_tables(results_dir: Path):
+    """Generate panda LaTeX tables from .npz files."""
+    npz_file = results_dir / "panda_experiment_results.npz"
+    if not npz_file.exists():
+        return
+
+    data = np.load(npz_file, allow_pickle=True)
+    results = data['results'].item()
+    n_train = int(data['n_train']) if 'n_train' in data.files else None
+    n_test = int(data['n_test']) if 'n_test' in data.files else None
+    anomaly_prop = float(data['anomaly_prop']) if 'anomaly_prop' in data.files else None
+
+    tex = format_panda_table(results, n_train, n_test, anomaly_prop)
+    tex_file = results_dir / "panda_results.tex"
+    tex_file.write_text(tex)
+    print(f"  {tex_file}")
+
+
+def generate_compute_cost_tables(results_dir: Path):
+    """Generate compute cost LaTeX tables from .npz files."""
+    npz_files = sorted(results_dir.glob("*_compute_cost.npz"))
+    if not npz_files:
+        return
+
+    for npz_file in npz_files:
+        env_name = npz_file.stem.replace("_compute_cost", "")
+        data = np.load(npz_file, allow_pickle=True)
+        results = data['results'].item()
+
+        tex = format_compute_cost_table(results, env_name)
+        tex_file = results_dir / f"{env_name}_compute_cost.tex"
+        tex_file.write_text(tex)
+        print(f"  {tex_file}")
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    results_dir = get_root() / "results"
+
+    print("Generating LaTeX tables...")
+
+    print("\nfail_pred:")
+    generate_fail_pred_tables(results_dir / "fail_pred")
+
+    print("\npanda:")
+    generate_panda_tables(results_dir / "panda")
+
+    print("\ncompute_cost:")
+    generate_compute_cost_tables(results_dir / "compute_cost")
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()

@@ -15,7 +15,6 @@ import argparse
 import gc
 import time
 import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,8 +24,9 @@ warnings.filterwarnings("ignore")
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from tasks.fold_task import create_fold_tasks
+from utils.paths import get_root
 
-OUTPUT_DIR = Path("results/compute_cost")
+OUTPUT_DIR = get_root() / "results" / "compute_cost"
 
 
 def run_cost_experiment(
@@ -210,6 +210,12 @@ def run_env(
         fig = plot_results(results, len(X_train), len(X_test), env_name, realtime_budget_ms)
         fig.savefig(OUTPUT_DIR / f'{env_name}_compute_cost.pdf', bbox_inches='tight')
         plt.close(fig)
+
+        # Save raw results
+        npz_file = OUTPUT_DIR / f'{env_name}_compute_cost.npz'
+        np.savez(npz_file, results=results, env_name=env_name,
+                 n_train=len(X_train), n_test=len(X_test))
+        print(f"Results saved to: {npz_file}")
 
         print(f"\nOutputs saved to {OUTPUT_DIR}/")
 

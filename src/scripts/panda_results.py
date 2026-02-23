@@ -200,36 +200,6 @@ def plot_roc_curves(results: dict[str, dict]):
     print(f"\nROC curve saved to: {roc_file}")
 
 
-def save_latex_table(results: dict[str, dict], n_train: int, n_test: int, anomaly_prop: float):
-    """Save a simple LaTeX results table."""
-    output_dir = get_root() / "results" / "panda"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    latex = r"""\begin{table}[h!]
-\centering
-\begin{tabular}{|l|cccc|}
-\hline
-Method & TNR (\%) & TPR (\%) & TPR@5\%FPR & AUROC \\ \hline
-"""
-    for name, m in results.items():
-        latex += (f"{name} & {m['TNR']:.2f} & {m['TPR']:.2f} "
-                  f"& {m['TPR@5%FPR']:.3f} & {m['AUROC']:.3f} \\\\\n")
-
-    latex += r"""\hline
-\end{tabular}
-\caption{Trajectory-level anomaly detection on the Panda dataset. """
-    latex += f"Train: {n_train} expert trajectories, "
-    latex += f"Test: {n_test} trajectories (anomaly proportion: {anomaly_prop:.3f})."
-    latex += r"""}
-\label{tab:panda_results}
-\end{table}
-"""
-    tex_file = output_dir / "panda_results.tex"
-    with open(tex_file, "w") as f:
-        f.write(latex)
-    print(f"LaTeX table saved to: {tex_file}")
-
-
 def main():
     parser = argparse.ArgumentParser(
         description='Panda trajectory-level anomaly detection.')
@@ -309,14 +279,13 @@ def main():
     output_dir = get_root() / "results" / "panda"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # LaTeX table
+    # Raw results
     results_no_roc = {k: {kk: vv for kk, vv in v.items() if kk != 'roc'}
                       for k, v in results.items()}
-    save_latex_table(results_no_roc, len(X_train), len(X_test), y_test.mean())
-
-    # Raw results
     npz_file = output_dir / "panda_experiment_results.npz"
-    np.savez(npz_file, results=results_no_roc, methods=method_keys)
+    np.savez(npz_file, results=results_no_roc, methods=method_keys,
+             n_train=len(X_train), n_test=len(X_test),
+             anomaly_prop=y_test.mean())
     print(f"Results saved to: {npz_file}")
 
 
