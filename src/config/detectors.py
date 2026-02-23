@@ -19,10 +19,11 @@ DETECTOR_CONFIGS = {
     "sig": dict(
         cls='KernDetector',
         kernel_type='sig',
-        window_frac=0.01,
-        max_windows=1000,
+        window_frac=0.1,
+        max_windows=500,
         display_name='Sig-CD',
         reg=1e-6,
+        target_steps=30,
     ),
     "scatter": dict(
         cls='KernDetector',
@@ -82,12 +83,12 @@ DETECTOR_CONFIGS = {
 }
 
 DEFAULT_METHODS = ["fft",
-                    #"sig", 
+                    "sig", 
                     #"minirocket", 
                     "rec", 
-                    #"lat", 
+                    "lat", 
                     "basis",
-                    "tucker",
+                    #"tucker",
                 ]
 
 # Registry mapping cls string to class. Imports are deferred to avoid

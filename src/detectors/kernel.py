@@ -43,7 +43,8 @@ class KernDetector(AnomalyDetector):
                  gamma: float | None = None,
                  reg: float | str = "adaptive",
                  window_frac: float | None = None,
-                 max_windows: int = 200):
+                 max_windows: int = 200,
+                 target_steps: int | None = None):
         super().__init__(cal_fraction, threshold_quantile)
         self.kernel_type = kernel_type
         self.gamma = gamma
@@ -51,6 +52,7 @@ class KernDetector(AnomalyDetector):
         self.n_periods = n_periods
         self.window_frac = window_frac
         self.max_windows = max_windows
+        self.target_steps = target_steps
         self.scaler = StandardScaler()  # ??????? consider using RobustScaler
 
     def _preprocess(self, X_windows: np.ndarray) -> np.ndarray:
@@ -59,10 +61,10 @@ class KernDetector(AnomalyDetector):
             X_windows = low_pass(X_windows, alpha=0.8)
         if self.kernel_type == "rbf":
             X_windows = X_windows.reshape(len(X_windows), -1)
-        if self.kernel_type == "sig":
+        if self.target_steps is not None:
             n_steps = X_windows.shape[1]
-            if n_steps > 30:
-                step = (n_steps + 29) // 30  # ceil division
+            if n_steps > self.target_steps:
+                step = max(1, (n_steps - 1) // (self.target_steps - 1))
                 X_windows = downsample_regular(X_windows, step)
         return X_windows
 
