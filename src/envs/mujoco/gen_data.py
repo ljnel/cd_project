@@ -20,7 +20,6 @@ from argparse import ArgumentParser
 
 import gymnasium as gym
 import numpy as np
-from stable_baselines3 import SAC
 
 from config.datasets import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
@@ -29,6 +28,18 @@ from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.envs.mujoco.gen_data")
+
+
+def _load_policy(algo: str, policy_path: str, env):
+    """Load an RL policy by algorithm name."""
+    if algo == 'SAC':
+        from stable_baselines3 import SAC
+        return SAC.load(policy_path, env=env)
+    elif algo == 'TQC':
+        from sb3_contrib import TQC
+        return TQC.load(policy_path, env=env)
+    else:
+        raise ValueError(f"Unknown algo: {algo}. Supported: SAC, TQC")
 
 
 def _run_episodes(
@@ -41,10 +52,11 @@ def _run_episodes(
     friction_scale: np.ndarray,
     damping_scale: np.ndarray,
     verbose: bool = False,
+    algo: str = 'SAC',
 ) -> dict:
     """Run a batch of episodes. Used by both sequential and parallel paths."""
     env = gym.make(gym_name)
-    policy = SAC.load(policy_path, env=env)
+    policy = _load_policy(algo, policy_path, env)
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
 
@@ -111,6 +123,7 @@ def _gen_data_sequential(
     mass_scale: np.ndarray,
     friction_scale: np.ndarray,
     damping_scale: np.ndarray,
+    algo: str = 'SAC',
 ) -> dict:
     """Sequential execution (useful for debugging)."""
     result = _run_episodes(
@@ -123,6 +136,7 @@ def _gen_data_sequential(
         friction_scale=friction_scale,
         damping_scale=damping_scale,
         verbose=True,
+        algo=algo,
     )
 
     del result['indices']
@@ -139,6 +153,7 @@ def _gen_data_parallel(
     friction_scale: np.ndarray,
     damping_scale: np.ndarray,
     n_jobs: int,
+    algo: str = 'SAC',
 ) -> dict:
     """Parallel execution using joblib."""
     from joblib import Parallel, delayed
@@ -161,7 +176,8 @@ def _gen_data_parallel(
     results = Parallel(n_jobs=n_jobs, verbose=10)(
         delayed(_run_episodes)(
             batch, gym_name, policy_path, ep_len,
-            seeds, mass_scale, friction_scale, damping_scale, False
+            seeds, mass_scale, friction_scale, damping_scale, False,
+            algo,
         )
         for batch in batches
     )
@@ -218,17 +234,19 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     logger.info(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
     logger.info(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
 
+    algo = cfg.algo
+
     # Dispatch: sequential or parallel
     if n_jobs == 1:
         logger.info("Using sequential execution")
         result = _gen_data_sequential(
             gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
-            seeds, mass_scale, friction_scale, damping_scale
+            seeds, mass_scale, friction_scale, damping_scale, algo
         )
     else:
         result = _gen_data_parallel(
             gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
-            seeds, mass_scale, friction_scale, damping_scale, n_jobs
+            seeds, mass_scale, friction_scale, damping_scale, n_jobs, algo
         )
 
     # Add parameter scales and seeds to result

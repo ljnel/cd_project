@@ -19,6 +19,9 @@ class DatasetConfig:
     # Policy
     policy: str                 # policy filename
 
+    # RL algorithm class name for policy loading (e.g., 'SAC', 'TQC')
+    algo: str = 'SAC'
+
     # Parameter ranges (1.0, 1.0) means no variation
     mass_range: tuple[float, float] = (1.0, 1.0)
     friction_range: tuple[float, float] = (1.0, 1.0)
@@ -105,7 +108,7 @@ DATASETS = {
         platform='mujoco',
         policy='ant-v5-sac-expert.zip',
         mass_range=(0.8, 2.0),
-        friction_range=(0.8, 2.0),
+        friction_range=(0.8, 1.6),
         damping_range=(0.8, 2.0),
     ),
 
@@ -115,7 +118,18 @@ DATASETS = {
         env='humanoid',
         platform='mujoco',
         policy='humanoid-v5-sac-expert.zip',
-        mass_range=(0.997, 1.003),        
+        mass_range=(0.997, 1.003),
+        friction_range=(1.0, 1.0),
+        damping_range=(1.0, 1.0),
+    ),
+
+    'humanoid/tqc_fail_pred': DatasetConfig(
+        name='tqc_fail_pred',
+        env='humanoid',
+        platform='mujoco',
+        policy='humanoid-v5-TQC-expert.zip',
+        algo='TQC',
+        mass_range=(0.997, 1.003),
         friction_range=(1.0, 1.0),
         damping_range=(1.0, 1.0),
     ),

@@ -21,9 +21,11 @@ sktime = "*"
 numba = "*"
 ruff = "*"
 pybullet = ">=3.25,<4"
+umap-learn = ">=0.5.11,<0.6"
 
 [pypi-dependencies]
 stable-baselines3 = "*"
+sb3-contrib = "*"
 gymnasium = { version = "*", extras = ["mujoco"] }
 tensorboard = "*"
 tensorboardX = "*"
