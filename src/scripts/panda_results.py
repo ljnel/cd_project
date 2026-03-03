@@ -31,6 +31,47 @@ warnings.filterwarnings("ignore")
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from utils.paths import get_root
 
+# ---------------------------------------------------------------------------
+# Preprocessing helpers
+# ---------------------------------------------------------------------------
+
+def subtract_mean_trajectory(X_train, *others):
+    """Subtract per-timestep mean of training data from all arrays.
+
+    Parameters
+    ----------
+    X_train : ndarray (N, T, D)
+    *others : ndarray (M, T, D)
+
+    Returns
+    -------
+    X_train_centered, *others_centered, mean_traj
+        mean_traj has shape (T, D).
+    """
+    mean_traj = X_train.mean(axis=0)  # (T, D)
+    result = [X_train - mean_traj]
+    for arr in others:
+        result.append(arr - mean_traj)
+    result.append(mean_traj)
+    return tuple(result)
+
+
+def standard_normalize(X_train, *others):
+    """Pooled StandardScaler (reproduces current behavior).
+
+    Returns
+    -------
+    X_train_normed, *others_normed
+    """
+    D = X_train.shape[-1]
+    scaler = StandardScaler()
+    scaler.fit(X_train.reshape(-1, D))
+
+    result = [scaler.transform(X_train.reshape(-1, D)).reshape(X_train.shape)]
+    for arr in others:
+        result.append(scaler.transform(arr.reshape(-1, D)).reshape(arr.shape))
+    return tuple(result)
+
 
 def load_panda_data(data_dir):
     """Load all Panda trajectories across seeds.
@@ -209,6 +250,8 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--test-frac', type=float, default=0.2,
                         help='Fraction of expert trajectories held out for testing')
+    parser.add_argument('--no-center', action='store_true',
+                        help='Disable mean trajectory subtraction')
     parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
 
@@ -236,20 +279,23 @@ def main():
     n_test_expert = int(n_expert * args.test_frac)
     perm = rng.permutation(n_expert)
 
-    X_train_raw = expert_free[perm[n_test_expert:]]
+    X_train = expert_free[perm[n_test_expert:]]
     X_test_normal = expert_free[perm[:n_test_expert]]
+    X_nonexpert = nonexpert_all
 
-    # Normalize: fit scaler on training data, apply to all
-    D = X_train_raw.shape[-1]
-    scaler = StandardScaler()
-    scaler.fit(X_train_raw.reshape(-1, D))
+    # --- Preprocessing pipeline ---
+    # 1. Mean trajectory subtraction
+    if not args.no_center:
+        X_train, X_test_normal, X_nonexpert, mean_traj = subtract_mean_trajectory(
+            X_train, X_test_normal, X_nonexpert)
+        print(f"Mean trajectory subtracted (shape {mean_traj.shape})")
 
-    X_train = scaler.transform(
-        X_train_raw.reshape(-1, D)).reshape(X_train_raw.shape)
-    X_test_normal = scaler.transform(
-        X_test_normal.reshape(-1, D)).reshape(X_test_normal.shape)
-    nonexpert_norm = scaler.transform(
-        nonexpert_all.reshape(-1, D)).reshape(nonexpert_all.shape)
+    # 2. Normalization (pooled StandardScaler)
+    X_train, X_test_normal, X_nonexpert = standard_normalize(
+        X_train, X_test_normal, X_nonexpert)
+    print("Pooled StandardScaler applied")
+
+    nonexpert_norm = X_nonexpert
 
     # Test set: held-out expert (normal=0) + all non-expert (anomalous=1)
     X_test = np.concatenate([X_test_normal, nonexpert_norm])
