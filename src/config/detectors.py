@@ -70,6 +70,46 @@ DETECTOR_CONFIGS = {
         ridge_lambda=1e1,
         basis_type='bspline',
     ),
+    "basis_gauss": dict(
+        cls='BasisDetector',
+        n_basis=10,
+        window_frac=1.0,
+        max_windows=1000,
+        reg=1e-6,
+        display_name='Gauss-CD',
+        ridge_lambda=1e-6,
+        basis_type='gaussian',
+    ),
+    "basis_vm": dict(
+        cls='BasisDetector',
+        n_basis=10,
+        window_frac=1.0,
+        max_windows=1000,
+        reg=1e-6,
+        display_name='VonMises-CD',
+        ridge_lambda=1e-6,
+        basis_type='vonmises',
+    ),
+    "basis_fourier": dict(
+        cls='BasisDetector',
+        n_basis=10,
+        window_frac=1.0,
+        max_windows=1000,
+        reg=1e-6,
+        display_name='Fourier-CD',
+        ridge_lambda=1e-6,
+        basis_type='fourier',
+    ),
+    "basis_sine": dict(
+        cls='BasisDetector',
+        n_basis=10,
+        window_frac=1.0,
+        max_windows=1000,
+        reg=1e-6,
+        display_name='Sine-CD',
+        ridge_lambda=1e-6,
+        basis_type='sine',
+    ),
     "tucker": dict(
         cls='TuckerDetector',
         n_spatial=10,
@@ -80,15 +120,31 @@ DETECTOR_CONFIGS = {
         reg=1e-6,
         display_name='Tucker-CD',
     ),
+    "knn": dict(
+        cls='KNNDetector',
+        k=5,
+        window_frac=0.1,
+        max_windows=10_000,
+        display_name='k-NN',
+    ),
+    "iforest": dict(
+        cls='IForestDetector',
+        n_estimators=100,
+        window_frac=0.1,
+        max_windows=10_000,
+        display_name='IForest',
+    ),
 }
 
 DEFAULT_METHODS = ["fft",
-                    "sig", 
-                    #"minirocket", 
-                    "rec", 
-                    "lat", 
+                    "sig",
+                    #"minirocket",
+                    "rec",
+                    "lat",
                     "basis",
                     #"tucker",
+                    "knn",
+                    "iforest",
                 ]
 
 # Registry mapping cls string to class. Imports are deferred to avoid
@@ -101,13 +157,17 @@ def _ensure_registry():
         return
     from detectors.basis import BasisDetector
     from detectors.conv import ConvAEDetector
+    from detectors.iforest import IForestDetector
     from detectors.kernel import KernDetector
+    from detectors.knn import KNNDetector
     from detectors.tucker import TuckerDetector
     _CLS_REGISTRY.update({
         'KernDetector': KernDetector,
         'ConvAEDetector': ConvAEDetector,
         'BasisDetector': BasisDetector,
         'TuckerDetector': TuckerDetector,
+        'KNNDetector': KNNDetector,
+        'IForestDetector': IForestDetector,
     })
 
 

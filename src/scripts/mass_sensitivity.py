@@ -274,7 +274,7 @@ def run_experiment(
         display_name = get_method_display_name(method_key)
         print(f"  Training {display_name}...")
         try:
-            model = get_detector(method_key)
+            model = get_detector(method_key, env="upkie")
             model.fit(X_train)
             trained_models[method_key] = model
         except Exception as e:

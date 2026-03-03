@@ -90,6 +90,19 @@ class BSplineBasis(BasisGenerator):
         return Phi
 
 
+class SineBasis(BasisGenerator):
+    """Sine basis on [0, 1]: sin(k*pi*t) for k = 1..n_basis.
+
+    Naturally zero at t=0 and t=1, making it ideal for modeling deviations
+    from a shared start/goal after mean trajectory subtraction.
+    """
+
+    def _compute_basis_single(self, z):
+        z = np.asarray(z)
+        k = np.arange(1, self.n_basis + 1)  # (K,)
+        return np.sin(np.pi * z[:, None] * k[None, :])  # (T, K)
+
+
 class FourierBasis(BasisGenerator):
     """Truncated Fourier (real) basis on [0, 1].
 
@@ -129,7 +142,7 @@ class BasisProjector:
     n_basis : int
         Number of basis functions per dimension.  For Fourier basis this is
         the number of harmonics (actual basis size is 2*n_basis + 1).
-    basis_type : {"gaussian", "vonmises", "bspline", "fourier"}
+    basis_type : {"gaussian", "vonmises", "bspline", "fourier", "sine"}
         Type of basis functions.
     ridge_lambda : float
         Ridge regularization for basis projection.
@@ -148,6 +161,8 @@ class BasisProjector:
             self.basis = BSplineBasis(n_basis, n_dims)
         elif basis_type == 'fourier':
             self.basis = FourierBasis(n_basis, n_dims)
+        elif basis_type == 'sine':
+            self.basis = SineBasis(n_basis, n_dims)
         else:
             raise ValueError(f"Unknown basis type: {basis_type}")
 

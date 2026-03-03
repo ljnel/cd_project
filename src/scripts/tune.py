@@ -47,8 +47,27 @@ SEARCH_SPACE = {
         "window_frac": [0.03, 0.05, 0.07, 0.1],
     },
     "basis": {
-        "n_basis": [10, 20, 30],
+        "n_basis": [5, 7, 12],
         "window_frac": [0.05, 0.07, 0.1],
+        "ridge_lambda": [1e-6, 1e-3, 1e0, 1e1],
+    },
+    "rec": {
+        "window_frac": [0.05, 0.1, 0.2],
+        "latent_dim_mult": [1.0, 3.0, 5.0],
+        "epochs": [5, 10],
+    },
+    "lat": {
+        "window_frac": [0.05, 0.1, 0.2],
+        "latent_dim_mult": [0.5, 1.0, 2.0],
+        "epochs": [5, 10],
+    },
+    "knn": {
+        "k": [3, 5, 10, 20],
+        "window_frac": [0.01, 0.05, 0.1],
+    },
+    "iforest": {
+        "n_estimators": [50, 100, 200],
+        "window_frac": [0.01, 0.05, 0.1],
     },
 }
 
