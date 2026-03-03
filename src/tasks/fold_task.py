@@ -35,6 +35,7 @@ class FoldTask:
         test_idx: np.ndarray,
         cfg: SafetyMonitorConfig,
         fold_id: int = None,
+        original_indices: np.ndarray | None = None,
     ):
         """
         Args:
@@ -44,6 +45,7 @@ class FoldTask:
             test_idx: Episode indices for testing
             cfg: SafetyMonitorConfig with win and hor settings
             fold_id: Optional fold identifier for logging
+            original_indices: Mapping from trimmed index to original episode index
         """
         self.X = X
         self.fail = fail
@@ -51,6 +53,7 @@ class FoldTask:
         self.test_idx = test_idx
         self.cfg = cfg
         self.fold_id = fold_id
+        self.original_indices = original_indices
         self.y_true = None
 
     def get_train_test(self, verbose: bool = True) -> tuple[np.ndarray, np.ndarray]:
@@ -124,7 +127,7 @@ def create_fold_tasks(
     # Load data and trim initial transient
     ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
     data = load_dataset(ds_cfg)
-    X, fail = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
+    X, fail, original_indices = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
 
     # Stratified k-fold over episodes
     failure_mask = fail >= 0
@@ -137,6 +140,7 @@ def create_fold_tasks(
             train_idx, test_idx,
             cfg,
             fold_id=fold_id,
+            original_indices=original_indices,
         )
         tasks.append(task)
 
@@ -158,7 +162,7 @@ def get_fold_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
     """
     ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
     data = load_dataset(ds_cfg)
-    X, fail = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
+    X, fail, _ = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
 
     return {
         'n_episodes': len(X),

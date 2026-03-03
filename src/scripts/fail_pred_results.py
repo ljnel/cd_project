@@ -27,6 +27,9 @@ from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
 from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
+from utils.plotting import COL_WIDTH, setup_style
+
+setup_style()
 
 
 def run_single_trial(
@@ -178,7 +181,7 @@ def plot_roc_curves(results: dict[str, dict], env_name: str):
     output_dir = get_root() / "results" / "fail_pred"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH))
     for method_name, metrics in results.items():
         if 'roc' not in metrics:
             continue
@@ -188,7 +191,6 @@ def plot_roc_curves(results: dict[str, dict], env_name: str):
     ax.plot([0, 1], [0, 1], 'k--', lw=0.8, label='Random')
     ax.set_xlabel('False Positive Rate')
     ax.set_ylabel('True Positive Rate')
-    ax.set_title(f'ROC Curves — {get_env_display_name(env_name)}')
     ax.legend(loc='lower right')
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1.05])

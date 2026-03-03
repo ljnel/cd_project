@@ -13,7 +13,10 @@ from algs.tucker import Tucker13
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from tasks.safety_monitor import SafetyMonitor
+from utils.plotting import FULL_WIDTH, setup_style
 from utils.windows import strided_window_view
+
+setup_style()
 
 parser = argparse.ArgumentParser(description="Covariance heatmap for any environment.")
 parser.add_argument("--env", type=str, required=True,
@@ -73,7 +76,7 @@ cov_tucker_fail = np.cov(cores_fail, rowvar=False)
 
 # --- Plot ---
 n_plots = 3 if show_raw else 2
-fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
+fig, axes = plt.subplots(1, n_plots, figsize=(FULL_WIDTH, 2.4))
 
 ax_idx = 0
 
@@ -118,7 +121,6 @@ axes[ax_idx].set_ylabel("Feature index (K×M)")
 axes[ax_idx].set_title(f"Tucker failure (K={K}, M={M})")
 fig.colorbar(im2, ax=axes[ax_idx], shrink=0.8)
 
-fig.suptitle(f"Covariance of windows — {display_name}", fontsize=14)
 fig.tight_layout()
 fig.savefig(f"results/cov_heatmap_{env}.pdf", dpi=150)
 print(f"Saved to results/cov_heatmap_{env}.pdf")

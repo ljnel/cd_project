@@ -27,13 +27,16 @@ import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 
 from config.datasets import DATASETS
-from config.detectors import get_detector, get_method_display_name
+from config.detectors import get_detector
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from envs.mujoco.termination import check_custom_termination
 from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
+from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, setup_style
 from utils.windows import strided_window_view
+
+setup_style()
 
 N_EPISODES = 10
 
@@ -290,18 +293,17 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     env.close()
 
     # ------- Step 6: Plot score curves -------
-    display_name = get_method_display_name("basis")
-    fig, ax = plt.subplots(figsize=(10, 3))
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH, 2.2))
 
     for ts, scores, fail_step, is_success, _label in curve_data:
-        color = "green" if is_success else "red"
-        ax.plot(ts, scores, color=color, alpha=0.6, linewidth=0.8)
+        color = SUCCESS_COLOR if is_success else FAILURE_COLOR
+        ax.plot(ts, scores, color=color, alpha=0.6)
         if not is_success and fail_step >= 0:
             ax.plot(fail_step, np.interp(fail_step, ts, scores),
-                    "rx", markersize=8, markeredgewidth=2)
+                    "x", color=FAILURE_COLOR, markersize=6, markeredgewidth=1.5)
 
     ax.axhline(detector.threshold_, color="gray", linestyle="--",
-               linewidth=1, label="threshold")
+               label="threshold")
     last_fail = max((fs for _, _, fs, s, _ in curve_data if not s and fs >= 0),
                     default=None)
     if last_fail is not None:
@@ -310,8 +312,7 @@ def run_env(env_name: str, n_episodes: int, seed: int,
         ax.set_yscale("log")
     ax.set_xlabel("Timestep")
     ax.set_ylabel("Score")
-    ax.set_title(f"{display_name} — {env_info.display_name}")
-    ax.legend(loc="upper left", fontsize=8)
+    ax.legend(loc="upper left")
     fig.tight_layout()
 
     svg_path = output_dir / "score_curves.svg"

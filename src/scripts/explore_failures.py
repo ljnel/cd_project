@@ -23,6 +23,9 @@ from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
+from utils.plotting import FULL_WIDTH, setup_style
+
+setup_style()
 
 logger = logging.getLogger("cd.scripts.explore_failures")
 
@@ -409,23 +412,21 @@ def compose_figure(frames_data: list, display_name: str, steps_before: int,
         logger.warning(f"No failures found for {display_name}, skipping figure.")
         return
 
-    fig, axes = plt.subplots(n, 2, figsize=(8, 2.5 * n))
+    fig, axes = plt.subplots(n, 2, figsize=(FULL_WIDTH, 2.0 * n))
     if n == 1:
         axes = axes.reshape(1, -1)
 
-    fig.suptitle(f"{display_name} — Failure Frames", fontsize=14, y=1.01)
-
     for i, (before, fail, step) in enumerate(frames_data):
         axes[i, 0].imshow(before)
-        axes[i, 0].set_ylabel(f"step {step}", fontsize=10)
+        axes[i, 0].set_ylabel(f"step {step}")
         axes[i, 1].imshow(fail)
 
         for j in range(2):
             axes[i, j].set_xticks([])
             axes[i, j].set_yticks([])
 
-    axes[0, 0].set_title(f"Before (t − {steps_before})", fontsize=11)
-    axes[0, 1].set_title("At failure (t)", fontsize=11)
+    axes[0, 0].set_title(f"Before ($t - {steps_before}$)")
+    axes[0, 1].set_title("At failure ($t$)")
 
     plt.tight_layout()
 

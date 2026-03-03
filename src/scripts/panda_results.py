@@ -30,6 +30,9 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from utils.paths import get_root
+from utils.plotting import COL_WIDTH, setup_style
+
+setup_style()
 
 # ---------------------------------------------------------------------------
 # Preprocessing helpers
@@ -219,7 +222,7 @@ def plot_roc_curves(results: dict[str, dict]):
     output_dir = get_root() / "results" / "panda"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH))
     for name, m in results.items():
         if 'roc' not in m:
             continue
@@ -229,7 +232,6 @@ def plot_roc_curves(results: dict[str, dict]):
     ax.plot([0, 1], [0, 1], 'k--', lw=0.8, label='Random')
     ax.set_xlabel('False Positive Rate')
     ax.set_ylabel('True Positive Rate')
-    ax.set_title('ROC Curves — Panda')
     ax.legend(loc='lower right')
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1.05])

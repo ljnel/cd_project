@@ -20,6 +20,9 @@ import numpy as np
 
 from algs.kern_cd import KernCD
 from algs.kernels import RBF
+from utils.plotting import FULL_WIDTH, setup_style
+
+setup_style()
 
 # =============================================================================
 # Configuration
@@ -265,7 +268,7 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
 
     fig, axes = plt.subplots(
         len(SAMPLE_SIZES), len(gammas),
-        figsize=(14, 12),
+        figsize=(FULL_WIDTH, 6),
         sharex=True, sharey=False
     )
 
@@ -324,8 +327,6 @@ def generate_score_plots(output_path: Path) -> plt.Figure:
             ax.set_xlim(TEST_DOMAIN)
             ax.grid(True, alpha=0.3)
 
-    fig.suptitle('KernCD Anomaly Scores: Effect of Sample Size (m), RBF Bandwidth (γ), and Regularization (λ)',
-                 fontsize=14, y=1.02)
     plt.tight_layout()
 
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -396,7 +397,7 @@ def generate_heatmaps(output_path: Path) -> plt.Figure:
     gammas = powers_of_two(GAMMA_LO, GAMMA_HI, HEATMAP_GRID)
     lambdas = powers_of_two(LAMBDA_LO, LAMBDA_HI, HEATMAP_GRID)
 
-    fig, axes = plt.subplots(1, len(SAMPLE_SIZES), figsize=(15, 4.5), constrained_layout=True)
+    fig, axes = plt.subplots(1, len(SAMPLE_SIZES), figsize=(FULL_WIDTH, 2.5), constrained_layout=True)
 
     # Compute heatmap for each sample size
     for idx, m in enumerate(SAMPLE_SIZES):
@@ -439,8 +440,6 @@ def generate_heatmaps(output_path: Path) -> plt.Figure:
     cbar = fig.colorbar(im, ax=axes, shrink=0.8, pad=0.02)
     cbar.set_label('Classification Accuracy', fontsize=11)
 
-    fig.suptitle(f'Classification Accuracy ({HEATMAP_DIM}D Gaussian, offset={ANOMALY_OFFSET}): γ vs λ (Averaged over {N_SEEDS} Seeds)',
-                 fontsize=14)
 
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved heatmaps to {output_path}")

@@ -51,7 +51,7 @@ class SafetyMonitor(Experiment):
         # Load dataset and trim initial transient
         ds_cfg = DATASETS[f"{self.cfg.name}/fail_pred"]
         data = load_dataset(ds_cfg)
-        X, fail = trim_transient(data['X'], data['fail'], n_steps=self.cfg.win)
+        X, fail, _ = trim_transient(data['X'], data['fail'], n_steps=self.cfg.win)
 
         n_eps = X.shape[0]
         success_mask = fail == -1

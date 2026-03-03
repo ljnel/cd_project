@@ -25,6 +25,9 @@ from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, ge
 from config.tasks import TASK_CONFIGS
 from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
+from utils.plotting import FULL_WIDTH, setup_style
+
+setup_style()
 
 OUTPUT_DIR = get_root() / "results" / "compute_cost"
 
@@ -109,7 +112,7 @@ def plot_results(
     realtime_budget_ms: float = None,
 ) -> plt.Figure:
     """Create bar chart visualization of timing results."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(FULL_WIDTH, 2.5))
 
     method_names = list(results.keys())
     x_pos = np.arange(len(method_names))
@@ -119,8 +122,7 @@ def plot_results(
     axes[0].bar(x_pos, train_means, color='steelblue', alpha=0.8)
     axes[0].set_xticks(x_pos)
     axes[0].set_xticklabels(method_names, rotation=15, ha='right')
-    axes[0].set_ylabel('Time (seconds)', fontsize=11)
-    axes[0].set_title(f'Training Time ({n_train_episodes} episodes)', fontsize=12, fontweight='bold')
+    axes[0].set_ylabel('Time (seconds)')
     axes[0].set_yscale('log')
     axes[0].grid(True, alpha=0.3, axis='y', which='both')
 
@@ -129,8 +131,7 @@ def plot_results(
     axes[1].bar(x_pos, pred_means, color='coral', alpha=0.8)
     axes[1].set_xticks(x_pos)
     axes[1].set_xticklabels(method_names, rotation=15, ha='right')
-    axes[1].set_ylabel('Time (milliseconds)', fontsize=11)
-    axes[1].set_title(f'Total Prediction Time ({n_test_windows} windows)', fontsize=12, fontweight='bold')
+    axes[1].set_ylabel('Time (milliseconds)')
     axes[1].set_yscale('log')
     axes[1].grid(True, alpha=0.3, axis='y', which='both')
 
@@ -140,7 +141,6 @@ def plot_results(
                         label=f'{realtime_budget_ms}ms budget')
         axes[1].legend()
 
-    fig.suptitle(f'Computational Cost - {env_name}', fontsize=14, fontweight='bold')
     plt.tight_layout()
 
     return fig

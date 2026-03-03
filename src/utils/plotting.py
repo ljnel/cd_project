@@ -8,6 +8,32 @@ import seaborn as sns
 
 logger = logging.getLogger("cd.utils.plotting")
 
+# IEEE two-column figure widths (inches)
+COL_WIDTH = 3.5
+FULL_WIDTH = 7.16
+
+# Colorblind-safe success/failure colors (Tol bright)
+SUCCESS_COLOR = "#228833"  # green
+FAILURE_COLOR = "#EE6677"  # red/pink
+
+
+def setup_style():
+    """Configure matplotlib for publication (IEEE two-column, serif fonts)."""
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman"],
+        "text.usetex": True,
+        "axes.labelsize": 10,
+        "axes.titlesize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "legend.fontsize": 9,
+        "lines.linewidth": 1.2,
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+    })
+
 
 def plot_contours(f, ax, **plot_kwargs):
     "Make a contour plot of a vectorized function on the given axes."
@@ -89,7 +115,7 @@ def plot_channels(x, y, max_channels=9, max_batches=20):
         ax = axes[i]
 
         for b_idx in batch_indices:
-            color = 'red' if y[b_idx] else 'green'
+            color = FAILURE_COLOR if y[b_idx] else SUCCESS_COLOR
             alpha = 0.6 if n_batch > 10 else 1.0  # Transparency for overlapping lines
 
             ax.plot(x[b_idx, :, ch_idx], color=color, linewidth=1, alpha=alpha)

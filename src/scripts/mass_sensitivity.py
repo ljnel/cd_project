@@ -27,6 +27,9 @@ from config.datasets import DatasetConfig
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from envs.upkie.gen_data import gen_data
 from utils.paths import get_root
+from utils.plotting import COL_WIDTH, setup_style
+
+setup_style()
 
 # =============================================================================
 # Configuration
@@ -323,7 +326,7 @@ def plot_mass_sensitivity(
     output_path: Path = None,
 ) -> plt.Figure:
     """Plot binned score percentiles with error bars vs mass scale."""
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(COL_WIDTH, 2.5))
 
     marker_cycle = ["o", "s", "^", "D", "v", "P", "X"]
 
@@ -332,18 +335,17 @@ def plot_mass_sensitivity(
             bin_means, bin_se = data
             marker = marker_cycle[i % len(marker_cycle)]
             ax.errorbar(bin_centers, bin_means, yerr=bin_se, label=method_name,
-                        marker=marker, capsize=3, capthick=1, linewidth=1.5, markersize=5)
+                        marker=marker, capsize=3, capthick=1, markersize=4)
 
     # Shaded band showing "normal" mass range [1-TOL, 1+TOL]
     ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2, label=f'Training range (1\u00b1{TOL})')
 
     # Formatting
-    ax.set_xlabel('Mass Scale', fontsize=12)
-    ax.set_ylabel('Score Percentile', fontsize=12)
-    ax.set_title(f'Anomaly Detection Sensitivity to Mass Changes ({BALANCER})', fontsize=14)
+    ax.set_xlabel('Mass Scale')
+    ax.set_ylabel('Score Percentile')
     ax.set_xlim([bin_centers.min() - BIN_WIDTH/2, bin_centers.max() + BIN_WIDTH/2])
     ax.set_ylim([0, 105])
-    ax.legend(loc='lower right', fontsize=10)
+    ax.legend(loc='lower right')
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()

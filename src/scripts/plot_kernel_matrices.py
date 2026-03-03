@@ -20,7 +20,9 @@ import numpy as np
 from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
 from tasks.safety_monitor import SafetyMonitor
-from utils.plotting import plot_kern_mat
+from utils.plotting import FULL_WIDTH, plot_kern_mat, setup_style
+
+setup_style()
 
 # Output directory
 OUTPUT_DIR = Path("results/kernel_matrices")
@@ -82,7 +84,7 @@ def main():
 
     # Create figure
     n_kernels = len(kernels)
-    fig, axes = plt.subplots(1, n_kernels, figsize=(5 * n_kernels, 4.5))
+    fig, axes = plt.subplots(1, n_kernels, figsize=(FULL_WIDTH, 2.2))
 
     if n_kernels == 1:
         axes = [axes]
@@ -104,9 +106,6 @@ def main():
         if hasattr(kernel, 'gamma'):
             print(f"  gamma = {kernel.gamma:.4e}")
 
-    # Add overall title
-    fig.suptitle(f"Kernel Matrices on {args.env.title()} Test Windows\n(ordered by label: success | failure)",
-                 fontsize=12)
     plt.tight_layout()
 
     # Save figure

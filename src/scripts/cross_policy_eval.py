@@ -44,7 +44,7 @@ def load_dataset(key: str, trim: int = 0) -> tuple[np.ndarray, np.ndarray]:
     data = _load_raw(cfg)
     X, fail = data['X'], data['fail']
     if trim > 0:
-        X, fail = trim_transient(X, fail, n_steps=trim)
+        X, fail, _ = trim_transient(X, fail, n_steps=trim)
     n_success = (fail == -1).sum()
     n_fail = (fail >= 0).sum()
     print(f"  {key}: {X.shape[0]} episodes, {n_success} successes, {n_fail} failures")

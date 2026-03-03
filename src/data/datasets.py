@@ -81,12 +81,14 @@ def trim_transient(X: np.ndarray, fail: np.ndarray, n_steps: int):
     -------
     X_trimmed : ndarray of shape (n_kept, seq_len - n_steps, obs_dim)
     fail_trimmed : ndarray of shape (n_kept,)
+    kept_indices : ndarray of shape (n_kept,)
+        Original episode indices of the kept episodes.
     """
     keep = (fail == -1) | (fail >= n_steps)
     X_trimmed = X[keep, n_steps:, :]
     fail_trimmed = fail[keep].copy()
     fail_trimmed[fail_trimmed >= 0] -= n_steps
-    return X_trimmed, fail_trimmed
+    return X_trimmed, fail_trimmed, np.where(keep)[0]
 
 
 def save_dataset(cfg: DatasetConfig, data: dict, overwrite: bool = False) -> Path:
