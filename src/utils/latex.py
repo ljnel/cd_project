@@ -4,8 +4,11 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import rankdata
 
+from config.datasets import DATASETS
 from config.detectors import DEFAULT_METHODS, get_method_display_name
 from config.envs import ENV_INFO
+from config.tasks import TASK_CONFIGS
+from data.datasets import load_dataset
 from utils.paths import get_root
 
 # ---------------------------------------------------------------------------
@@ -220,6 +223,100 @@ def format_compute_cost_table(
 
 
 # ---------------------------------------------------------------------------
+# Environment summary table
+# ---------------------------------------------------------------------------
+
+def _format_range(rng: tuple[float, float]) -> str:
+    """Format a domain-randomization range for LaTeX display."""
+    lo, hi = rng
+    if lo == hi:
+        return "---"
+    return f"[{lo}, {hi}]"
+
+
+def format_env_summary_table(
+    env_keys: list[str],
+    rows: list[dict],
+) -> str:
+    """Format an environment summary as a LaTeX table.
+
+    Each row dict contains: display_name, W, H, obs_dim,
+    mass_range, friction_range, damping_range, failure_prop (float or None).
+    """
+    n_envs = len(env_keys)
+    assert len(rows) == n_envs
+
+    latex = "\\begin{table*}[h!]\n\\centering\n"
+    latex += "\\begin{tabular}{|l|c|c|c|c|c|c|c|c|}\n\\hline\n"
+    latex += ("Environment & $W$ & $H$ & Obs dim & Ctrl freq. (Hz) & Mass & Friction "
+              "& Damping & Failure prop. \\\\ \\hline\n")
+
+    for row in rows:
+        fp = f"{row['failure_prop']:.3f}" if row['failure_prop'] is not None else "---"
+        latex += (
+            f"{row['display_name']} & {row['W']} & {row['H']} & {row['obs_dim']} "
+            f"& {row['ctrl_freq']} "
+            f"& {_format_range(row['mass_range'])} "
+            f"& {_format_range(row['friction_range'])} "
+            f"& {_format_range(row['damping_range'])} "
+            f"& {fp} \\\\\n"
+        )
+
+    latex += "\\hline\n\\end{tabular}\n"
+    latex += "\\caption{Summary of environments and datasets.}\n"
+    latex += "\\label{tab:env_summary}\n"
+    latex += "\\end{table*}\n"
+    return latex
+
+
+
+def generate_env_summary_table(output_dir: Path):
+    """Generate environment summary LaTeX tables from configs and dataset files."""
+    env_keys = list(TASK_CONFIGS.keys())
+    rows = []
+
+    for env in env_keys:
+        task_cfg = TASK_CONFIGS[env]
+        env_info = ENV_INFO[env]
+        ds_key = f"{env}/fail_pred"
+        ds_cfg = DATASETS.get(ds_key)
+
+        # Domain randomization ranges
+        mass_range = ds_cfg.mass_range if ds_cfg else (1.0, 1.0)
+        friction_range = ds_cfg.friction_range if ds_cfg else (1.0, 1.0)
+        damping_range = ds_cfg.damping_range if ds_cfg else (1.0, 1.0)
+
+        # Failure proportion from dataset on disk
+        failure_prop = None
+        if ds_cfg:
+            try:
+                data = load_dataset(ds_cfg)
+                fail = data['fail']
+                failure_prop = float(np.sum(fail > -1)) / len(fail)
+            except FileNotFoundError:
+                pass
+
+        rows.append({
+            'display_name': env_info.display_name,
+            'W': task_cfg.win,
+            'H': task_cfg.hor,
+            'obs_dim': env_info.obs_dim,
+            'ctrl_freq': env_info.ctrl_freq,
+            'mass_range': mass_range,
+            'friction_range': friction_range,
+            'damping_range': damping_range,
+            'failure_prop': failure_prop,
+        })
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    tex = format_env_summary_table(env_keys, rows)
+    tex_file = output_dir / "env_summary.tex"
+    tex_file.write_text(tex)
+    print(f"  {tex_file}")
+
+
+# ---------------------------------------------------------------------------
 # Table generation from .npz files
 # ---------------------------------------------------------------------------
 
@@ -328,6 +425,9 @@ def main():
     results_dir = get_root() / "results"
 
     print("Generating LaTeX tables...")
+
+    print("\nenv_summary:")
+    generate_env_summary_table(results_dir)
 
     print("\nfail_pred:")
     generate_fail_pred_tables(results_dir / "fail_pred")
