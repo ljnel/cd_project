@@ -3,7 +3,8 @@
 Score Curves + Rendered Frames for Figure 1.
 
 Trains Basis-CD on fold-0 training successes from the stored dataset, then
-re-simulates selected test episodes with MuJoCo rendering to produce:
+samples fresh episodes with random parameters from the dataset config's domain
+randomization ranges to produce:
   - Per-timestep anomaly score curves (SVG)
   - High-res rendered frames (PNGs) for every timestep
 
@@ -34,7 +35,7 @@ from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
 from utils.windows import strided_window_view
 
-N_EPISODES = 5
+N_EPISODES = 10
 
 # Per-env camera settings (distance, elevation, azimuth)
 CAMERA_SETTINGS = {
@@ -65,38 +66,20 @@ def score_episode(detector, episode: np.ndarray) -> tuple[np.ndarray, np.ndarray
     return timesteps, scores
 
 
-def reconstruct_episode_params(cfg):
-    """Reconstruct per-episode physical parameters from dataset config seed.
-
-    Replicates the RNG logic from gen_data.py so we can re-simulate episodes
-    with matching physical parameters.
-
-    Returns:
-        seeds, mass_scale, friction_scale, damping_scale arrays
-    """
-    rng = np.random.default_rng(cfg.seed)
-    seeds = rng.integers(0, 2**32, size=cfg.n_episodes, dtype=np.uint32)
-    mass_scale = rng.uniform(
-        cfg.mass_range[0], cfg.mass_range[1], size=cfg.n_episodes
-    ).astype(np.float32)
-    friction_scale = rng.uniform(
-        cfg.friction_range[0], cfg.friction_range[1], size=cfg.n_episodes
-    ).astype(np.float32)
-    damping_scale = rng.uniform(
-        cfg.damping_range[0], cfg.damping_range[1], size=cfg.n_episodes
-    ).astype(np.float32)
-    return seeds, mass_scale, friction_scale, damping_scale
-
-
-def simulate_episode(env, policy, renderer, cam, gym_name, ep_len,
+def simulate_episode(env, policy, renderer, cam, gym_name, sim_len,
                      seed, mass_scale, friction_scale, damping_scale,
                      base_mass, base_fric, base_damp):
     """Re-simulate a single episode with rendering.
 
+    Parameters
+    ----------
+    sim_len : int
+        Total steps to simulate (typically ep_len + hor to detect late failures).
+
     Returns:
-        obs_buffer: (actual_len, obs_dim) observations collected
-        frames: list of RGB arrays, one per timestep
-        fail_step: int, -1 if success, >=0 if failure
+        obs_buffer: (actual_len, obs_dim) observations collected before termination
+        frames: list of RGB arrays, one per simulated timestep
+        fail_step: int, -1 if survived all sim_len steps, >=0 if failure
     """
     import mujoco
 
@@ -113,7 +96,7 @@ def simulate_episode(env, policy, renderer, cam, gym_name, ep_len,
     frames = []
     fail_step = -1
 
-    for step in range(ep_len):
+    for step in range(sim_len):
         obs_list.append(obs)
 
         # Render frame (track body 1)
@@ -132,7 +115,7 @@ def simulate_episode(env, policy, renderer, cam, gym_name, ep_len,
         if terminated or truncated:
             # Keep rendering the aftermath (zero torques, physics only)
             mj_data.ctrl[:] = 0
-            for _post_step in range(step + 1, ep_len):
+            for _post_step in range(step + 1, sim_len):
                 mujoco.mj_step(m, mj_data)
                 cam.lookat[:] = mj_data.xpos[1]
                 renderer.update_scene(mj_data, camera=cam)
@@ -164,7 +147,7 @@ def save_frames(frames, output_dir, episode_label, save_every=1):
 
 
 def run_env(env_name: str, n_episodes: int, seed: int,
-            frame_size: int, save_every: int):
+            frame_size: int, save_every: int, log_scale: bool = False):
     """Generate score curves + rendered frames for Figure 1."""
     import gymnasium as gym
     import mujoco
@@ -197,34 +180,13 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     detector.fit(x_train)
     print(f"  window={detector.window}, threshold={detector.threshold_:.3g}")
 
-    # ------- Step 2: Select test episodes -------
-    test_fail = task.fail[task.test_idx]
-    test_success_idx = task.test_idx[test_fail == -1]
-    test_failure_idx = task.test_idx[test_fail >= 0]
+    win = task_cfg.win
+    ep_len = dataset_cfg.ep_len  # original (untrimmed) episode length
 
-    rng = np.random.RandomState(seed)
-    sel_success = rng.choice(
-        test_success_idx,
-        size=min(n_episodes, len(test_success_idx)),
-        replace=False,
-    )
-    sel_failure = rng.choice(
-        test_failure_idx,
-        size=min(n_episodes, len(test_failure_idx)),
-        replace=False,
-    )
-    sel_all = np.concatenate([sel_success, sel_failure])
-
-    ep_len = task.X.shape[1]
-    print(f"Environment: {env_name} | ep_len={ep_len} | "
-          f"{len(sel_success)} success + {len(sel_failure)} failure episodes")
-
-    # ------- Step 3: Reconstruct episode params -------
-    seeds, mass_scale, friction_scale, damping_scale = \
-        reconstruct_episode_params(dataset_cfg)
-
-    # ------- Step 4: Set up MuJoCo env + renderer -------
-    env = gym.make(gym_name)
+    # ------- Step 2: Set up MuJoCo env + renderer -------
+    hor = task_cfg.hor
+    sim_len = ep_len + hor  # extend beyond dataset to detect late failures
+    env = gym.make(gym_name, max_episode_steps=sim_len)
     policy_path = str(get_root() / 'src/policies' / dataset_cfg.policy)
     policy = _load_policy(dataset_cfg.algo, policy_path, env)
 
@@ -252,51 +214,77 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     cam.elevation = elev
     cam.azimuth = azim
 
-    # ------- Step 5: Simulate, score, and save -------
+    # ------- Step 3: Output dir -------
+    import shutil
     output_dir = get_root() / "results" / "fig1"
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect score curves for plotting
-    curve_data = []  # list of (timesteps, scores, fail_step, is_success, label)
+    # ------- Step 4: Sample fresh episodes -------
+    sample_rng = np.random.default_rng(seed)
+    max_attempts = 10 * n_episodes
+    successes = []  # list of (obs_buf, frames, fail_step)
+    failures = []
 
-    # Metadata for reproducibility
-    meta_timesteps = []
-    meta_scores = []
-    meta_fail_steps = []
-    meta_episode_indices = []
+    print(f"Environment: {env_name} | ep_len={ep_len} | win={win}")
+    print(f"Sampling episodes (target: {n_episodes} success + "
+          f"{n_episodes} failure, max {max_attempts} attempts)...")
 
-    for i, ep_idx in enumerate(sel_all):
-        is_success = ep_idx in sel_success
-        kind = "success" if is_success else "failure"
-        label = f"ep{i:02d}_{kind}"
+    attempt = 0
+    for attempt in range(max_attempts):
+        if len(successes) >= n_episodes and len(failures) >= n_episodes:
+            break
 
-        print(f"  Simulating {label} (dataset ep {ep_idx}, "
-              f"m={mass_scale[ep_idx]:.3f}, f={friction_scale[ep_idx]:.3f}, "
-              f"d={damping_scale[ep_idx]:.3f})...")
+        mass = float(sample_rng.uniform(*dataset_cfg.mass_range))
+        friction = float(sample_rng.uniform(*dataset_cfg.friction_range))
+        damping = float(sample_rng.uniform(*dataset_cfg.damping_range))
+        ep_seed = int(sample_rng.integers(0, 2**32))
 
         obs_buf, frames, fail_step = simulate_episode(
-            env, policy, renderer, cam, gym_name, ep_len,
-            seeds[ep_idx], mass_scale[ep_idx],
-            friction_scale[ep_idx], damping_scale[ep_idx],
+            env, policy, renderer, cam, gym_name, sim_len,
+            ep_seed, mass, friction, damping,
             base_mass, base_fric, base_damp,
         )
 
-        # Normalize and score
-        obs_norm = scaler.transform(obs_buf)
-        ts, scores = score_episode(detector, obs_norm)
+        is_success = fail_step == -1
+        if is_success and len(successes) < n_episodes:
+            successes.append((obs_buf, frames, fail_step))
+            print(f"  attempt {attempt}: success "
+                  f"({len(successes)}/{n_episodes})")
+        elif not is_success and len(failures) < n_episodes:
+            failures.append((obs_buf, frames, fail_step))
+            print(f"  attempt {attempt}: failure "
+                  f"({len(failures)}/{n_episodes})")
 
-        actual_fail = fail_step if not is_success else -1
-        print(f"    {len(frames)} steps, fail_step={actual_fail}, "
+    print(f"Collected {len(successes)} successes + {len(failures)} failures "
+          f"in {attempt + 1} attempts")
+
+    # ------- Step 5: Score and save -------
+    curve_data = []  # list of (timesteps, scores, fail_step, is_success, label)
+    meta_scores = []
+    meta_fail_steps = []
+
+    all_episodes = successes + failures
+    for i, (obs_buf, frames, fail_step) in enumerate(all_episodes):
+        is_success = fail_step == -1
+        kind = "success" if is_success else "failure"
+        label = f"ep{i:02d}_{kind}"
+
+        # Score only the original episode portion (not the extended horizon)
+        obs_score = obs_buf[win:ep_len]
+        obs_norm = scaler.transform(obs_score)
+        ts, scores = score_episode(detector, obs_norm)
+        ts += win  # offset to original simulation time
+
+        print(f"    {label} | {len(frames)} steps, fail_step={fail_step}, "
               f"max_score={scores.max():.3g}")
 
-        # Save frames
         save_frames(frames, output_dir, label, save_every=save_every)
 
-        curve_data.append((ts, scores, actual_fail, is_success, label))
-        meta_timesteps.append(ts)
+        curve_data.append((ts, scores, fail_step, is_success, label))
         meta_scores.append(scores)
-        meta_fail_steps.append(actual_fail)
-        meta_episode_indices.append(ep_idx)
+        meta_fail_steps.append(fail_step)
 
     renderer.close()
     env.close()
@@ -314,6 +302,12 @@ def run_env(env_name: str, n_episodes: int, seed: int,
 
     ax.axhline(detector.threshold_, color="gray", linestyle="--",
                linewidth=1, label="threshold")
+    last_fail = max((fs for _, _, fs, s, _ in curve_data if not s and fs >= 0),
+                    default=None)
+    if last_fail is not None:
+        ax.set_xlim(right=last_fail + 50)
+    if log_scale:
+        ax.set_yscale("log")
     ax.set_xlabel("Timestep")
     ax.set_ylabel("Score")
     ax.set_title(f"{display_name} — {env_info.display_name}")
@@ -321,15 +315,16 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     fig.tight_layout()
 
     svg_path = output_dir / "score_curves.svg"
+    pdf_path = output_dir / "score_curves.pdf"
     fig.savefig(svg_path, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)
-    print(f"\nSaved score curves to {svg_path}")
+    print(f"\nSaved score curves to {svg_path} and {pdf_path}")
 
     # ------- Step 7: Save metadata -------
     meta_path = output_dir / "metadata.npz"
     np.savez(
         meta_path,
-        episode_indices=np.array(meta_episode_indices),
         fail_steps=np.array(meta_fail_steps),
         threshold=detector.threshold_,
         window=detector.window,
@@ -360,7 +355,8 @@ def main():
         "--save-every", type=int, default=1,
         help="Save every N-th frame (default: 1 = all frames)",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--log", action="store_true", help="Use log scale for y-axis")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -381,7 +377,7 @@ def main():
         )
 
     run_env(args.env, args.n_episodes, args.seed,
-            args.frame_size, args.save_every)
+            args.frame_size, args.save_every, args.log)
 
 
 if __name__ == "__main__":
