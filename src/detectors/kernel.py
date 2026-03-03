@@ -90,11 +90,6 @@ class KernDetector(AnomalyDetector):
         Samples uniformly spaced windows from each episode to achieve
         approximately max_windows total, with equal representation per episode.
         """
-        # Skip first period to exclude initial transient
-        # (skip when window covers the full trajectory)
-        if self.kernel_type == "fft" and X.shape[1] > self.window:
-            X = X[:, self.window:, :]
-
         n_episodes, seq_len, n_features = X.shape
         n_possible = seq_len - self.window + 1
 

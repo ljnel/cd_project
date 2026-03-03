@@ -11,8 +11,9 @@ import numpy as np
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
+from config.datasets import DATASETS
 from config.tasks import SafetyMonitorConfig
-from utils.paths import get_root
+from data.datasets import load_dataset, trim_transient
 from utils.windows import sample_test_windows
 
 logger = logging.getLogger("cd.tasks.fold_task")
@@ -120,11 +121,10 @@ def create_fold_tasks(
     """
     seed = seed if seed is not None else cfg.seed
 
-    # Load data (fail_pred dataset for this environment)
-    data_path = get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz'
-    data = np.load(data_path)
-    X = data['X']       # (n_eps, ep_len, obs_dim)
-    fail = data['fail'] # (n_eps,)
+    # Load data and trim initial transient
+    ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
+    data = load_dataset(ds_cfg)
+    X, fail = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
 
     # Stratified k-fold over episodes
     failure_mask = fail >= 0
@@ -156,10 +156,9 @@ def get_fold_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
         - n_folds: number of folds
         - eps_per_fold: approximate episodes per test fold
     """
-    data_path = get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz'
-    data = np.load(data_path)
-    X = data['X']
-    fail = data['fail']
+    ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
+    data = load_dataset(ds_cfg)
+    X, fail = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
 
     return {
         'n_episodes': len(X),

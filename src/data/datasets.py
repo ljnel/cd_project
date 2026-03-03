@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config.datasets import DatasetConfig, DATASETS
+from config.datasets import DATASETS, DatasetConfig
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.data.datasets")
@@ -60,6 +60,33 @@ def load_dataset(cfg: DatasetConfig) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found: {path}\nUse generate_dataset() to create it.")
     return dict(np.load(path))
+
+
+def trim_transient(X: np.ndarray, fail: np.ndarray, n_steps: int):
+    """Discard the first *n_steps* timesteps from every episode.
+
+    Episodes whose failure occurs during the transient (``0 <= fail < n_steps``)
+    are dropped entirely, since the trimmed episode would start in a
+    post-failure state.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_episodes, seq_len, obs_dim)
+    fail : ndarray of shape (n_episodes,)
+        ``-1`` for success, ``>= 0`` for failure timestep.
+    n_steps : int
+        Number of leading timesteps to remove.
+
+    Returns
+    -------
+    X_trimmed : ndarray of shape (n_kept, seq_len - n_steps, obs_dim)
+    fail_trimmed : ndarray of shape (n_kept,)
+    """
+    keep = (fail == -1) | (fail >= n_steps)
+    X_trimmed = X[keep, n_steps:, :]
+    fail_trimmed = fail[keep].copy()
+    fail_trimmed[fail_trimmed >= 0] -= n_steps
+    return X_trimmed, fail_trimmed
 
 
 def save_dataset(cfg: DatasetConfig, data: dict, overwrite: bool = False) -> Path:

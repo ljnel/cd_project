@@ -69,12 +69,9 @@ class TuckerDetector(AnomalyDetector):
         self.stride_ = max(1, self.window // 2)
         logger.info(f"Window: {self.window} (window_frac={self.window_frac})")
 
-        # Skip initial transient
-        X_trimmed = X[:, self.window:, :] if ep_len > self.window else X
-
         # Extract strided windows
         X_windows = strided_window_view(
-            X_trimmed, window=self.window, stride=self.stride_
+            X, window=self.window, stride=self.stride_
         ).reshape(-1, self.window, obs_dim)
 
         # Subsample if needed
@@ -106,12 +103,9 @@ class TuckerDetector(AnomalyDetector):
         n_cal_episodes = X.shape[0]
         obs_dim = X.shape[2]
 
-        # Skip initial transient (same as training)
-        X_trimmed = X[:, self.window:, :] if X.shape[1] > self.window else X
-
         # Extract strided windows (same stride as training)
         X_windows = strided_window_view(
-            X_trimmed, window=self.window, stride=self.stride_
+            X, window=self.window, stride=self.stride_
         ).reshape(-1, self.window, obs_dim)
 
         # Subsample to match training density

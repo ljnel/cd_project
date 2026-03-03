@@ -34,9 +34,7 @@ def sample_test_windows(x: np.ndarray, fail: np.ndarray, window: int, horizon: i
             max_start = steps - window
             if max_start < 0:
                 continue  # traj too short
-            min_start = min(window, max_start)  # skip initial transient
-
-            start = np.random.randint(min_start, max_start + 1)
+            start = np.random.randint(0, max_start + 1)
             f = -1
         else:
             end_min = fail[i] - horizon

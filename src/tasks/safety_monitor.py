@@ -8,16 +8,15 @@ Train data: Only successful trajectories (fail == -1)
 Test data: Windows sampled from all trajectories, labeled by whether failure occurs within horizon
 """
 
-from pathlib import Path
-
 import numpy as np
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from config.datasets import DATASETS
 from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
+from data.datasets import load_dataset, trim_transient
 from tasks.experiment import Experiment
-from utils.paths import get_root
 from utils.windows import sample_test_windows
 
 __all__ = [
@@ -35,14 +34,12 @@ class SafetyMonitor(Experiment):
     - Test: Windows from all trajectories, labeled by failure within horizon
     """
 
-    def __init__(self, cfg: SafetyMonitorConfig, data_path: Path = None):
+    def __init__(self, cfg: SafetyMonitorConfig):
         """
         Args:
             cfg: Task configuration
-            data_path: Path to data.npz. If None, uses get_root()/data/{cfg.name}/data.npz
         """
         self.cfg = cfg
-        self.data_path = data_path or (get_root() / 'data' / cfg.name / 'fail_pred' / 'data.npz')
         self.y_true = None
 
     def get_train_test(self) -> tuple[np.ndarray, np.ndarray]:
@@ -51,10 +48,10 @@ class SafetyMonitor(Experiment):
             x_train: (n_train_eps, ep_len, obs_dim) successful trajectories
             x_test: (n_test_windows, win, obs_dim) test windows
         """
-        # Load dataset
-        data = np.load(self.data_path)
-        X = data['X']           # (n_eps, n_steps, obs_dim)
-        fail = data['fail']     # (n_eps,) step of failure, -1 if no failure
+        # Load dataset and trim initial transient
+        ds_cfg = DATASETS[f"{self.cfg.name}/fail_pred"]
+        data = load_dataset(ds_cfg)
+        X, fail = trim_transient(data['X'], data['fail'], n_steps=self.cfg.win)
 
         n_eps = X.shape[0]
         success_mask = fail == -1
@@ -72,7 +69,6 @@ class SafetyMonitor(Experiment):
         # Train: only successes
         train_success_idx = train_idx[success_mask[train_idx]]
         x_train = X[train_success_idx]
-        fail[train_success_idx]
 
         # Test: all episodes (success + failure)
         x_test_full = X[test_idx]

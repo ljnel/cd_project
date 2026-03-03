@@ -25,16 +25,26 @@ warnings.filterwarnings("ignore")
 from config.datasets import DATASETS
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from utils.paths import get_root
+from data.datasets import load_dataset as _load_raw
+from data.datasets import trim_transient
 from utils.windows import sample_test_windows
 
 
-def load_dataset(key: str) -> tuple[np.ndarray, np.ndarray]:
-    """Load dataset by key, returning (X, fail)."""
+def load_dataset(key: str, trim: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Load dataset by key, returning (X, fail).
+
+    Parameters
+    ----------
+    key : str
+        Dataset key (e.g. ``"humanoid/fail_pred"``).
+    trim : int
+        Number of leading timesteps to discard (transient trimming).
+    """
     cfg = DATASETS[key]
-    data_path = get_root() / 'data' / cfg.env / cfg.name / 'data.npz'
-    data = np.load(data_path)
+    data = _load_raw(cfg)
     X, fail = data['X'], data['fail']
+    if trim > 0:
+        X, fail = trim_transient(X, fail, n_steps=trim)
     n_success = (fail == -1).sum()
     n_fail = (fail >= 0).sum()
     print(f"  {key}: {X.shape[0]} episodes, {n_success} successes, {n_fail} failures")
@@ -60,10 +70,10 @@ def run_cross_policy_eval(
     win, hor = cfg.win, cfg.hor
     train_key = f"{env}/fail_pred"
 
-    # Load data
+    # Load data (trim initial transient)
     print("Loading data...")
-    x_sac, fail_sac = load_dataset(train_key)
-    x_test_full, fail_test = load_dataset(test_key)
+    x_sac, fail_sac = load_dataset(train_key, trim=win)
+    x_test_full, fail_test = load_dataset(test_key, trim=win)
 
     # Build train set: successes only
     sac_success = x_sac[fail_sac == -1]
