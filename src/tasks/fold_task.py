@@ -124,10 +124,12 @@ def create_fold_tasks(
     """
     seed = seed if seed is not None else cfg.seed
 
-    # Load data and trim initial transient
+    # Load data (trim_transient disabled for A/B testing)
     ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
     data = load_dataset(ds_cfg)
-    X, fail, original_indices = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
+    X, fail = data['X'], data['fail']
+    original_indices = np.arange(len(X))
+    # X, fail, original_indices = trim_transient(data['X'], data['fail'], n_steps=cfg.win)
 
     # Stratified k-fold over episodes
     failure_mask = fail >= 0
