@@ -348,8 +348,8 @@ def generate_fail_pred_tables(results_dir: Path):
             window=stats.get('win'),
             horizon=stats.get('hor'),
             obs_dim=stats.get('obs_dim', 4),
-            train_size=stats.get('n_successes'),
-            test_size=stats.get('eps_per_fold'),
+            train_size=stats.get('n_train_successes', stats.get('n_successes')),
+            test_size=stats.get('n_test', stats.get('eps_per_fold')),
             failure_prop=(f"{stats['failure_prop']:.3f}"
                           if stats.get('failure_prop') else None),
         )
