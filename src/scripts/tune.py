@@ -23,7 +23,7 @@ from scipy.stats import iqr as compute_iqr
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
-from tasks.fold_task import create_fold_tasks
+from tasks.fold_task import prepare_tune_data
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.tune")
@@ -33,41 +33,36 @@ logger = logging.getLogger("cd.tune")
 SEARCH_SPACE = {
     "fft": {
         "n_periods": [1, 2, 3],
-        "gamma": ["median", 0.001, 0.005, 0.01],
     },
     "sig": {
         "window_frac": [0.01, 0.03, 0.05, 0.1],
-        "gamma": [0.001, 0.005, 0.01],
     },
     "scatter": {
-        "window_frac": [0.01, 0.02, 0.05, 0.1],
-        "gamma": ["median", 0.001, 0.005, 0.01],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
     },
     "minirocket": {
-        "window_frac": [0.03, 0.05, 0.07, 0.1],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
     },
     "basis": {
-        "n_basis": [5, 7, 12],
-        "window_frac": [0.05, 0.07, 0.1],
-        "ridge_lambda": [1e-6, 1e-3, 1e0, 1e1],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "ridge_lambda": [1e-2, 1e-1, 1e0, 1e1],
+        "n_basis": [5, 10, 20, 40],
     },
     "rec": {
-        "window_frac": [0.05, 0.1, 0.2],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
         "latent_dim_mult": [1.0, 3.0, 5.0],
-        "epochs": [5, 10],
     },
     "lat": {
-        "window_frac": [0.05, 0.1, 0.2],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
         "latent_dim_mult": [0.5, 1.0, 2.0],
-        "epochs": [5, 10],
     },
     "knn": {
         "k": [3, 5, 10, 20],
-        "window_frac": [0.01, 0.05, 0.1],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
     },
     "iforest": {
         "n_estimators": [50, 100, 200],
-        "window_frac": [0.01, 0.05, 0.1],
+        "window_frac": [0.01, 0.03, 0.05, 0.1],
     },
 }
 
@@ -79,11 +74,11 @@ def score_spread(scores: np.ndarray) -> float:
 
 
 def grid_search(method_key: str, space: dict,
-                x_tr: np.ndarray, x_te: np.ndarray, y_true: np.ndarray) -> dict:
+                x_tr: np.ndarray, x_te: np.ndarray) -> dict:
     """
     Grid search over space, returning the override dict for the best combo.
 
-    Objective: score_spread on normal test windows only.
+    Objective: score_spread on test windows (all successes from tune dataset).
     """
     if not space:
         print("    No tunable params, skipping")
@@ -107,14 +102,7 @@ def grid_search(method_key: str, space: dict,
             det.fit(x_tr)
             scores = det.score_samples(x_te)
 
-            # Use only normal test scores for objective
-            normal_mask = ~y_true
-            if normal_mask.sum() == 0:
-                print(f"    [{combo_str}] no normal samples, skipping")
-                continue
-
-            normal_scores = scores[normal_mask]
-            spread = score_spread(normal_scores)
+            spread = score_spread(scores)
 
             print(f"    [{combo_str}] spread={spread:.4f}")
 
@@ -156,14 +144,11 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0):
     print(f"Tuning: {env_name}")
     print(f"{'='*60}")
 
-    # 2-fold split, use fold 0 for tuning
-    tasks = create_fold_tasks(cfg, n_folds=2, seed=seed)
-    task = tasks[0]
-    x_tr, x_te = task.get_train_test(verbose=False)
-    y_true = task.y_true
+    # Load independent tune dataset (seed=0, successes only)
+    np.random.seed(seed)
+    x_tr, x_te = prepare_tune_data(cfg)
 
-    print(f"Train: {x_tr.shape}, Test: {x_te.shape}")
-    print(f"Normal test windows: {(~y_true).sum()}, Failure: {y_true.sum()}")
+    print(f"Train: {x_tr.shape}, Test: {x_te.shape} (successes only)")
 
     results = {}
 
@@ -175,7 +160,7 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0):
         print(f"\n  Method: {method_key}")
 
         space = SEARCH_SPACE.get(method_key, {})
-        best = grid_search(method_key, space, x_tr, x_te, y_true)
+        best = grid_search(method_key, space, x_tr, x_te)
 
         if best:
             results[method_key] = best
