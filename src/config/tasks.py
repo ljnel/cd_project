@@ -4,6 +4,10 @@ Task configuration dataclasses.
 
 from dataclasses import dataclass
 
+# Index boundary between train and test episodes in the eval dataset.
+# Train = successes from [:EVAL_SPLIT], Test = all from [EVAL_SPLIT:].
+EVAL_SPLIT = 1000
+
 
 @dataclass
 class SafetyMonitorConfig:

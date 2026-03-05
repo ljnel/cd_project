@@ -2,8 +2,8 @@
 """
 Failure Prediction Experiments
 
-Runs multiple anomaly detection methods with k-fold cross-validation and outputs
-results in LaTeX table format. Works with any environment that has a fail_pred dataset.
+Runs multiple anomaly detection methods with a deterministic train/test split
+and episode-level bootstrap confidence intervals.
 
 Usage:
     python fail_pred_results.py --env upkie
@@ -14,17 +14,17 @@ Usage:
 import argparse
 import gc
 import warnings
-from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import confusion_matrix, roc_curve
 
 warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
-from tasks.fold_task import FoldTask, create_fold_tasks, get_fold_statistics
+from tasks.fold_task import prepare_eval_data
+from utils.bootstrap import auroc_fn, bootstrap_metric, tpr_at_fpr_fn
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
 from utils.plotting import COL_WIDTH, setup_style
@@ -34,82 +34,66 @@ setup_style()
 
 def run_single_trial(
     method_key: str,
-    task: Union[FoldTask, "SafetyMonitor"],
+    x_train: np.ndarray,
+    x_test: np.ndarray,
+    y_true: np.ndarray,
     seed: int,
     env_name: str = None,
-) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
+) -> tuple[float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Run a single trial of anomaly detection.
 
-    Args:
-        method_key: Key from DETECTOR_CONFIGS (e.g., "fft", "sig", "rec", "lat")
-        task: FoldTask with train/test data
-        seed: Random seed for reproducibility
-        env_name: Environment name, used to load tuned hyperparameters
-
     Returns:
-        Tuple of (TNR%, TPR%, AUROC, TPR@5%FPR, fpr_curve, tpr_curve)
+        Tuple of (tnr, tpr, y_true, scores, fpr_curve, tpr_curve)
     """
     np.random.seed(seed)
-
-    # Get train/test data (resampled each trial)
-    x_tr, x_te = task.get_train_test()
 
     # Create detector from config
     model = get_detector(method_key, env=env_name)
 
     # Fit and predict
-    model.fit(x_tr)
-    scores = model.score_samples(x_te)
+    model.fit(x_train)
+    scores = model.score_samples(x_test)
     y_pred = np.where(scores > model.threshold_, 1, 0)
 
     # Compute confusion matrix (normalized by true labels)
-    cm = confusion_matrix(task.y_true, y_pred, normalize='true')
+    cm = confusion_matrix(y_true, y_pred, normalize='true')
 
-    # Handle case where we might not have all classes
     if cm.shape == (2, 2):
         tn, fp, fn, tp = cm.ravel()
     else:
-        # Edge case: only one class present
         tn, tp = 1.0, 1.0
-        if len(np.unique(task.y_true)) == 1:
-            if task.y_true[0] == 0:
+        if len(np.unique(y_true)) == 1:
+            if y_true[0] == 0:
                 tn = 1.0 - (cm[0, 1] if cm.shape[1] > 1 else 0)
             else:
                 tp = 1.0 - (cm[0, 0] if y_pred[0] == 0 else 0)
 
-    # Per-fold ROC metrics
-    fpr_curve, tpr_curve, _ = roc_curve(task.y_true, scores)
-    auroc = roc_auc_score(task.y_true, scores)
-    tpr_at_5 = float(np.interp(0.05, fpr_curve, tpr_curve))
+    fpr_curve, tpr_curve, _ = roc_curve(y_true, scores)
 
-    # Cleanup to prevent memory accumulation
     del model
     gc.collect()
 
-    return tn * 100, tp * 100, auroc, tpr_at_5, fpr_curve, tpr_curve
+    return tn * 100, tp * 100, y_true, scores, fpr_curve, tpr_curve
 
 
 def run_experiments(
     method_keys: list[str],
-    tasks: list[FoldTask],
+    x_train: np.ndarray,
+    x_test: np.ndarray,
+    y_true: np.ndarray,
+    episode_ids: np.ndarray,
     base_seed: int = 42,
+    n_bootstrap: int = 10_000,
     env_name: str = None,
 ) -> dict[str, dict[str, tuple[float, float]]]:
     """
-    Run experiments for all methods with k-fold cross-validation.
-
-    Args:
-        method_keys: List of method keys from DETECTOR_CONFIGS
-        tasks: List of FoldTask objects (one per fold)
-        base_seed: Base random seed for model training
+    Run experiments for all methods with bootstrap CIs.
 
     Returns:
-        Dict mapping display name to dict of metric -> (mean, std)
+        Dict mapping display name to dict of metric -> (point, se)
     """
     results = {}
-    n_folds = len(tasks)
-    # Common FPR grid for interpolating per-fold ROC curves
     mean_fpr = np.linspace(0, 1, 200)
 
     for method_key in method_keys:
@@ -118,49 +102,77 @@ def run_experiments(
         print(f"Running {display_name}...")
         print(f"{'='*60}")
 
-        fold_tnr_tpr = []
-        fold_aurocs = []
-        fold_tpr5 = []
-        fold_interp_tpr = []
+        try:
+            tnr, tpr, y_true_out, scores, fpr_curve, tpr_curve = run_single_trial(
+                method_key, x_train, x_test, y_true, base_seed, env_name=env_name
+            )
 
-        for fold, task in enumerate(tasks):
-            seed = base_seed + fold * 100
-            print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
+            auroc_point, auroc_se = bootstrap_metric(
+                y_true_out, scores, episode_ids, auroc_fn,
+                n_resamples=n_bootstrap,
+            )
+            tpr5_point, tpr5_se = bootstrap_metric(
+                y_true_out, scores, episode_ids, tpr_at_fpr_fn,
+                n_resamples=n_bootstrap,
+            )
 
-            try:
-                tnr, tpr, auroc, tpr_at_5, fpr_curve, tpr_curve = run_single_trial(
-                    method_key, task, seed, env_name=env_name
-                )
-                fold_tnr_tpr.append((tnr, tpr))
-                fold_aurocs.append(auroc)
-                fold_tpr5.append(tpr_at_5)
-                fold_interp_tpr.append(np.interp(mean_fpr, fpr_curve, tpr_curve))
-                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%, AUROC={auroc:.3f}")
+            # Bootstrap TNR and TPR via confusion matrix metrics
+            def tnr_fn(y, s):
+                yp = np.where(s > 0, 1, 0)  # threshold at 0 (already centered)
+                cm = confusion_matrix(y, yp, normalize='true')
+                return cm[0, 0] * 100 if cm.shape == (2, 2) else 100.0
 
-            except Exception as e:
-                print(f"FAILED: {e}")
-                continue
+            def tpr_fn(y, s):
+                yp = np.where(s > 0, 1, 0)
+                cm = confusion_matrix(y, yp, normalize='true')
+                return cm[1, 1] * 100 if cm.shape == (2, 2) else 100.0
 
-        if fold_tnr_tpr:
-            fold_tnr_tpr = np.array(fold_tnr_tpr)
-            fold_aurocs = np.array(fold_aurocs)
-            fold_tpr5 = np.array(fold_tpr5)
-            fold_interp_tpr = np.array(fold_interp_tpr)
-            n = len(fold_aurocs)
-            sqrt_n = np.sqrt(n)
+            tnr_point, tnr_se = bootstrap_metric(
+                y_true_out, scores, episode_ids, tnr_fn,
+                n_resamples=n_bootstrap,
+            )
+            tpr_point, tpr_se = bootstrap_metric(
+                y_true_out, scores, episode_ids, tpr_fn,
+                n_resamples=n_bootstrap,
+            )
 
-            print(f"  Mean: AUROC={fold_aurocs.mean():.3f}+-{fold_aurocs.std() / sqrt_n:.3f}, "
-                  f"TPR@5%FPR={fold_tpr5.mean():.3f}+-{fold_tpr5.std() / sqrt_n:.3f}")
+            # ROC curve with bootstrap SE band
+            interp_tpr = np.interp(mean_fpr, fpr_curve, tpr_curve)
+
+            print(f"  TNR={tnr_point:.1f}%+-{tnr_se:.1f}%, TPR={tpr_point:.1f}%+-{tpr_se:.1f}%")
+            print(f"  AUROC={auroc_point:.3f}+-{auroc_se:.3f}, "
+                  f"TPR@5%FPR={tpr5_point:.3f}+-{tpr5_se:.3f}")
+
+            # Bootstrap SE band for ROC
+            from collections import defaultdict
+            ep_to_idx: dict[int, list[int]] = defaultdict(list)
+            for i, ep in enumerate(episode_ids):
+                ep_to_idx[int(ep)].append(i)
+            unique_eps = np.array(list(ep_to_idx.keys()))
+            n_eps = len(unique_eps)
+            rng = np.random.default_rng(42)
+            boot_tprs = []
+            for _ in range(min(n_bootstrap, 1000)):  # cap for ROC band
+                sampled = rng.choice(unique_eps, size=n_eps, replace=True)
+                idx = np.concatenate([ep_to_idx[ep] for ep in sampled])
+                try:
+                    fpr_b, tpr_b, _ = roc_curve(y_true_out[idx], scores[idx])
+                    boot_tprs.append(np.interp(mean_fpr, fpr_b, tpr_b))
+                except ValueError:
+                    continue
+            roc_se = np.std(boot_tprs, axis=0) if boot_tprs else np.zeros_like(mean_fpr)
 
             results[display_name] = {
-                'TNR': (fold_tnr_tpr[:, 0].mean(), fold_tnr_tpr[:, 0].std() / sqrt_n),
-                'TPR': (fold_tnr_tpr[:, 1].mean(), fold_tnr_tpr[:, 1].std() / sqrt_n),
-                'TPR@5%FPR': (fold_tpr5.mean(), fold_tpr5.std() / sqrt_n),
-                'AUROC': (fold_aurocs.mean(), fold_aurocs.std() / sqrt_n),
-                'roc': (mean_fpr, fold_interp_tpr.mean(axis=0), fold_interp_tpr.std(axis=0) / sqrt_n),
+                'TNR': (tnr_point, tnr_se),
+                'TPR': (tpr_point, tpr_se),
+                'TPR@5%FPR': (tpr5_point, tpr5_se),
+                'AUROC': (auroc_point, auroc_se),
+                'roc': (mean_fpr, interp_tpr, roc_se),
             }
-        else:
-            print(f"  WARNING: No successful folds for {display_name}")
+
+        except Exception as e:
+            print(f"  FAILED: {e}")
+            raise
 
     return results
 
@@ -249,25 +261,40 @@ def print_metric_summary(all_results: dict[str, dict], metric_key: str):
     print("-" * sep_len)
 
 
-def get_data_statistics(cfg: SafetyMonitorConfig, n_folds: int = 5) -> dict:
+def get_data_statistics(cfg: SafetyMonitorConfig) -> dict:
     """Extract data statistics from the config for table generation."""
-    stats = get_fold_statistics(cfg, n_folds)
+    from config.datasets import DATASETS
+    from config.tasks import EVAL_SPLIT
+    from data.datasets import load_dataset
+
+    ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
+    data = load_dataset(ds_cfg)
+    X, fail = data['X'], data['fail']
+
+    # Train portion
+    train_fail = fail[:EVAL_SPLIT]
+    n_train_successes = int((train_fail == -1).sum())
+
+    # Test portion
+    test_fail = fail[EVAL_SPLIT:]
+    n_test = len(test_fail)
+    n_test_failures = int((test_fail >= 0).sum())
 
     return {
-        'n_episodes': stats['n_episodes'],
-        'n_successes': stats['n_successes'],
-        'n_failures': stats['n_failures'],
-        'obs_dim': stats['obs_dim'],
-        'ep_len': stats['ep_len'],
-        'win': stats['win'],
-        'hor': stats['hor'],
-        'n_folds': stats['n_folds'],
-        'eps_per_fold': stats['eps_per_fold'],
-        'failure_prop': stats['n_failures'] / stats['n_episodes'],
+        'n_episodes': len(X),
+        'n_train_successes': n_train_successes,
+        'n_test': n_test,
+        'n_test_failures': n_test_failures,
+        'obs_dim': X.shape[-1],
+        'ep_len': X.shape[1],
+        'win': cfg.win,
+        'hor': cfg.hor,
+        'failure_prop': n_test_failures / n_test if n_test > 0 else 0,
     }
 
 
-def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: int = 42):
+def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
+            base_seed: int = 42):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -282,15 +309,21 @@ def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: 
 
     # Get data statistics
     print("Loading data and computing statistics...")
-    stats = get_data_statistics(cfg, n_folds=n_folds)
+    stats = get_data_statistics(cfg)
     print(f"Data stats: {stats}")
 
-    # Create fold tasks
-    print(f"\nCreating {n_folds}-fold cross-validation tasks...")
-    tasks = create_fold_tasks(cfg, n_folds=n_folds, seed=base_seed)
+    # Prepare eval data (single train/test split)
+    print("\nPreparing evaluation data (train/test split)...")
+    np.random.seed(base_seed)
+    x_train, x_test, y_true, episode_ids = prepare_eval_data(cfg)
+    assert len(episode_ids) == len(x_test), (
+        f"episode_ids length {len(episode_ids)} != x_test length {len(x_test)}")
 
     # Run experiments
-    results = run_experiments(method_keys, tasks=tasks, base_seed=base_seed, env_name=env_name)
+    results = run_experiments(
+        method_keys, x_train, x_test, y_true, episode_ids,
+        base_seed=base_seed, n_bootstrap=n_bootstrap, env_name=env_name,
+    )
 
     # Print summary
     print_summary(results, env_name)
@@ -311,7 +344,7 @@ def run_env(env_name: str, method_keys: list[str], n_folds: int = 5, base_seed: 
         results={k: dict(v) for k, v in results.items()},
         stats=stats,
         methods=method_keys,
-        n_folds=n_folds
+        n_bootstrap=n_bootstrap
     )
     print(f"Raw results saved to: {npz_file}")
 
@@ -324,7 +357,8 @@ if __name__ == "__main__":
                         help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}")
     parser.add_argument('--methods', type=str, default=None,
                         help=f"Comma-separated method keys. Available: {list(DETECTOR_CONFIGS.keys())}. Default: {DEFAULT_METHODS}")
-    parser.add_argument('--n-folds', type=int, default=5, help='Number of CV folds')
+    parser.add_argument('--n-bootstrap', type=int, default=10_000,
+                        help='Number of bootstrap resamples for CIs')
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable info-level logging')
     args = parser.parse_args()
@@ -337,7 +371,6 @@ if __name__ == "__main__":
     # Parse methods
     if args.methods:
         method_keys = [m.strip() for m in args.methods.split(',')]
-        # Validate
         for m in method_keys:
             if m not in DETECTOR_CONFIGS:
                 raise ValueError(f"Unknown method: {m}. Available: {list(DETECTOR_CONFIGS.keys())}")
@@ -345,16 +378,15 @@ if __name__ == "__main__":
         method_keys = DEFAULT_METHODS
 
     # Determine which environments to run
-    if args.env == 'all':
-        envs = list(TASK_CONFIGS.keys())
-    else:
-        envs = [args.env]
+    envs = list(TASK_CONFIGS.keys()) if args.env == 'all' else [args.env]
 
     # Run experiments
     all_results = {}
     for env_name in envs:
         try:
-            results, stats = run_env(env_name, method_keys, n_folds=args.n_folds, base_seed=args.seed)
+            results, stats = run_env(
+                env_name, method_keys, n_bootstrap=args.n_bootstrap, base_seed=args.seed
+            )
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")

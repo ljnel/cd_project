@@ -78,6 +78,17 @@ DATASETS = {
         friction_range=(0.4, 5.4),
         damping_range=(0.4, 10.4),
     ),
+    'inv_pend/tune': DatasetConfig(
+        name='tune',
+        env='inv_pend',
+        platform='mujoco',
+        policy='invertedpendulum-v5-sac-expert.zip',
+        mass_range=(0.4, 10.4),
+        friction_range=(0.4, 5.4),
+        damping_range=(0.4, 10.4),
+        n_episodes=1000,
+        seed=0,
+    ),
 
     # --- Hopper ---
     'hopper/fail_pred': DatasetConfig(
@@ -88,6 +99,17 @@ DATASETS = {
         mass_range=(1.0, 1.0),
         friction_range=(1.0, 1.0),
         damping_range=(1.0, 1.0),
+    ),
+    'hopper/tune': DatasetConfig(
+        name='tune',
+        env='hopper',
+        platform='mujoco',
+        policy='hopper-v5-sac-expert.zip',
+        mass_range=(1.0, 1.0),
+        friction_range=(1.0, 1.0),
+        damping_range=(1.0, 1.0),
+        n_episodes=1000,
+        seed=0,
     ),
 
     # --- HalfCheetah ---
@@ -100,6 +122,17 @@ DATASETS = {
         friction_range=(0.4, 2.2),
         damping_range=(0.4, 2.8),
     ),
+    'half_cheetah/tune': DatasetConfig(
+        name='tune',
+        env='half_cheetah',
+        platform='mujoco',
+        policy='halfcheetah-v5-sac-expert.zip',
+        mass_range=(0.4, 2.2),
+        friction_range=(0.4, 2.2),
+        damping_range=(0.4, 2.8),
+        n_episodes=1000,
+        seed=0,
+    ),
 
     # --- Ant ---
     'ant/fail_pred': DatasetConfig(
@@ -111,6 +144,17 @@ DATASETS = {
         friction_range=(0.8, 1.6),
         damping_range=(0.8, 2.0),
     ),
+    'ant/tune': DatasetConfig(
+        name='tune',
+        env='ant',
+        platform='mujoco',
+        policy='ant-v5-sac-expert.zip',
+        mass_range=(0.8, 2.0),
+        friction_range=(0.8, 1.6),
+        damping_range=(0.8, 2.0),
+        n_episodes=1000,
+        seed=0,
+    ),
 
     # --- Humanoid ---
     'humanoid/fail_pred': DatasetConfig(
@@ -121,6 +165,17 @@ DATASETS = {
         mass_range=(0.997, 1.003),
         friction_range=(1.0, 1.0),
         damping_range=(1.0, 1.0),
+    ),
+    'humanoid/tune': DatasetConfig(
+        name='tune',
+        env='humanoid',
+        platform='mujoco',
+        policy='humanoid-v5-sac-expert.zip',
+        mass_range=(0.997, 1.003),
+        friction_range=(1.0, 1.0),
+        damping_range=(1.0, 1.0),
+        n_episodes=1000,
+        seed=0,
     ),
 
     'humanoid/tqc_fail_pred': DatasetConfig(
@@ -148,6 +203,21 @@ DATASETS = {
         damping_range=(0.6, 2.0),
         disturbance_type='ImpulseForce',
         disturbance_kwargs={'force_magnitude': 15.0},
+    ),
+    'upkie/tune': DatasetConfig(
+        name='tune',
+        env='upkie',
+        platform='upkie',
+        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
+        balancer='ppo',
+        frequency=200.0,
+        mass_range=(0.6, 3.0),
+        friction_range=(0.6, 2.0),
+        damping_range=(0.6, 2.0),
+        disturbance_type='ImpulseForce',
+        disturbance_kwargs={'force_magnitude': 15.0},
+        n_episodes=1000,
+        seed=0,
     ),
 
     'upkie/nominal': DatasetConfig(
