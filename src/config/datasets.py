@@ -28,7 +28,7 @@ class DatasetConfig:
     damping_range: tuple[float, float] = (1.0, 1.0)
 
     # Generation parameters
-    n_episodes: int = 1000
+    n_episodes: int = 2000
     ep_len: int = 1000
     seed: int = 42
 
