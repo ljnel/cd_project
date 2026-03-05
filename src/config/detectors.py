@@ -14,15 +14,17 @@ DETECTOR_CONFIGS = {
         max_windows=1000,
         display_name='FFT-KIC',
         n_periods=1,
-        reg=1e-6,
+        reg=1e-5,
+        gamma='median',
     ),
     "sig": dict(
         cls='KernDetector',
         kernel_type='sig',
         window_frac=0.1,
-        max_windows=500,
+        max_windows=250,
         display_name='Sig-KIC',
-        reg=1e-6,
+        reg=1e-5,
+        gamma='median',
         target_steps=30,
     ),
     "scatter": dict(
@@ -31,7 +33,8 @@ DETECTOR_CONFIGS = {
         window_frac=0.02,
         max_windows=1000,
         display_name='Scatter-KIC',
-        reg=1e-6,
+        reg=1e-5,
+        gamma='median',
     ),
     "minirocket": dict(
         cls='KernDetector',
@@ -39,7 +42,8 @@ DETECTOR_CONFIGS = {
         window_frac=0.07,
         max_windows=1000,
         display_name='MiniRocket-KIC',
-        reg=1e-6,
+        reg=1e-5,
+        gamma='median',
     ),
     "rec": dict(
         cls='ConvAEDetector',
@@ -62,53 +66,14 @@ DETECTOR_CONFIGS = {
     ),
     "basis": dict(
         cls='BasisDetector',
-        n_basis=5,
+        n_basis=10,
         window_frac=0.1,
         max_windows=1000,
-        reg=1e-6,
+        reg=1e-5,
+        gamma='median',
         display_name='SideKIC',
         ridge_lambda=1e1,
-        basis_type='bspline',
-    ),
-    "basis_gauss": dict(
-        cls='BasisDetector',
-        n_basis=10,
-        window_frac=1.0,
-        max_windows=1000,
-        reg=1e-6,
-        display_name='Gauss-KIC',
-        ridge_lambda=1e-6,
         basis_type='gaussian',
-    ),
-    "basis_vm": dict(
-        cls='BasisDetector',
-        n_basis=10,
-        window_frac=1.0,
-        max_windows=1000,
-        reg=1e-6,
-        display_name='VonMises-KIC',
-        ridge_lambda=1e-6,
-        basis_type='vonmises',
-    ),
-    "basis_fourier": dict(
-        cls='BasisDetector',
-        n_basis=10,
-        window_frac=1.0,
-        max_windows=1000,
-        reg=1e-6,
-        display_name='Fourier-KIC',
-        ridge_lambda=1e-6,
-        basis_type='fourier',
-    ),
-    "basis_sine": dict(
-        cls='BasisDetector',
-        n_basis=10,
-        window_frac=1.0,
-        max_windows=1000,
-        reg=1e-6,
-        display_name='Sine-KIC',
-        ridge_lambda=1e-6,
-        basis_type='sine',
     ),
     "tucker": dict(
         cls='TuckerDetector',
@@ -117,7 +82,7 @@ DETECTOR_CONFIGS = {
         alpha=1e-3,
         window_frac=0.1,
         max_windows=1000,
-        reg=1e-6,
+        reg=1e-5,
         display_name='Tucker-KIC',
     ),
     "knn": dict(
@@ -136,16 +101,21 @@ DETECTOR_CONFIGS = {
     ),
 }
 
-DEFAULT_METHODS = ["fft",
-                    "sig",
-                    #"minirocket",
-                    "rec",
-                    "lat",
-                    "basis",
-                    #"tucker",
-                    "knn",
-                    "iforest",
-                ]
+DEFAULT_METHODS = [
+    # Baselines
+    "rec",
+    "knn",
+    "iforest",
+    # KIC variants
+    "fft",
+    "sig",
+    "lat",
+    # Proposed
+    "basis",
+]
+
+# Indices where a \midrule should be inserted (before that row)
+METHOD_GROUP_BREAKS = {6}  # before SideKIC
 
 # Registry mapping cls string to class. Imports are deferred to avoid
 # circular dependencies (detectors may import from config).
@@ -197,7 +167,8 @@ def get_detector(method_key: str, env: str = None, **overrides):
         from utils.paths import get_root
         tuned_path = get_root() / "results" / "tuned" / f"{env}.json"
         if tuned_path.exists():
-            method_overrides = json.load(open(tuned_path)).get(method_key, {})
+            with open(tuned_path) as f:
+                method_overrides = json.load(f).get(method_key, {})
             if method_overrides:
                 config.update(method_overrides)
                 logger.info(f"Loaded tuned config for {method_key}/{env}: "

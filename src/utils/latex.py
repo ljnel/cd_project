@@ -5,7 +5,7 @@ import numpy as np
 from scipy.stats import rankdata
 
 from config.datasets import DATASETS
-from config.detectors import DEFAULT_METHODS, get_method_display_name
+from config.detectors import DEFAULT_METHODS, METHOD_GROUP_BREAKS, get_method_display_name
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_dataset
@@ -64,48 +64,60 @@ def format_latex_table(
     display_name = get_env_display_name(env_name)
 
     # Build stats table header
-    stats_table = f"""
-\\begin{{table}}[h!]
-\\centering
-\\begin{{tabular}}{{|l|c|c|c|c|c|c|}}
-\\hline
-Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures in test \\\\ \\hline
-{display_name} & {window or '?'} & {horizon or '?'} & {obs_dim} & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\ \\hline
-\\end{{tabular}}
-\\caption{{Training and testing data statistics for {display_name}.}}
-\\label{{tab:{env_name.lower()}_stats}}
-\\end{{table}}
-"""
+    stats_table = (
+        f"\\begin{{table}}[htbp]\n"
+        f"\\centering\n"
+        f"\\caption{{Training and testing data statistics for {display_name}.}}\n"
+        f"\\label{{tab:{env_name.lower()}_stats}}\n"
+        f"\\begin{{tabular}}{{@{{}}lcccccc@{{}}}}\n"
+        f"\\toprule\n"
+        f"\\textbf{{Environment}} & \\textbf{{W}} & \\textbf{{H}} & \\textbf{{Obs dim}}"
+        f" & \\textbf{{Train size}} & \\textbf{{Test size}}"
+        f" & \\textbf{{Failure prop.}} \\\\\n"
+        f"\\midrule\n"
+        f"{display_name} & {window or '?'} & {horizon or '?'} & {obs_dim}"
+        f" & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\\n"
+        f"\\bottomrule\n"
+        f"\\end{{tabular}}\n"
+        f"\\end{{table}}\n"
+    )
 
     # Build results table
-    results_table = f"""
-\\begin{{table}}[h!]
-\\centering
-\\begin{{tabular}}{{|l|cccc|}}
-\\hline
-\\multirow{{2}}{{*}}{{Method}}
-  & \\multicolumn{{4}}{{c|}}{{{display_name}}} \\\\ \\cline{{2-5}}
- & TNR (\\%) & TPR (\\%) & TPR@5\\%FPR & AUROC \\\\ \\hline
-"""
+    results_table = (
+        f"\\begin{{table}}[htbp]\n"
+        f"\\centering\n"
+        f"\\caption{{Results for the {display_name} environment.}}\n"
+        f"\\label{{tab:{env_name.lower()}}}\n"
+        f"\\begin{{tabular}}{{@{{}}lcccc@{{}}}}\n"
+        f"\\toprule\n"
+        f"\\textbf{{Method}} & \\textbf{{TNR (\\%)}}"
+        f" & \\textbf{{TPR (\\%)}}"
+        f" & \\textbf{{TPR@5\\%FPR}}"
+        f" & \\textbf{{AUROC}} \\\\\n"
+        f"\\midrule\n"
+    )
 
-    for method_name, metrics in results.items():
+    for i, (method_name, metrics) in enumerate(results.items()):
+        if i in METHOD_GROUP_BREAKS:
+            results_table += "\\midrule\n"
         tnr_mean, tnr_std = metrics['TNR']
         tpr_mean, tpr_std = metrics['TPR']
         tpr5_mean, tpr5_std = metrics['TPR@5%FPR']
         auroc_mean, auroc_std = metrics['AUROC']
 
-        results_table += f"""
-{method_name}
- & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f} & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f} & {tpr5_mean:.3f} $\\pm$ {tpr5_std:.3f} & {auroc_mean:.3f} $\\pm$ {auroc_std:.3f}\\\\
-"""
+        results_table += (
+            f"{method_name}"
+            f" & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f}"
+            f" & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f}"
+            f" & {tpr5_mean:.3f} $\\pm$ {tpr5_std:.3f}"
+            f" & {auroc_mean:.3f} $\\pm$ {auroc_std:.3f} \\\\\n"
+        )
 
-    results_table += """
-\\hline
-\\end{tabular}
-\\caption{Results for the """ + display_name + """ environment.}
-\\label{tab:""" + env_name.lower() + """}
-\\end{table}
-"""
+    results_table += (
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+        "\\end{table}\n"
+    )
 
     return stats_table + "\n" + results_table
 
@@ -139,24 +151,29 @@ def format_metric_latex_table(
         best_method_per_env[env] = best_method
 
     # Build table header
-    col_spec = "|l|" + "c" * len(envs) + "|c|"
+    col_spec = "@{}l" + "c" * len(envs) + "c@{}"
     env_display_names = [get_env_display_name(env) for env in envs]
-    header_row = " & ".join(env_display_names)
+    header_row = " & ".join(f"\\textbf{{{n}}}" for n in env_display_names)
 
-    latex = f"""
-\\begin{{table*}}[h!]
-\\centering
-\\begin{{tabular}}{{{col_spec}}}
-\\hline
-Method & {header_row} & Avg. Rank \\\\ \\hline
-"""
+    latex = (
+        f"\\begin{{table*}}[htbp]\n"
+        f"\\centering\n"
+        f"\\caption{{{caption}}}\n"
+        f"\\label{{tab:{label}}}\n"
+        f"\\begin{{tabular}}{{{col_spec}}}\n"
+        f"\\toprule\n"
+        f"\\textbf{{Method}} & {header_row} & \\textbf{{Avg. Rank}} \\\\\n"
+        f"\\midrule\n"
+    )
 
     # Compute average ranks across environments
     avg_ranks = compute_avg_ranks(all_results, metric_key, methods, envs)
     best_rank_method = min(avg_ranks, key=avg_ranks.get)
 
     # Add rows for each method
-    for method in methods:
+    for i, method in enumerate(methods):
+        if i in METHOD_GROUP_BREAKS:
+            latex += "\\midrule\n"
         cells = [method]
         for env in envs:
             raw = all_results[env]['results'][method][metric_key]
@@ -174,12 +191,11 @@ Method & {header_row} & Avg. Rank \\\\ \\hline
         cells.append(rank_val)
         latex += " & ".join(cells) + " \\\\\n"
 
-    latex += f"""\\hline
-\\end{{tabular}}
-\\caption{{{caption}}}
-\\label{{tab:{label}}}
-\\end{{table*}}
-"""
+    latex += (
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+        "\\end{table*}\n"
+    )
     return latex
 
 
@@ -190,21 +206,29 @@ def format_panda_table(
     anomaly_prop: float | None = None,
 ) -> str:
     """Format panda trajectory-level results as a LaTeX table."""
-    latex = "\\begin{table}[h!]\n\\centering\n"
-    latex += "\\begin{tabular}{|l|cccc|}\n\\hline\n"
-    latex += "Method & TNR (\\%) & TPR (\\%) & TPR@5\\%FPR & AUROC \\\\ \\hline\n"
+    caption = "Trajectory-level anomaly detection on the Panda dataset."
+    if n_train is not None and n_test is not None and anomaly_prop is not None:
+        caption += (f" Train: {n_train} expert trajectories, "
+                    f"Test: {n_test} trajectories "
+                    f"(anomaly proportion: {anomaly_prop:.3f}).")
+
+    latex = (
+        "\\begin{table}[htbp]\n"
+        "\\centering\n"
+        f"\\caption{{{caption}}}\n"
+        "\\label{tab:panda_results}\n"
+        "\\begin{tabular}{@{}lcccc@{}}\n"
+        "\\toprule\n"
+        "\\textbf{Method} & \\textbf{TNR (\\%)} & \\textbf{TPR (\\%)}"
+        " & \\textbf{TPR@5\\%FPR} & \\textbf{AUROC} \\\\\n"
+        "\\midrule\n"
+    )
 
     for name, m in results.items():
         latex += (f"{name} & {m['TNR']:.2f} & {m['TPR']:.2f} "
                   f"& {m['TPR@5%FPR']:.3f} & {m['AUROC']:.3f} \\\\\n")
 
-    latex += "\\hline\n\\end{tabular}\n"
-    latex += "\\caption{Trajectory-level anomaly detection on the Panda dataset."
-    if n_train is not None and n_test is not None and anomaly_prop is not None:
-        latex += (f" Train: {n_train} expert trajectories, "
-                  f"Test: {n_test} trajectories "
-                  f"(anomaly proportion: {anomaly_prop:.3f}).")
-    latex += "}\n\\label{tab:panda_results}\n\\end{table}\n"
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     return latex
 
 
@@ -215,9 +239,18 @@ def format_compute_cost_table(
     """Format computational cost results as a LaTeX table."""
     display_name = get_env_display_name(env_name)
 
-    latex = "\n\\begin{table}[h!]\n\\centering\n"
-    latex += "\\begin{tabular}{|l|c|c|c|}\n\\hline\n"
-    latex += "Method & Train (s) & Predict Total (ms) & Predict/Sample (ms) \\\\ \\hline\n"
+    latex = (
+        "\\begin{table}[htbp]\n"
+        "\\centering\n"
+        f"\\caption{{Computational cost on {display_name.lower()}.}}\n"
+        f"\\label{{tab:{env_name}_compute}}\n"
+        "\\begin{tabular}{@{}lccc@{}}\n"
+        "\\toprule\n"
+        "\\textbf{Method} & \\textbf{Train (s)}"
+        " & \\textbf{Predict Total (ms)}"
+        " & \\textbf{Predict/Sample (ms)} \\\\\n"
+        "\\midrule\n"
+    )
 
     for method, m in results.items():
         train = f"{m['train_time_mean']:.2f} $\\pm$ {m['train_time_std']:.2f}"
@@ -226,10 +259,7 @@ def format_compute_cost_table(
                       f"{m['predict_per_sample_std']:.3f}")
         latex += f"{method} & {train} & {pred} & {per_sample} \\\\\n"
 
-    latex += "\\hline\n\\end{tabular}\n"
-    latex += f"\\caption{{Computational cost on {display_name.lower()}.}}\n"
-    latex += f"\\label{{tab:{env_name}_compute}}\n"
-    latex += "\\end{table}\n"
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     return latex
 
 
@@ -257,10 +287,20 @@ def format_env_summary_table(
     n_envs = len(env_keys)
     assert len(rows) == n_envs
 
-    latex = "\\begin{table*}[h!]\n\\centering\n"
-    latex += "\\begin{tabular}{|l|c|c|c|c|c|c|c|}\n\\hline\n"
-    latex += ("Environment & $W$ & $H$ & Obs dim & Mass & Friction "
-              "& Damping & Failure prop. \\\\ \\hline\n")
+    latex = (
+        "\\begin{table*}[htbp]\n"
+        "\\centering\n"
+        "\\caption{Setup summary for each environment, showing window length,\n"
+        "horizon length, observation space dimension, ranges for domain\n"
+        "randomization, and the proportion of failed episodes in the dataset.}\n"
+        "\\label{tab:env_summary}\n"
+        "\\begin{tabular}{@{}lccccccc@{}}\n"
+        "\\toprule\n"
+        "\\textbf{Environment} & \\textbf{$W$} & \\textbf{$H$}"
+        " & \\textbf{Obs dim} & \\textbf{Mass} & \\textbf{Friction}"
+        " & \\textbf{Damping} & \\textbf{Failure prop.} \\\\\n"
+        "\\midrule\n"
+    )
 
     for row in rows:
         fp = f"{row['failure_prop']:.3f}" if row['failure_prop'] is not None else "---"
@@ -272,10 +312,7 @@ def format_env_summary_table(
             f"& {fp} \\\\\n"
         )
 
-    latex += "\\hline\n\\end{tabular}\n"
-    latex += "\\caption{Summary of environments and datasets.}\n"
-    latex += "\\label{tab:env_summary}\n"
-    latex += "\\end{table*}\n"
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
     return latex
 
 
@@ -339,8 +376,16 @@ def generate_fail_pred_tables(results_dir: Path):
     for npz_file in npz_files:
         env_name = npz_file.stem.replace("_experiment_results", "")
         data = np.load(npz_file, allow_pickle=True)
-        results = data['results'].item()
+        results_raw = data['results'].item()
         stats = data['stats'].item()
+
+        # Reorder results to match DEFAULT_METHODS ordering
+        default_display = [get_method_display_name(k) for k in DEFAULT_METHODS]
+        results = {m: results_raw[m] for m in default_display if m in results_raw}
+        # Append any methods not in DEFAULT_METHODS at the end
+        for m in results_raw:
+            if m not in results:
+                results[m] = results_raw[m]
 
         # Per-env table
         tex = format_latex_table(
