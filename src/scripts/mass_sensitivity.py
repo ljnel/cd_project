@@ -338,14 +338,14 @@ def plot_mass_sensitivity(
                         marker=marker, capsize=3, capthick=1, markersize=4)
 
     # Shaded band showing "normal" mass range [1-TOL, 1+TOL]
-    ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2, label=f'Training range (1\u00b1{TOL})')
+    ax.axvspan(1.0 - TOL, 1.0 + TOL, color='gray', alpha=0.2)
 
     # Formatting
     ax.set_xlabel('Mass Scale')
     ax.set_ylabel('Score Percentile')
     ax.set_xlim([bin_centers.min() - BIN_WIDTH/2, bin_centers.max() + BIN_WIDTH/2])
     ax.set_ylim([0, 105])
-    ax.legend(loc='lower right')
+    ax.legend(loc='lower left', fontsize=8)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
