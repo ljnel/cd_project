@@ -32,8 +32,12 @@ def compute_avg_ranks(
     Rank 1 = best. Ties get the average of tied ranks.
     """
     # (n_envs, n_methods) matrix of metric values
+    # Handle both scalar and (mean, std) tuple formats
+    def _extract_mean(val):
+        return val[0] if isinstance(val, tuple) else val
+
     scores = np.array([
-        [all_results[env]['results'][method][metric_key] for method in methods]
+        [_extract_mean(all_results[env]['results'][method][metric_key]) for method in methods]
         for env in envs
     ])
     # Rank per env (higher metric = rank 1), then average across envs
@@ -87,12 +91,12 @@ Environment & W & H & Obs dim & Size of train & Size of test & Prop. of failures
     for method_name, metrics in results.items():
         tnr_mean, tnr_std = metrics['TNR']
         tpr_mean, tpr_std = metrics['TPR']
-        tpr5 = metrics['TPR@5%FPR']
-        auroc = metrics['AUROC']
+        tpr5_mean, tpr5_std = metrics['TPR@5%FPR']
+        auroc_mean, auroc_std = metrics['AUROC']
 
         results_table += f"""
 {method_name}
- & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f} & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f} & {tpr5:.3f} & {auroc:.3f}\\\\
+ & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f} & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f} & {tpr5_mean:.3f} $\\pm$ {tpr5_std:.3f} & {auroc_mean:.3f} $\\pm$ {auroc_std:.3f}\\\\
 """
 
     results_table += """
@@ -119,13 +123,16 @@ def format_metric_latex_table(
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values()))['results'].keys())
 
-    # Find best method for each environment
+    def _extract_mean(val):
+        return val[0] if isinstance(val, tuple) else val
+
+    # Find best method for each environment (by mean)
     best_method_per_env = {}
     for env in envs:
         best_val = -1
         best_method = None
         for method in methods:
-            val = all_results[env]['results'][method][metric_key]
+            val = _extract_mean(all_results[env]['results'][method][metric_key])
             if val > best_val:
                 best_val = val
                 best_method = method
@@ -152,8 +159,12 @@ Method & {header_row} & Avg. Rank \\\\ \\hline
     for method in methods:
         cells = [method]
         for env in envs:
-            val = all_results[env]['results'][method][metric_key]
-            cell = f"{val:.3f}"
+            raw = all_results[env]['results'][method][metric_key]
+            if isinstance(raw, tuple):
+                mean, std = raw
+                cell = f"{mean:.3f} $\\pm$ {std:.3f}"
+            else:
+                cell = f"{raw:.3f}"
             if method == best_method_per_env[env]:
                 cell = f"\\textbf{{{cell}}}"
             cells.append(cell)
@@ -247,15 +258,14 @@ def format_env_summary_table(
     assert len(rows) == n_envs
 
     latex = "\\begin{table*}[h!]\n\\centering\n"
-    latex += "\\begin{tabular}{|l|c|c|c|c|c|c|c|c|}\n\\hline\n"
-    latex += ("Environment & $W$ & $H$ & Obs dim & Ctrl freq. (Hz) & Mass & Friction "
+    latex += "\\begin{tabular}{|l|c|c|c|c|c|c|c|}\n\\hline\n"
+    latex += ("Environment & $W$ & $H$ & Obs dim & Mass & Friction "
               "& Damping & Failure prop. \\\\ \\hline\n")
 
     for row in rows:
         fp = f"{row['failure_prop']:.3f}" if row['failure_prop'] is not None else "---"
         latex += (
             f"{row['display_name']} & {row['W']} & {row['H']} & {row['obs_dim']} "
-            f"& {row['ctrl_freq']} "
             f"& {_format_range(row['mass_range'])} "
             f"& {_format_range(row['friction_range'])} "
             f"& {_format_range(row['damping_range'])} "
@@ -301,7 +311,6 @@ def generate_env_summary_table(output_dir: Path):
             'W': task_cfg.win,
             'H': task_cfg.hor,
             'obs_dim': env_info.obs_dim,
-            'ctrl_freq': env_info.ctrl_freq,
             'mass_range': mass_range,
             'friction_range': friction_range,
             'damping_range': damping_range,

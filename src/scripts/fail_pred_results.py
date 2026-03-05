@@ -37,7 +37,7 @@ def run_single_trial(
     task: Union[FoldTask, "SafetyMonitor"],
     seed: int,
     env_name: str = None,
-) -> tuple[float, float, np.ndarray, np.ndarray]:
+) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     """
     Run a single trial of anomaly detection.
 
@@ -48,7 +48,7 @@ def run_single_trial(
         env_name: Environment name, used to load tuned hyperparameters
 
     Returns:
-        Tuple of (TNR%, TPR%, y_true, scores) for pooled ROC computation
+        Tuple of (TNR%, TPR%, AUROC, TPR@5%FPR, fpr_curve, tpr_curve)
     """
     np.random.seed(seed)
 
@@ -78,11 +78,16 @@ def run_single_trial(
             else:
                 tp = 1.0 - (cm[0, 0] if y_pred[0] == 0 else 0)
 
+    # Per-fold ROC metrics
+    fpr_curve, tpr_curve, _ = roc_curve(task.y_true, scores)
+    auroc = roc_auc_score(task.y_true, scores)
+    tpr_at_5 = float(np.interp(0.05, fpr_curve, tpr_curve))
+
     # Cleanup to prevent memory accumulation
     del model
     gc.collect()
 
-    return tn * 100, tp * 100, task.y_true, scores
+    return tn * 100, tp * 100, auroc, tpr_at_5, fpr_curve, tpr_curve
 
 
 def run_experiments(
@@ -104,6 +109,8 @@ def run_experiments(
     """
     results = {}
     n_folds = len(tasks)
+    # Common FPR grid for interpolating per-fold ROC curves
+    mean_fpr = np.linspace(0, 1, 200)
 
     for method_key in method_keys:
         display_name = get_method_display_name(method_key)
@@ -112,19 +119,23 @@ def run_experiments(
         print(f"{'='*60}")
 
         fold_tnr_tpr = []
-        all_y_true = []
-        all_scores = []
+        fold_aurocs = []
+        fold_tpr5 = []
+        fold_interp_tpr = []
 
         for fold, task in enumerate(tasks):
             seed = base_seed + fold * 100
             print(f"  Fold {fold + 1}/{n_folds} (seed={seed})...", end=" ")
 
             try:
-                tnr, tpr, y_true, scores = run_single_trial(method_key, task, seed, env_name=env_name)
+                tnr, tpr, auroc, tpr_at_5, fpr_curve, tpr_curve = run_single_trial(
+                    method_key, task, seed, env_name=env_name
+                )
                 fold_tnr_tpr.append((tnr, tpr))
-                all_y_true.append(y_true)
-                all_scores.append(scores)
-                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%")
+                fold_aurocs.append(auroc)
+                fold_tpr5.append(tpr_at_5)
+                fold_interp_tpr.append(np.interp(mean_fpr, fpr_curve, tpr_curve))
+                print(f"TNR={tnr:.1f}%, TPR={tpr:.1f}%, AUROC={auroc:.3f}")
 
             except Exception as e:
                 print(f"FAILED: {e}")
@@ -132,21 +143,21 @@ def run_experiments(
 
         if fold_tnr_tpr:
             fold_tnr_tpr = np.array(fold_tnr_tpr)
+            fold_aurocs = np.array(fold_aurocs)
+            fold_tpr5 = np.array(fold_tpr5)
+            fold_interp_tpr = np.array(fold_interp_tpr)
+            n = len(fold_aurocs)
+            sqrt_n = np.sqrt(n)
 
-            # Pool scores across folds for ROC-based metrics
-            pooled_y = np.concatenate(all_y_true)
-            pooled_scores = np.concatenate(all_scores)
-            fpr, tpr_curve, _ = roc_curve(pooled_y, pooled_scores)
-            tpr_at_5 = np.interp(0.05, fpr, tpr_curve)
-            auroc = roc_auc_score(pooled_y, pooled_scores)
-            print(f"  Pooled: TPR@5%FPR={tpr_at_5:.3f}, AUROC={auroc:.3f}")
+            print(f"  Mean: AUROC={fold_aurocs.mean():.3f}+-{fold_aurocs.std() / sqrt_n:.3f}, "
+                  f"TPR@5%FPR={fold_tpr5.mean():.3f}+-{fold_tpr5.std() / sqrt_n:.3f}")
 
             results[display_name] = {
-                'TNR': (fold_tnr_tpr[:, 0].mean(), fold_tnr_tpr[:, 0].std()),
-                'TPR': (fold_tnr_tpr[:, 1].mean(), fold_tnr_tpr[:, 1].std()),
-                'TPR@5%FPR': tpr_at_5,
-                'AUROC': auroc,
-                'roc': (fpr, tpr_curve),
+                'TNR': (fold_tnr_tpr[:, 0].mean(), fold_tnr_tpr[:, 0].std() / sqrt_n),
+                'TPR': (fold_tnr_tpr[:, 1].mean(), fold_tnr_tpr[:, 1].std() / sqrt_n),
+                'TPR@5%FPR': (fold_tpr5.mean(), fold_tpr5.std() / sqrt_n),
+                'AUROC': (fold_aurocs.mean(), fold_aurocs.std() / sqrt_n),
+                'roc': (mean_fpr, fold_interp_tpr.mean(axis=0), fold_interp_tpr.std(axis=0) / sqrt_n),
             }
         else:
             print(f"  WARNING: No successful folds for {display_name}")
@@ -168,8 +179,8 @@ def print_summary(results: dict[str, dict[str, tuple[float, float]]], env_name: 
     for method_name, metrics in results.items():
         tnr_str = f"{metrics['TNR'][0]:.2f} +/- {metrics['TNR'][1]:.2f}"
         tpr_str = f"{metrics['TPR'][0]:.2f} +/- {metrics['TPR'][1]:.2f}"
-        tpr5_str = f"{metrics['TPR@5%FPR']:.3f}"
-        auroc_str = f"{metrics['AUROC']:.3f}"
+        tpr5_str = f"{metrics['TPR@5%FPR'][0]:.3f} +/- {metrics['TPR@5%FPR'][1]:.3f}"
+        auroc_str = f"{metrics['AUROC'][0]:.3f} +/- {metrics['AUROC'][1]:.3f}"
 
         print(f"{method_name:<25} {tnr_str:<18} {tpr_str:<18} {tpr5_str:<18} {auroc_str:<18}")
 
@@ -185,8 +196,11 @@ def plot_roc_curves(results: dict[str, dict], env_name: str):
     for method_name, metrics in results.items():
         if 'roc' not in metrics:
             continue
-        fpr, tpr = metrics['roc']
-        ax.plot(fpr, tpr, label=f"{method_name} (AUC={metrics['AUROC']:.3f})")
+        fpr, mean_tpr, std_tpr = metrics['roc']
+        auroc_mean, auroc_std = metrics['AUROC']
+        ax.plot(fpr, mean_tpr, label=f"{method_name} (AUC={auroc_mean:.3f}$\\pm${auroc_std:.3f})")
+        ax.fill_between(fpr, np.clip(mean_tpr - std_tpr, 0, 1),
+                         np.clip(mean_tpr + std_tpr, 0, 1), alpha=0.15)
 
     ax.plot([0, 1], [0, 1], 'k--', lw=0.8, label='Random')
     ax.set_xlabel('False Positive Rate')
@@ -227,7 +241,8 @@ def print_metric_summary(all_results: dict[str, dict], metric_key: str):
         row = f"{method:<20}"
         for env in envs:
             val = all_results[env]['results'][method][metric_key]
-            row += f" {val:<15.3f}"
+            mean, std = val
+            row += f" {mean:.3f}+/-{std:.3f}  "
         row += f" {avg_ranks[method]:<10.1f}"
         print(row)
 
