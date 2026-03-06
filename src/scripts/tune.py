@@ -2,12 +2,16 @@
 """
 Hyperparameter tuning for anomaly detectors.
 
-Grid-searches over per-method hyperparameters using score spread (IQR/median)
-on held-out normal data as the objective. Saves best configs per environment
-to results/tuned/{env}.json, which fail_pred_results.py loads automatically.
+Grid-searches over per-method hyperparameters. Supports two tuning criteria:
+  - spread:     maximize IQR/median of scores on normal data (default)
+  - p95: minimize p95(held-out) / mean(train) score ratio on normal data
+
+Saves best configs per environment to results/tuned/{env}.json, which
+fail_pred_results.py loads automatically.
 
 Usage:
     python tune.py --env hopper
+    python tune.py --env hopper --criterion p95
     python tune.py --env humanoid --methods sig,scatter
     python tune.py --env all --seed 0
 """
@@ -35,36 +39,39 @@ SEARCH_SPACE = {
         "n_periods": [1, 2, 3],
     },
     "sig": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
     },
     "scatter": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
     },
     "minirocket": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
     },
     "basis": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
         "ridge_lambda": [1e-2, 1e-1, 1e0, 1e1],
-        "n_basis": [5, 10, 20, 40],
+        "n_basis": [3, 5, 10],
     },
     "rec": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
         "latent_dim_mult": [1.0, 3.0, 5.0],
     },
     "lat": {
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
         "latent_dim_mult": [0.5, 1.0, 2.0],
     },
     "knn": {
         "k": [3, 5, 10, 20],
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
     },
     "iforest": {
         "n_estimators": [50, 100, 200],
-        "window_frac": [0.01, 0.03, 0.05, 0.1],
+        "window_frac": [0.05, 0.07, 0.1],
     },
 }
+
+
+CRITERIA = ("spread", "p95")
 
 
 def score_spread(scores: np.ndarray) -> float:
@@ -74,23 +81,29 @@ def score_spread(scores: np.ndarray) -> float:
 
 
 def grid_search(method_key: str, space: dict,
-                x_tr: np.ndarray, x_te: np.ndarray) -> dict:
+                x_tr: np.ndarray, x_te: np.ndarray,
+                criterion: str = "spread",
+                x_tr_windows: np.ndarray | None = None) -> dict:
     """
     Grid search over space, returning the override dict for the best combo.
 
-    Objective: score_spread on test windows (all successes from tune dataset).
+    Objective depends on criterion:
+        "spread" — maximize IQR/median on test windows
+        "p95"    — minimize p95(held-out) / mean(train) score ratio
     """
     if not space:
         print("    No tunable params, skipping")
         return {}
 
+    minimize = criterion == "p95"
+
     param_names = list(space.keys())
     param_values = list(space.values())
     combos = list(itertools.product(*param_values))
 
-    print(f"    {len(combos)} combinations: {param_names}")
+    print(f"    {len(combos)} combinations: {param_names} (criterion={criterion})")
 
-    best_score = -np.inf
+    best_raw = np.inf if minimize else -np.inf
     best_combo = {}
 
     for combo in combos:
@@ -100,14 +113,19 @@ def grid_search(method_key: str, space: dict,
         try:
             det = get_detector(method_key, **overrides)
             det.fit(x_tr)
-            scores = det.score_samples(x_te)
+            scores_te = det.score_samples(x_te)
 
-            spread = score_spread(scores)
+            if minimize:
+                scores_tr = det.score_samples(x_tr_windows)
+                raw = float(np.percentile(scores_te, 95)) / (float(np.mean(scores_tr)) + 1e-12)
+            else:
+                raw = score_spread(scores_te)
 
-            print(f"    [{combo_str}] spread={spread:.4f}")
+            improved = raw < best_raw if minimize else raw > best_raw
+            print(f"    [{combo_str}] {criterion}={raw:.4f}")
 
-            if spread > best_score:
-                best_score = spread
+            if improved:
+                best_raw = raw
                 best_combo = overrides
 
         except Exception as e:
@@ -117,7 +135,7 @@ def grid_search(method_key: str, space: dict,
             del det
             gc.collect()
 
-    print(f"    Best: {best_combo} (spread={best_score:.4f})")
+    print(f"    Best: {best_combo} ({criterion}={best_raw:.4f})")
 
     # Convert any non-JSON-serializable values
     return {k: _json_safe(v) for k, v in best_combo.items()}
@@ -132,7 +150,8 @@ def _json_safe(v):
     return v
 
 
-def tune_env(env_name: str, method_keys: list[str], seed: int = 0):
+def tune_env(env_name: str, method_keys: list[str], seed: int = 0,
+             criterion: str = "spread"):
     """Tune all methods for one environment."""
     if env_name not in TASK_CONFIGS:
         available = list(TASK_CONFIGS.keys())
@@ -141,14 +160,25 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0):
     cfg = TASK_CONFIGS[env_name]
 
     print(f"\n{'='*60}")
-    print(f"Tuning: {env_name}")
+    print(f"Tuning: {env_name} (criterion={criterion})")
     print(f"{'='*60}")
 
     # Load independent tune dataset (seed=0, successes only)
     np.random.seed(seed)
     x_tr, x_te = prepare_tune_data(cfg)
 
-    print(f"Train: {x_tr.shape}, Test: {x_te.shape} (successes only)")
+    x_tr_windows = None
+    if criterion == "p95":
+        # Split tune episodes 70/30: fit on 70%, score on held-out 30%
+        n = len(x_tr)
+        perm = np.random.permutation(n)
+        split = int(0.7 * n)
+        x_tr_windows = x_te[perm[:split]]  # train windows (for median denominator)
+        x_tr = x_tr[perm[:split]]
+        x_te = x_te[perm[split:]]  # held-out normal windows
+        print(f"Train: {x_tr.shape}, Held-out: {x_te.shape} (70/30 split)")
+    else:
+        print(f"Train: {x_tr.shape}, Test: {x_te.shape} (successes only)")
 
     results = {}
 
@@ -160,7 +190,8 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0):
         print(f"\n  Method: {method_key}")
 
         space = SEARCH_SPACE.get(method_key, {})
-        best = grid_search(method_key, space, x_tr, x_te)
+        best = grid_search(method_key, space, x_tr, x_te,
+                           criterion=criterion, x_tr_windows=x_tr_windows)
 
         if best:
             results[method_key] = best
@@ -190,6 +221,8 @@ def main():
     parser.add_argument("--methods", type=str, default=None,
                         help=f"Comma-separated method keys. Default: {DEFAULT_METHODS}")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for fold split")
+    parser.add_argument("--criterion", type=str, default="p95", choices=CRITERIA,
+                        help="Tuning objective: 'spread' (IQR/median) or 'p95' (minimize p95(held-out)/median(train))")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable info-level logging")
     args = parser.parse_args()
 
@@ -207,7 +240,7 @@ def main():
 
     for env_name in envs:
         try:
-            tune_env(env_name, method_keys, seed=args.seed)
+            tune_env(env_name, method_keys, seed=args.seed, criterion=args.criterion)
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
         except Exception as e:
