@@ -295,19 +295,32 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     # ------- Step 6: Plot score curves -------
     fig, ax = plt.subplots(figsize=(FULL_WIDTH, 2.2))
 
+    first_crossing = np.inf
+    last_fail = -1
     for ts, scores, fail_step, is_success, _label in curve_data:
-        color = SUCCESS_COLOR if is_success else FAILURE_COLOR
-        ax.plot(ts, scores, color=color, alpha=0.6)
+        cross_mask = scores > detector.threshold_
+        if cross_mask.any():
+            cross_idx = int(np.argmax(cross_mask))
+            first_crossing = min(first_crossing, ts[cross_idx])
+            # Green segment (up to and including crossing point)
+            ax.plot(ts[:cross_idx + 1], scores[:cross_idx + 1],
+                    color=SUCCESS_COLOR, alpha=0.6)
+            # Red segment (from crossing point onward)
+            ax.plot(ts[cross_idx:], scores[cross_idx:],
+                    color=FAILURE_COLOR, alpha=0.6)
+        else:
+            ax.plot(ts, scores, color=SUCCESS_COLOR, alpha=0.6)
         if not is_success and fail_step >= 0:
             ax.plot(fail_step, np.interp(fail_step, ts, scores),
                     "x", color=FAILURE_COLOR, markersize=6, markeredgewidth=1.5)
+            last_fail = max(last_fail, fail_step)
 
     ax.axhline(detector.threshold_, color="gray", linestyle="--",
                label="threshold")
-    last_fail = max((fs for _, _, fs, s, _ in curve_data if not s and fs >= 0),
-                    default=None)
-    if last_fail is not None:
-        ax.set_xlim(right=last_fail + 50)
+    if first_crossing < np.inf:
+        ax.set_xlim(left=first_crossing - 100)
+    if last_fail >= 0:
+        ax.set_xlim(right=last_fail + 100)
     if log_scale:
         ax.set_yscale("log")
     ax.set_xlabel("Timestep")
