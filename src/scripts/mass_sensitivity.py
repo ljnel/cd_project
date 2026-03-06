@@ -9,9 +9,15 @@ Uses kernel regression (Nadaraya-Watson estimator) on a single test dataset
 with uniformly sampled mass values for efficient computation.
 
 Datasets are cached to disk and reused on reruns if parameters match.
+
+Usage:
+    python mass_sensitivity.py --env upkie
+    python mass_sensitivity.py --env hopper
+    python mass_sensitivity.py --env all
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import warnings
@@ -23,9 +29,9 @@ from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
 
-from config.datasets import DatasetConfig
+from config.datasets import DATASETS, DatasetConfig
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
-from envs.upkie.gen_data import gen_data
+from config.tasks import TASK_CONFIGS
 from utils.paths import get_root
 from utils.plotting import COL_WIDTH, setup_style
 
@@ -44,20 +50,17 @@ TOL = 0.05
 # Data generation parameters
 N_TRAIN_EPISODES = 100      # Normal episodes for training
 N_TEST_EPISODES = 1000       # Anomalous episodes (mass sampled uniformly)
-EPISODE_TIME = 5.0          # Seconds per episode
-FREQUENCY = 200.0           # Hz
-BALANCER = "ppo"
 
 # Experiment parameters
 BASE_SEED = 42
 BIN_WIDTH = 0.1            # Width of mass bins (centered on 1.0)
 
-# Cache directory (shared across balancer types)
+# Cache directory
 CACHE_DIR = get_root() / "results" / "mass_sensitivity" / ".cache"
 
 
 # =============================================================================
-# Caching Utilities
+# Utilities
 # =============================================================================
 
 def _compute_hash(params: dict) -> str:
@@ -66,39 +69,27 @@ def _compute_hash(params: dict) -> str:
     return hashlib.sha256(params_str.encode()).hexdigest()[:12]
 
 
-def _get_train_cache_path(n_episodes: int, episode_time: float, frequency: float, seed: int, tol: float, balancer: str) -> Path:
-    """Get cache path for training data based on relevant parameters."""
-    params = {
-        "type": "train",
-        "n_episodes": n_episodes,
-        "episode_time": episode_time,
-        "frequency": frequency,
-        "seed": seed,
-        "tol": tol,
-        "balancer": balancer,
-    }
-    return CACHE_DIR / f"train_{_compute_hash(params)}.npz"
+def _get_cache_path(env_name: str, kind: str, params: dict) -> Path:
+    """Get cache path for generated data."""
+    params = {**params, "env": env_name, "type": kind}
+    return CACHE_DIR / f"{env_name}_{kind}_{_compute_hash(params)}.npz"
 
 
-def _get_test_cache_path(
-    mass_range: tuple[float, float],
-    n_episodes: int,
-    episode_time: float,
-    frequency: float,
-    seed: int,
-    balancer: str,
-) -> Path:
-    """Get cache path for test data based on relevant parameters."""
-    params = {
-        "type": "test",
-        "mass_range": list(mass_range),
-        "n_episodes": n_episodes,
-        "episode_time": episode_time,
-        "frequency": frequency,
-        "seed": seed,
-        "balancer": balancer,
-    }
-    return CACHE_DIR / f"test_{_compute_hash(params)}.npz"
+def _get_base_config(env_name: str) -> DatasetConfig:
+    """Get the fail_pred dataset config as a template for data generation."""
+    key = f"{env_name}/fail_pred"
+    if key not in DATASETS:
+        raise ValueError(f"No fail_pred dataset for {env_name}")
+    return copy.deepcopy(DATASETS[key])
+
+
+def _gen_data(cfg: DatasetConfig) -> dict:
+    """Dispatch to the right gen_data based on platform."""
+    if cfg.platform == "upkie":
+        from envs.upkie.gen_data import gen_data
+    else:
+        from envs.mujoco.gen_data import gen_data
+    return gen_data(cfg, n_jobs=-1)
 
 
 # =============================================================================
@@ -125,14 +116,14 @@ def make_bins(mass_range: tuple[float, float], bin_width: float, center: float =
 # Data Generation (with caching)
 # =============================================================================
 
-def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
+def generate_train_data(env_name: str, n_episodes: int, seed: int) -> np.ndarray:
     """Generate or load cached training data with mass in [1-TOL, 1+TOL].
 
     Only returns episodes that didn't fail (no early termination).
     """
-    cache_path = _get_train_cache_path(n_episodes, EPISODE_TIME, FREQUENCY, seed, TOL, BALANCER)
+    cache_params = {"n_episodes": n_episodes, "seed": seed, "tol": TOL}
+    cache_path = _get_cache_path(env_name, "train", cache_params)
 
-    # Try to load from cache
     if cache_path.exists():
         print(f"Loading cached training data from {cache_path.name}...")
         cached = np.load(cache_path)
@@ -140,35 +131,27 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
         print(f"  Loaded {len(X)} episodes")
         return X
 
-    # Generate new data with mass in tolerance range
     train_mass_range = (1.0 - TOL, 1.0 + TOL)
     print(f"Generating {n_episodes} training episodes with mass in [{train_mass_range[0]:.2f}, {train_mass_range[1]:.2f}]...")
 
-    cfg = DatasetConfig(
-        name='_train_temp',
-        env='upkie',
-        platform='upkie',
-        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
-        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
-        n_episodes=n_episodes,
-        ep_len=int(EPISODE_TIME * FREQUENCY),
-        frequency=FREQUENCY,
-        mass_range=train_mass_range,
-        balancer=BALANCER,
-        seed=seed,
-    )
-    data = gen_data(cfg, n_jobs=-1)
+    cfg = _get_base_config(env_name)
+    cfg.name = '_mass_train_temp'
+    cfg.n_episodes = n_episodes
+    cfg.mass_range = train_mass_range
+    cfg.friction_range = (1.0, 1.0)
+    cfg.damping_range = (1.0, 1.0)
+    cfg.seed = seed
+
+    data = _gen_data(cfg)
 
     X = data['X']
     fail = data['fail']
 
-    # Filter out failed episodes (those with constant padding)
     success_mask = fail < 0
     X = X[success_mask]
     n_failed = (~success_mask).sum()
     print(f"  Generated {len(X)} episodes ({n_failed} failed episodes removed)")
 
-    # Save to cache
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     np.savez(cache_path, X=X)
     print(f"  Cached to {cache_path.name}")
@@ -177,12 +160,12 @@ def generate_train_data(n_episodes: int, seed: int) -> np.ndarray:
 
 
 def generate_test_data(
+    env_name: str,
     mass_range: tuple[float, float],
     n_episodes: int,
-    seed: int
+    seed: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Generate or load cached test data with mass uniformly sampled from range.
+    """Generate or load cached test data with mass uniformly sampled from range.
 
     Only returns episodes that didn't fail (no early termination).
 
@@ -190,9 +173,13 @@ def generate_test_data(
         X: Array of episodes
         mass_values: Array of mass scale for each episode
     """
-    cache_path = _get_test_cache_path(mass_range, n_episodes, EPISODE_TIME, FREQUENCY, seed, BALANCER)
+    cache_params = {
+        "mass_range": list(mass_range),
+        "n_episodes": n_episodes,
+        "seed": seed,
+    }
+    cache_path = _get_cache_path(env_name, "test", cache_params)
 
-    # Try to load from cache
     if cache_path.exists():
         print(f"Loading cached test data from {cache_path.name}...")
         cached = np.load(cache_path)
@@ -202,29 +189,22 @@ def generate_test_data(
         print(f"  Mass range: [{mass_values.min():.3f}, {mass_values.max():.3f}]")
         return X, mass_values
 
-    # Generate new data
     print(f"Generating {n_episodes} test episodes with mass in {mass_range}...")
 
-    cfg = DatasetConfig(
-        name='_test_temp',
-        env='upkie',
-        platform='upkie',
-        # Old policy: 'ppo_balancer/params.zip' (requires ObsHistoryWrapper in gen_data.py)
-        policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
-        n_episodes=n_episodes,
-        ep_len=int(EPISODE_TIME * FREQUENCY),
-        frequency=FREQUENCY,
-        mass_range=mass_range,
-        balancer=BALANCER,
-        seed=seed,
-    )
-    data = gen_data(cfg, n_jobs=-1)
+    cfg = _get_base_config(env_name)
+    cfg.name = '_mass_test_temp'
+    cfg.n_episodes = n_episodes
+    cfg.mass_range = mass_range
+    cfg.friction_range = (1.0, 1.0)
+    cfg.damping_range = (1.0, 1.0)
+    cfg.seed = seed
+
+    data = _gen_data(cfg)
 
     X = data['X']
     mass_values = data['mass_scale']
     fail = data['fail']
 
-    # Filter out failed episodes (those with constant padding)
     success_mask = fail < 0
     X = X[success_mask]
     mass_values = mass_values[success_mask]
@@ -232,7 +212,6 @@ def generate_test_data(
     print(f"  Generated {len(X)} episodes ({n_failed} failed episodes removed)")
     print(f"  Mass range: [{mass_values.min():.3f}, {mass_values.max():.3f}]")
 
-    # Save to cache
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     np.savez(cache_path, X=X, mass_values=mass_values)
     print(f"  Cached to {cache_path.name}")
@@ -245,24 +224,25 @@ def generate_test_data(
 # =============================================================================
 
 def run_experiment(
+    env_name: str,
     method_keys: list[str],
     seed: int,
 ) -> tuple[np.ndarray, dict[str, tuple[np.ndarray, np.ndarray]]]:
     """
-    Run the mass sensitivity experiment.
+    Run the mass sensitivity experiment for one environment.
 
     Returns:
         bin_centers: Array of bin center mass values
         results: Dict mapping display name to (mean_percentiles, std_percentiles)
     """
     print("=" * 70)
-    print("MASS ANOMALY SENSITIVITY EXPERIMENT")
+    print(f"MASS ANOMALY SENSITIVITY EXPERIMENT - {env_name}")
     print("=" * 70)
 
     # --- Data Generation Phase ---
     print("\n--- Data Generation Phase ---")
-    X_train = generate_train_data(N_TRAIN_EPISODES, seed=seed)
-    X_test, test_mass_values = generate_test_data(MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
+    X_train = generate_train_data(env_name, N_TRAIN_EPISODES, seed=seed)
+    X_test, test_mass_values = generate_test_data(env_name, MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
 
     # --- Binning Setup ---
     bin_edges, bin_centers = make_bins(MASS_RANGE, BIN_WIDTH, center=1.0)
@@ -277,7 +257,7 @@ def run_experiment(
         display_name = get_method_display_name(method_key)
         print(f"  Training {display_name}...")
         try:
-            model = get_detector(method_key, env="upkie")
+            model = get_detector(method_key, env=env_name)
             model.fit(X_train)
             trained_models[method_key] = model
         except Exception as e:
@@ -345,7 +325,7 @@ def plot_mass_sensitivity(
     ax.set_ylabel('Score Percentile')
     ax.set_xlim([bin_centers.min() - BIN_WIDTH/2, bin_centers.max() + BIN_WIDTH/2])
     ax.set_ylim([0, 105])
-    ax.legend(loc='lower left', fontsize=8)
+    ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=8)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -364,64 +344,74 @@ def plot_mass_sensitivity(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mass Anomaly Sensitivity Experiment")
     parser.add_argument(
-        "--balancer",
-        type=str,
-        choices=["mpc", "ppo"],
-        default="ppo",
-        help="Balancer type to use (default: ppo)"
+        "--env", type=str, required=True,
+        help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}",
     )
+    parser.add_argument(
+        "--methods", type=str, default=None,
+        help=f"Comma-separated method keys. Default: {DEFAULT_METHODS}",
+    )
+    parser.add_argument("--seed", type=int, default=BASE_SEED, help="Base random seed")
     args = parser.parse_args()
 
-    # Override module-level BALANCER with CLI argument
-    BALANCER = args.balancer
+    # Parse methods
+    if args.methods:
+        method_keys = [m.strip() for m in args.methods.split(",")]
+    else:
+        method_keys = DEFAULT_METHODS
 
-    # Output directory includes balancer type to avoid overwrites
-    OUTPUT_DIR = get_root() / "results" / "mass_sensitivity" / BALANCER
-
-    method_keys = DEFAULT_METHODS
     display_names = [get_method_display_name(k) for k in method_keys]
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Determine environments
+    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
 
-    print("\nConfiguration:")
-    print(f"  Mass range (test): [{MASS_RANGE[0]:.2f}, {MASS_RANGE[1]:.2f}]")
-    print(f"  Mass range (train): [{1.0-TOL:.2f}, {1.0+TOL:.2f}] (TOL={TOL})")
-    print(f"  Training episodes: {N_TRAIN_EPISODES}")
-    print(f"  Test episodes: {N_TEST_EPISODES}")
-    print(f"  Bin width: {BIN_WIDTH}")
-    print(f"  Methods: {display_names}")
+    for env_name in envs:
+        OUTPUT_DIR = get_root() / "results" / "mass_sensitivity" / env_name
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Run experiment
-    bin_centers, results = run_experiment(
-        method_keys=method_keys,
-        seed=BASE_SEED,
-    )
+        print(f"\nConfiguration:")
+        print(f"  Environment: {env_name}")
+        print(f"  Mass range (test): [{MASS_RANGE[0]:.2f}, {MASS_RANGE[1]:.2f}]")
+        print(f"  Mass range (train): [{1.0-TOL:.2f}, {1.0+TOL:.2f}] (TOL={TOL})")
+        print(f"  Training episodes: {N_TRAIN_EPISODES}")
+        print(f"  Test episodes: {N_TEST_EPISODES}")
+        print(f"  Bin width: {BIN_WIDTH}")
+        print(f"  Methods: {display_names}")
 
-    # Plot results
-    fig = plot_mass_sensitivity(
-        bin_centers,
-        results,
-        output_path=OUTPUT_DIR / "mass_sensitivity.pdf"
-    )
+        try:
+            bin_centers, results = run_experiment(
+                env_name=env_name,
+                method_keys=method_keys,
+                seed=args.seed,
+            )
 
-    # Save raw data
-    save_dict = {
-        "bin_centers": bin_centers,
-        "n_train": N_TRAIN_EPISODES,
-        "n_test": N_TEST_EPISODES,
-        "tol": TOL,
-        "bin_width": BIN_WIDTH,
-    }
-    for name in display_names:
-        if results.get(name) is not None:
-            key = name.replace(' ', '_').replace('-', '_')
-            save_dict[f"mean_{key}"] = results[name][0]
-            save_dict[f"se_{key}"] = results[name][1]
-    np.savez(OUTPUT_DIR / "mass_sensitivity_data.npz", **save_dict)
-    print(f"\nRaw data saved to {OUTPUT_DIR / 'mass_sensitivity_data.npz'}")
+            # Plot results
+            fig = plot_mass_sensitivity(
+                bin_centers,
+                results,
+                output_path=OUTPUT_DIR / "mass_sensitivity.pdf",
+            )
+
+            # Save raw data
+            save_dict = {
+                "bin_centers": bin_centers,
+                "n_train": N_TRAIN_EPISODES,
+                "n_test": N_TEST_EPISODES,
+                "tol": TOL,
+                "bin_width": BIN_WIDTH,
+            }
+            for name in display_names:
+                if results.get(name) is not None:
+                    key = name.replace(' ', '_').replace('-', '_')
+                    save_dict[f"mean_{key}"] = results[name][0]
+                    save_dict[f"se_{key}"] = results[name][1]
+            np.savez(OUTPUT_DIR / "mass_sensitivity_data.npz", **save_dict)
+            print(f"\nRaw data saved to {OUTPUT_DIR / 'mass_sensitivity_data.npz'}")
+
+        except Exception as e:
+            print(f"\nError running {env_name}: {e}")
+            raise
 
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")
     print("=" * 70)
-
-    #plt.show()
