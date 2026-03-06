@@ -152,6 +152,7 @@ def create_fold_tasks(
 def prepare_eval_data(
     cfg: SafetyMonitorConfig,
     split_at: int | None = None,
+    max_train_eps: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load eval dataset and split into train/test with normalization.
 
@@ -175,6 +176,8 @@ def prepare_eval_data(
     train_fail = fail[:split_at]
     success_mask = train_fail == -1
     x_train = train_eps[success_mask]
+    if max_train_eps is not None:
+        x_train = x_train[:max_train_eps]
 
     # Test: all episodes from split_at onwards
     test_eps = X[split_at:]

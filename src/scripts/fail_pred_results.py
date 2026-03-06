@@ -15,7 +15,6 @@ import argparse
 import gc
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix, roc_curve
 
@@ -27,9 +26,6 @@ from tasks.fold_task import prepare_eval_data
 from utils.bootstrap import auroc_fn, bootstrap_metric, tpr_at_fpr_fn
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
-from utils.plotting import COL_WIDTH, setup_style
-
-setup_style()
 
 
 def run_single_trial(
@@ -199,34 +195,6 @@ def print_summary(results: dict[str, dict[str, tuple[float, float]]], env_name: 
     print("-" * 97)
 
 
-def plot_roc_curves(results: dict[str, dict], env_name: str):
-    """Plot and save ROC curves for all methods in a single figure."""
-    output_dir = get_root() / "results" / "fail_pred"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH))
-    for method_name, metrics in results.items():
-        if 'roc' not in metrics:
-            continue
-        fpr, mean_tpr, std_tpr = metrics['roc']
-        auroc_mean, auroc_std = metrics['AUROC']
-        ax.plot(fpr, mean_tpr, label=f"{method_name} (AUC={auroc_mean:.3f}$\\pm${auroc_std:.3f})")
-        ax.fill_between(fpr, np.clip(mean_tpr - std_tpr, 0, 1),
-                         np.clip(mean_tpr + std_tpr, 0, 1), alpha=0.15)
-
-    ax.plot([0, 1], [0, 1], 'k--', lw=0.8, label='Random')
-    ax.set_xlabel('False Positive Rate')
-    ax.set_ylabel('True Positive Rate')
-    ax.legend(loc='lower right')
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1.05])
-    fig.tight_layout()
-
-    roc_file = output_dir / f"{env_name}_roc.pdf"
-    fig.savefig(roc_file)
-    plt.close(fig)
-    print(f"ROC curve saved to: {roc_file}")
-
 
 def print_metric_summary(all_results: dict[str, dict], metric_key: str):
     """Print a summary table of a metric across all environments, with average ranks."""
@@ -294,7 +262,7 @@ def get_data_statistics(cfg: SafetyMonitorConfig) -> dict:
 
 
 def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
-            base_seed: int = 42):
+            base_seed: int = 42, max_train_eps: int = None):
     """Run experiments for a single environment."""
 
     if env_name not in TASK_CONFIGS:
@@ -315,7 +283,7 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     # Prepare eval data (single train/test split)
     print("\nPreparing evaluation data (train/test split)...")
     np.random.seed(base_seed)
-    x_train, x_test, y_true, episode_ids = prepare_eval_data(cfg)
+    x_train, x_test, y_true, episode_ids = prepare_eval_data(cfg, max_train_eps=max_train_eps)
     assert len(episode_ids) == len(x_test), (
         f"episode_ids length {len(episode_ids)} != x_test length {len(x_test)}")
 
@@ -328,24 +296,33 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     # Print summary
     print_summary(results, env_name)
 
-    # Plot ROC curves
-    plot_roc_curves(results, env_name)
-
-    # Strip roc data before npz output
-    for v in results.values():
-        v.pop('roc', None)
-
-    # Save raw results to numpy file for later analysis
+    # Save raw results (including ROC data) to numpy file
     output_dir = get_root() / "results" / "fail_pred"
     output_dir.mkdir(parents=True, exist_ok=True)
     npz_file = output_dir / f"{env_name}_experiment_results.npz"
-    np.savez(
-        npz_file,
-        results={k: dict(v) for k, v in results.items()},
+
+    # Separate roc data into flat arrays for npz compatibility
+    roc_data = {}
+    results_no_roc = {}
+    for name, metrics in results.items():
+        roc_data[name] = metrics.pop('roc', None)
+        results_no_roc[name] = dict(metrics)
+
+    save_dict = dict(
+        results=results_no_roc,
         stats=stats,
         methods=method_keys,
-        n_bootstrap=n_bootstrap
+        n_bootstrap=n_bootstrap,
     )
+    for name, roc in roc_data.items():
+        if roc is not None:
+            fpr, tpr, se = roc
+            key = name.replace(' ', '_').replace('-', '_')
+            save_dict[f"roc_fpr_{key}"] = fpr
+            save_dict[f"roc_tpr_{key}"] = tpr
+            save_dict[f"roc_se_{key}"] = se
+
+    np.savez(npz_file, **save_dict)
     print(f"Raw results saved to: {npz_file}")
 
     return results, stats
@@ -360,6 +337,8 @@ if __name__ == "__main__":
     parser.add_argument('--n-bootstrap', type=int, default=10_000,
                         help='Number of bootstrap resamples for CIs')
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
+    parser.add_argument('--tr-ep', type=int, default=None,
+                        help='Max number of successful train episodes to keep (default: all)')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable info-level logging')
     args = parser.parse_args()
 
@@ -385,7 +364,8 @@ if __name__ == "__main__":
     for env_name in envs:
         try:
             results, stats = run_env(
-                env_name, method_keys, n_bootstrap=args.n_bootstrap, base_seed=args.seed
+                env_name, method_keys, n_bootstrap=args.n_bootstrap,
+                base_seed=args.seed, max_train_eps=args.tr_ep,
             )
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
