@@ -104,23 +104,22 @@ def run_cross_policy_eval(
             x_test_full.reshape(-1, obs_dim)
         ).reshape(x_test_full.shape)
 
-        w_sac, f_sac = sample_test_windows(
+        w_sac, y_sac, _ = sample_test_windows(
             x_sac_scaled, fail_sac, window=win, horizon=hor, verbose=True,
         )
-        w_tqc, f_tqc = sample_test_windows(
+        w_tqc, y_tqc, _ = sample_test_windows(
             x_test_scaled, fail_test, window=win, horizon=hor, verbose=True,
         )
         x_test = np.concatenate([w_sac, w_tqc], axis=0)
-        fail_windows = np.concatenate([f_sac, f_tqc], axis=0)
+        y_true = np.concatenate([y_sac, y_tqc], axis=0).astype(int)
     else:
         x_test_full = scaler.transform(
             x_test_full.reshape(-1, obs_dim)
         ).reshape(x_test_full.shape)
-        x_test, fail_windows = sample_test_windows(
+        x_test, y_true_bool, _ = sample_test_windows(
             x_test_full, fail_test, window=win, horizon=hor, verbose=True,
         )
-
-    y_true = (fail_windows >= 0).astype(int)
+        y_true = y_true_bool.astype(int)
     print(f"Test windows: {x_test.shape} ({y_true.sum()} failures, "
           f"{(y_true == 0).sum()} successes)")
 

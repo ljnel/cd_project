@@ -18,11 +18,78 @@ import logging
 from pathlib import Path
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 from config.datasets import DATASETS, DatasetConfig
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.data.datasets")
+
+
+# =============================================================================
+# Episode Helpers
+# =============================================================================
+
+def load_episodes(env_name: str, dataset: str = "fail_pred") -> tuple[np.ndarray, np.ndarray]:
+    """Load episodes and failure labels from disk.
+
+    Returns:
+        X: (n_episodes, seq_len, channels)
+        fail: (n_episodes,) — -1 for success, >=0 for failure timestep
+    """
+    ds_cfg = DATASETS[f"{env_name}/{dataset}"]
+    data = load_dataset(ds_cfg)
+    return data['X'], data['fail']
+
+
+def split_train_test(
+    X: np.ndarray, fail: np.ndarray, split_at: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Split episodes sequentially at a fixed index.
+
+    Returns:
+        X_train, fail_train, X_test, fail_test
+    """
+    return X[:split_at], fail[:split_at], X[split_at:], fail[split_at:]
+
+
+def filter_successes(
+    X: np.ndarray, fail: np.ndarray, eps: int | None = None,
+) -> np.ndarray:
+    """Keep only successful episodes (fail == -1).
+
+    If eps is given, return at most that many. Warns if fewer are available.
+    """
+    X_success = X[fail == -1]
+    if eps is not None:
+        if len(X_success) < eps:
+            logger.warning(
+                f"Requested {eps} success episodes but only "
+                f"{len(X_success)} available"
+            )
+        else:
+            X_success = X_success[:eps]
+    return X_success
+
+
+def normalize_channels(
+    X_fit: np.ndarray, *X_others: np.ndarray,
+) -> tuple:
+    """Per-channel z-score normalization.
+
+    Fits a StandardScaler on X_fit and transforms all arrays.
+
+    Returns:
+        (scaler, X_fit_scaled, *X_others_scaled)
+    """
+    d = X_fit.shape[-1]
+    scaler = StandardScaler()
+    scaler.fit(X_fit.reshape(-1, d))
+
+    def _apply(X):
+        return scaler.transform(X.reshape(-1, d)).reshape(X.shape)
+
+    return (scaler, _apply(X_fit), *(_apply(X) for X in X_others))
 
 
 # =============================================================================
@@ -181,6 +248,85 @@ def _generate_upkie(cfg: DatasetConfig, n_jobs: int) -> dict:
 
 
 # =============================================================================
+# Experiment Data Preparation
+# =============================================================================
+
+def load_experiment(
+    env_name: str,
+    split_at: int | None = 1000,
+    max_train_eps: int | None = 300,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load eval dataset and split into train/test with normalization.
+
+    Looks up the task config for env_name, loads the fail_pred dataset,
+    splits sequentially, normalizes, and windows test episodes.
+
+    Train = successes from episodes [:split_at].
+    Test  = all episodes from [split_at:], windowed.
+
+    Returns:
+        (x_train, x_test, y_true, episode_ids) where episode_ids maps
+        each test window back to its source episode index.
+    """
+    from config.tasks import EVAL_SPLIT, TASK_CONFIGS
+    from utils.windows import sample_test_windows
+
+    if split_at is None:
+        split_at = EVAL_SPLIT
+
+    cfg = TASK_CONFIGS[env_name]
+
+    X, fail = load_episodes(env_name)
+    X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
+    x_train = filter_successes(X_tr, fail_tr, eps=max_train_eps)
+    _, x_train, X_te = normalize_channels(x_train, X_te)
+
+    x_test, y_true, episode_ids = sample_test_windows(
+        X_te, fail_te,
+        window=cfg.win,
+        horizon=cfg.hor,
+        episode_id_offset=split_at,
+    )
+
+    logger.info(f"Eval split: train={x_train.shape}, test={x_test.shape}, "
+                f"failures={y_true.sum():.0f}, successes={(~y_true).sum():.0f}")
+
+    return x_train, x_test, y_true, episode_ids
+
+
+def load_tune_data(
+    env_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load tune dataset and return success-only data for fitting and scoring.
+
+    Looks up the task config for env_name, loads the tune dataset,
+    filters to successes only, normalizes, then extracts one random window
+    per episode.
+
+    Returns:
+        (x_train, x_test) — x_train is full success episodes, x_test is
+        windowed versions of the same episodes.
+    """
+    from config.tasks import TASK_CONFIGS
+    from utils.windows import sample_random_windows
+
+    cfg = TASK_CONFIGS[env_name]
+
+    X, fail = load_episodes(env_name, dataset="tune")
+    X = filter_successes(X, fail)
+    _, X = normalize_channels(X)
+
+    rng = np.random.default_rng()
+    # All successes → fail is all -1
+    fake_fail = np.full(len(X), -1)
+    x_test, _ = sample_random_windows(X, fake_fail, cfg.win, rng)
+
+    logger.info(f"Tune data: train={X.shape}, test={x_test.shape}")
+
+    return X, x_test
+
+
+# =============================================================================
 # Analysis Utilities
 # =============================================================================
 
@@ -195,7 +341,7 @@ def report_fail_proportions() -> dict:
     """
     results = {}
     rows = []
-    fail_pred_keys = [k for k in DATASETS.keys() if k.endswith('fail_pred')]
+    fail_pred_keys = [k for k in DATASETS if k.endswith('fail_pred')]
 
     # Collect data
     for key in fail_pred_keys:
@@ -221,7 +367,7 @@ def report_fail_proportions() -> dict:
     count_width = max(len(s) for s in count_strs) if count_strs else 0
 
     # Print aligned output
-    for row, count_str in zip(rows, count_strs):
+    for row, count_str in zip(rows, count_strs, strict=True):
         key = row[0]
         if row[1] is None:
             logger.info(f"{key:<{key_width}}  dataset not found")
