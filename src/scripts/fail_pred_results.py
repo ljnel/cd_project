@@ -16,61 +16,16 @@ import gc
 import warnings
 
 import numpy as np
-from sklearn.metrics import confusion_matrix, roc_curve
+from sklearn.metrics import roc_curve
 
 warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
-from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
+from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
-from utils.bootstrap import auroc_fn, bootstrap_metric, tpr_at_fpr_fn
+from utils.bootstrap import auroc_fn, bootstrap_se, tpr_at_fpr_fn
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
-
-
-def run_single_trial(
-    method_key: str,
-    x_train: np.ndarray,
-    x_test: np.ndarray,
-    y_true: np.ndarray,
-    seed: int,
-    env_name: str = None,
-) -> tuple[float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Run a single trial of anomaly detection.
-
-    Returns:
-        Tuple of (tnr, tpr, y_true, scores, fpr_curve, tpr_curve)
-    """
-    np.random.seed(seed)
-
-    # Create detector from config
-    model = get_detector(method_key, env=env_name)
-
-    # Fit and predict
-    model.fit(x_train)
-    scores = model.score_samples(x_test)
-    y_pred = np.where(scores > model.threshold_, 1, 0)
-
-    # Compute confusion matrix (normalized by true labels)
-    cm = confusion_matrix(y_true, y_pred, normalize='true')
-
-    if cm.shape == (2, 2):
-        tn, fp, fn, tp = cm.ravel()
-    else:
-        tn, tp = 1.0, 1.0
-        if len(np.unique(y_true)) == 1:
-            if y_true[0] == 0:
-                tn = 1.0 - (cm[0, 1] if cm.shape[1] > 1 else 0)
-            else:
-                tp = 1.0 - (cm[0, 0] if y_pred[0] == 0 else 0)
-
-    fpr_curve, tpr_curve, _ = roc_curve(y_true, scores)
-
-    del model
-    gc.collect()
-
-    return tn * 100, tp * 100, y_true, scores, fpr_curve, tpr_curve
 
 
 def run_experiments(
@@ -78,7 +33,6 @@ def run_experiments(
     x_train: np.ndarray,
     x_test: np.ndarray,
     y_true: np.ndarray,
-    episode_ids: np.ndarray,
     base_seed: int = 42,
     n_bootstrap: int = 10_000,
     env_name: str = None,
@@ -99,37 +53,32 @@ def run_experiments(
         print(f"{'='*60}")
 
         try:
-            tnr, tpr, y_true_out, scores, fpr_curve, tpr_curve = run_single_trial(
-                method_key, x_train, x_test, y_true, base_seed, env_name=env_name
+            np.random.seed(base_seed)
+            model = get_detector(method_key, env=env_name)
+            model.fit(x_train)
+            scores = model.score_samples(x_test)
+            fpr_curve, tpr_curve, _ = roc_curve(y_true, scores)
+            del model
+            gc.collect()
+
+            auroc_point, auroc_se = bootstrap_se(
+                y_true, scores, auroc_fn, n_resamples=n_bootstrap,
+            )
+            tpr5_point, tpr5_se = bootstrap_se(
+                y_true, scores, tpr_at_fpr_fn, n_resamples=n_bootstrap,
             )
 
-            auroc_point, auroc_se = bootstrap_metric(
-                y_true_out, scores, episode_ids, auroc_fn,
-                n_resamples=n_bootstrap,
-            )
-            tpr5_point, tpr5_se = bootstrap_metric(
-                y_true_out, scores, episode_ids, tpr_at_fpr_fn,
-                n_resamples=n_bootstrap,
-            )
-
-            # Bootstrap TNR and TPR via confusion matrix metrics
             def tnr_fn(y, s):
-                yp = np.where(s > 0, 1, 0)  # threshold at 0 (already centered)
-                cm = confusion_matrix(y, yp, normalize='true')
-                return cm[0, 0] * 100 if cm.shape == (2, 2) else 100.0
+                return np.mean(s[y == 0] <= 0) * 100
 
             def tpr_fn(y, s):
-                yp = np.where(s > 0, 1, 0)
-                cm = confusion_matrix(y, yp, normalize='true')
-                return cm[1, 1] * 100 if cm.shape == (2, 2) else 100.0
+                return np.mean(s[y == 1] > 0) * 100
 
-            tnr_point, tnr_se = bootstrap_metric(
-                y_true_out, scores, episode_ids, tnr_fn,
-                n_resamples=n_bootstrap,
+            tnr_point, tnr_se = bootstrap_se(
+                y_true, scores, tnr_fn, n_resamples=n_bootstrap,
             )
-            tpr_point, tpr_se = bootstrap_metric(
-                y_true_out, scores, episode_ids, tpr_fn,
-                n_resamples=n_bootstrap,
+            tpr_point, tpr_se = bootstrap_se(
+                y_true, scores, tpr_fn, n_resamples=n_bootstrap,
             )
 
             # ROC curve with bootstrap SE band
@@ -139,24 +88,14 @@ def run_experiments(
             print(f"  AUROC={auroc_point:.3f}+-{auroc_se:.3f}, "
                   f"TPR@5%FPR={tpr5_point:.3f}+-{tpr5_se:.3f}")
 
-            # Bootstrap SE band for ROC
-            from collections import defaultdict
-            ep_to_idx: dict[int, list[int]] = defaultdict(list)
-            for i, ep in enumerate(episode_ids):
-                ep_to_idx[int(ep)].append(i)
-            unique_eps = np.array(list(ep_to_idx.keys()))
-            n_eps = len(unique_eps)
-            rng = np.random.default_rng(42)
-            boot_tprs = []
-            for _ in range(min(n_bootstrap, 1000)):  # cap for ROC band
-                sampled = rng.choice(unique_eps, size=n_eps, replace=True)
-                idx = np.concatenate([ep_to_idx[ep] for ep in sampled])
-                try:
-                    fpr_b, tpr_b, _ = roc_curve(y_true_out[idx], scores[idx])
-                    boot_tprs.append(np.interp(mean_fpr, fpr_b, tpr_b))
-                except ValueError:
-                    continue
-            roc_se = np.std(boot_tprs, axis=0) if boot_tprs else np.zeros_like(mean_fpr)
+            def roc_interp_fn(y, s):
+                fpr_b, tpr_b, _ = roc_curve(y, s)
+                return np.interp(mean_fpr, fpr_b, tpr_b)
+
+            _, roc_se = bootstrap_se(
+                y_true, scores, roc_interp_fn,
+                n_resamples=min(n_bootstrap, 1000),
+            )
 
             results[display_name] = {
                 'TNR': (tnr_point, tnr_se),
@@ -229,41 +168,11 @@ def print_metric_summary(all_results: dict[str, dict], metric_key: str):
     print("-" * sep_len)
 
 
-def get_data_statistics(cfg: SafetyMonitorConfig) -> dict:
-    """Extract data statistics from the config for table generation."""
-    from config.datasets import DATASETS
-    from config.tasks import EVAL_SPLIT
-    from data.datasets import load_dataset
-
-    ds_cfg = DATASETS[f"{cfg.name}/fail_pred"]
-    data = load_dataset(ds_cfg)
-    X, fail = data['X'], data['fail']
-
-    # Train portion
-    train_fail = fail[:EVAL_SPLIT]
-    n_train_successes = int((train_fail == -1).sum())
-
-    # Test portion
-    test_fail = fail[EVAL_SPLIT:]
-    n_test = len(test_fail)
-    n_test_failures = int((test_fail >= 0).sum())
-
-    return {
-        'n_episodes': len(X),
-        'n_train_successes': n_train_successes,
-        'n_test': n_test,
-        'n_test_failures': n_test_failures,
-        'obs_dim': X.shape[-1],
-        'ep_len': X.shape[1],
-        'win': cfg.win,
-        'hor': cfg.hor,
-        'failure_prop': n_test_failures / n_test if n_test > 0 else 0,
-    }
-
-
 def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
             base_seed: int = 42, max_train_eps: int = None):
     """Run experiments for a single environment."""
+    from config.tasks import EVAL_SPLIT
+    from data.datasets import load_episodes
 
     if env_name not in TASK_CONFIGS:
         available = list(TASK_CONFIGS.keys())
@@ -275,22 +184,32 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     print(f"# Environment: {env_name}")
     print(f"{'#'*80}")
 
-    # Get data statistics
-    print("Loading data and computing statistics...")
-    stats = get_data_statistics(cfg)
+    # Compute data statistics from raw episodes
+    X, fail = load_episodes(env_name)
+    n_test = len(fail) - EVAL_SPLIT
+    n_test_failures = int((fail[EVAL_SPLIT:] >= 0).sum())
+    stats = {
+        'n_episodes': len(X),
+        'n_train_successes': int((fail[:EVAL_SPLIT] == -1).sum()),
+        'n_test': n_test,
+        'n_test_failures': n_test_failures,
+        'obs_dim': X.shape[-1],
+        'ep_len': X.shape[1],
+        'win': cfg.win,
+        'hor': cfg.hor,
+        'failure_prop': n_test_failures / n_test if n_test > 0 else 0,
+    }
     print(f"Data stats: {stats}")
 
     # Prepare eval data (single train/test split)
     print("\nPreparing evaluation data (train/test split)...")
     np.random.seed(base_seed)
     kwargs = {} if max_train_eps is None else {'max_train_eps': max_train_eps}
-    x_train, x_test, y_true, episode_ids = load_experiment(env_name, **kwargs)
-    assert len(episode_ids) == len(x_test), (
-        f"episode_ids length {len(episode_ids)} != x_test length {len(x_test)}")
+    x_train, x_test, y_true, _episode_ids = load_experiment(env_name, **kwargs)
 
     # Run experiments
     results = run_experiments(
-        method_keys, x_train, x_test, y_true, episode_ids,
+        method_keys, x_train, x_test, y_true,
         base_seed=base_seed, n_bootstrap=n_bootstrap, env_name=env_name,
     )
 
