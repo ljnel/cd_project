@@ -1,24 +1,6 @@
 """
-Detector factory and exports.
+Detector exports.
 """
 
-from config.detectors import DETECTOR_CONFIGS
 from detectors.conv import ConvAEDetector
 from detectors.kernel import KernDetector
-
-_CLASSES = {
-    'KernDetector': KernDetector,
-    'ConvAEDetector': ConvAEDetector,
-}
-
-
-def get_method(name: str):
-    """Create a detector instance by name."""
-    if name not in DETECTOR_CONFIGS:
-        raise ValueError(f"Unknown method: {name}. Available: {list(DETECTOR_CONFIGS.keys())}")
-
-    config = DETECTOR_CONFIGS[name].copy()
-    cls_name = config.pop('cls')
-    config.pop('display_name', None)  # remove non-constructor keys
-    cls = _CLASSES[cls_name]
-    return cls(**config)

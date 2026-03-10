@@ -19,19 +19,13 @@ logger = logging.getLogger("cd.detectors")
 
 class AnomalyDetector(BaseEstimator, OutlierMixin):
     """Sklearn wrapper for anomaly detection methods.
-    
+
     Parameters
     ----------
-    window : int or None
-        Window size for trajectory segmentation. None = auto-estimate.
-    stride : int
-        Stride for window extraction during training.
     cal_fraction : float
         Fraction of training data to use for calibration.
     threshold_quantile : float
         Quantile of calibration scores to use as threshold.
-    n_periods : int
-        Number of periods for frequency-based window estimation.
     """
     
     def __init__(self,
@@ -71,7 +65,7 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         self._fit_impl(X_train)
 
         if self.window is None:
-            raise RuntimeError(f"{self.__class__.__name__}._fit_impl() must set self.window_")
+            raise RuntimeError(f"{self.__class__.__name__}._fit_impl() must set self.window")
     
         X_cal_windows = self._get_cal_windows(X_cal)
         
@@ -95,9 +89,9 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         assert X_windows.shape[1] >= self.window, f'This estimator requires windows of length >= {self.window}'
 
         X_windows = X_windows[:, -self.window:]  # truncate if windows too long
-        return self._score_impl(X_windows)  # ????
-    
-    def decision_function(self, X_windows: np.ndarray) -> np.ndarray:  # ??????
+        return self._score_impl(X_windows)
+
+    def decision_function(self, X_windows: np.ndarray) -> np.ndarray:
         """Decision function (negative for outliers, sklearn convention)."""
         return self.threshold_ - self.score_samples(X_windows)
 
