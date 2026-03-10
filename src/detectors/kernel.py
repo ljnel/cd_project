@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 
 from algs.downsampling import downsample_regular
 from algs.kernels import RBF, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
-from algs.windowing import estimate_window, estimate_window_acf
+from utils.windows import estimate_window, estimate_window_acf
 from utils.signals import low_pass
 
 from .base import AnomalyDetector
