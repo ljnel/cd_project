@@ -16,13 +16,13 @@ pixi shell
 ```python
 import logging
 import numpy as np
-from detectors import get_method
+from config.detectors import get_detector
 
 # Enable diagnostic logging
 logging.basicConfig(level=logging.INFO)
 
 # Create the FFT-based kernel detector
-detector = get_method("fft")
+detector = get_detector("fft")
 
 # Load your trajectory data: (n_episodes, episode_length, obs_dim)
 # For example, 100 episodes of 200 timesteps with 3 features:
