@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
 from algs.kernels import GaussFFT, SigKernel
-from tasks.safety_monitor import SafetyMonitor, SafetyMonitorConfig
+from data.datasets import load_experiment
 from utils.plotting import plot_kern_mat
 from utils.signals import estimate_freq, spectral_entropy
 
@@ -54,14 +54,11 @@ if __name__ == "__main__":
     parser.add_argument('--debug', action="store_true")
     args = parser.parse_args()
 
-    task = SafetyMonitor(args.env, SafetyMonitorConfig(win=WIN, hor=HOR))
-    x_tr, x_te = task.get_train_test()
+    x_tr, x_te, y, _ = load_experiment(args.env)
 
     ####
     window = estimate_window_length(x_tr)
-    assert window <= WIN
     x = x_te[:, -window:]
-    y = task.y_true
     print(x.shape)
 
     x_sub, y_sub = sample(x, y, n=60)

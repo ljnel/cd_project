@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector
 from config.tasks import TASK_CONFIGS
-from tasks.fold_task import prepare_eval_data
+from data.datasets import load_experiment
 from utils.bootstrap import auroc_fn, bootstrap_metric
 
 MAX_WINDOWS_GRID = [100, 500, 1000]
@@ -25,9 +25,8 @@ METHOD_KEY = "basis"  # SideKIC
 
 
 def evaluate(env_name: str, max_windows: int, seed: int = 42, n_bootstrap: int = 10_000):
-    cfg = TASK_CONFIGS[env_name]
     np.random.seed(seed)
-    x_train, x_test, y_true, episode_ids = prepare_eval_data(cfg)
+    x_train, x_test, y_true, episode_ids = load_experiment(env_name)
 
     model = get_detector(METHOD_KEY, env=env_name, max_windows=max_windows)
     model.fit(x_train)

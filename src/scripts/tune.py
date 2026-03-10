@@ -27,7 +27,7 @@ from scipy.stats import iqr as compute_iqr
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
-from tasks.fold_task import prepare_tune_data
+from data.datasets import load_tune_data
 from utils.paths import get_root
 
 logger = logging.getLogger("cd.tune")
@@ -157,15 +157,13 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0,
         available = list(TASK_CONFIGS.keys())
         raise ValueError(f"Unknown environment: {env_name}\nAvailable: {available}")
 
-    cfg = TASK_CONFIGS[env_name]
-
     print(f"\n{'='*60}")
     print(f"Tuning: {env_name} (criterion={criterion})")
     print(f"{'='*60}")
 
     # Load independent tune dataset (seed=0, successes only)
     np.random.seed(seed)
-    x_tr, x_te = prepare_tune_data(cfg)
+    x_tr, x_te = load_tune_data(env_name)
 
     x_tr_windows = None
     if criterion == "p95":

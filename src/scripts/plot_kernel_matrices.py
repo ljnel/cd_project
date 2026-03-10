@@ -19,7 +19,7 @@ import numpy as np
 
 from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
-from tasks.safety_monitor import SafetyMonitor
+from data.datasets import load_experiment
 from utils.plotting import FULL_WIDTH, plot_kern_mat, setup_style
 
 setup_style()
@@ -45,10 +45,7 @@ def main():
 
     # Load data
     print(f"Loading {args.env} data...")
-    cfg = TASK_CONFIGS[args.env]
-    task = SafetyMonitor(cfg)
-    x_train, x_test = task.get_train_test()
-    y_test = task.get_test_labels()
+    x_train, x_test, y_test, _ = load_experiment(args.env)
 
     # Subsample test windows for visualization
     n_test = len(x_test)

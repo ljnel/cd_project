@@ -12,7 +12,7 @@ import numpy as np
 from algs.tucker import Tucker13
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
-from tasks.safety_monitor import SafetyMonitor
+from data.datasets import load_experiment
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.windows import strided_window_view
 
@@ -31,10 +31,7 @@ task_cfg = TASK_CONFIGS[env]
 env_info = ENV_INFO.get(env)
 display_name = env_info.display_name if env_info else env
 
-# Load data via SafetyMonitor (handles loading, splitting, normalization, windowing)
-task = SafetyMonitor(task_cfg)
-x_train, x_test = task.get_train_test()
-y_true = task.y_true
+x_train, x_test, y_true, _ = load_experiment(env)
 
 window = task_cfg.win
 D = x_train.shape[-1]

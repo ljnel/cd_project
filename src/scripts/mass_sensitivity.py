@@ -164,19 +164,21 @@ def generate_test_data(
     mass_range: tuple[float, float],
     n_episodes: int,
     seed: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate or load cached test data with mass uniformly sampled from range.
 
-    Only returns episodes that didn't fail (no early termination).
+    Returns all episodes, including ones that fail.
 
     Returns:
-        X: Array of episodes
+        X: Array of episodes (n_episodes, seq_len, state_dim)
         mass_values: Array of mass scale for each episode
+        fail: Array of failure timesteps (-1 = no failure)
     """
     cache_params = {
         "mass_range": list(mass_range),
         "n_episodes": n_episodes,
         "seed": seed,
+        "keep_failed": True,
     }
     cache_path = _get_cache_path(env_name, "test", cache_params)
 
@@ -185,9 +187,11 @@ def generate_test_data(
         cached = np.load(cache_path)
         X = cached['X']
         mass_values = cached['mass_values']
-        print(f"  Loaded {len(X)} episodes")
+        fail = cached['fail']
+        n_failed = (fail >= 0).sum()
+        print(f"  Loaded {len(X)} episodes ({n_failed} failed)")
         print(f"  Mass range: [{mass_values.min():.3f}, {mass_values.max():.3f}]")
-        return X, mass_values
+        return X, mass_values, fail
 
     print(f"Generating {n_episodes} test episodes with mass in {mass_range}...")
 
@@ -205,18 +209,59 @@ def generate_test_data(
     mass_values = data['mass_scale']
     fail = data['fail']
 
-    success_mask = fail < 0
-    X = X[success_mask]
-    mass_values = mass_values[success_mask]
-    n_failed = (~success_mask).sum()
-    print(f"  Generated {len(X)} episodes ({n_failed} failed episodes removed)")
+    n_failed = (fail >= 0).sum()
+    print(f"  Generated {len(X)} episodes ({n_failed} failed)")
     print(f"  Mass range: [{mass_values.min():.3f}, {mass_values.max():.3f}]")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(cache_path, X=X, mass_values=mass_values)
+    np.savez(cache_path, X=X, mass_values=mass_values, fail=fail)
     print(f"  Cached to {cache_path.name}")
 
-    return X, mass_values
+    return X, mass_values, fail
+
+
+# =============================================================================
+# Window Extraction
+# =============================================================================
+
+def extract_random_windows(
+    X: np.ndarray,
+    fail: np.ndarray,
+    win: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract one random window per episode, avoiding failure timesteps.
+
+    For each episode, sample a random window of length `win` such that the
+    window ends before the failure timestep (if any). Episodes where failure
+    occurs too early to fit a window (fail < win) are discarded.
+
+    Parameters
+    ----------
+    X : (n_episodes, seq_len, state_dim)
+    fail : (n_episodes,) failure timestep, -1 = no failure
+    win : window length
+    rng : numpy random generator
+
+    Returns
+    -------
+    windows : (n_valid, win, state_dim)
+    valid_mask : (n_episodes,) boolean mask of episodes that yielded a window
+    """
+    n_episodes, seq_len, _ = X.shape
+
+    # Max valid start index per episode
+    # No failure: can start anywhere in [0, seq_len - win]
+    # Failure at t: window must end before t, so start in [0, t - win]
+    max_start = np.where(fail < 0, seq_len - win, fail - win)
+    valid_mask = max_start >= 0
+
+    valid_indices = np.where(valid_mask)[0]
+    starts = rng.integers(0, max_start[valid_indices] + 1)
+
+    windows = np.array([X[i, s:s + win] for i, s in zip(valid_indices, starts)])
+
+    return windows, valid_mask
 
 
 # =============================================================================
@@ -239,10 +284,20 @@ def run_experiment(
     print(f"MASS ANOMALY SENSITIVITY EXPERIMENT - {env_name}")
     print("=" * 70)
 
+    task_cfg = TASK_CONFIGS[env_name]
+    win = task_cfg.win
+
     # --- Data Generation Phase ---
     print("\n--- Data Generation Phase ---")
     X_train = generate_train_data(env_name, N_TRAIN_EPISODES, seed=seed)
-    X_test, test_mass_values = generate_test_data(env_name, MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
+    X_test, test_mass_values, test_fail = generate_test_data(env_name, MASS_RANGE, N_TEST_EPISODES, seed=seed + 1)
+
+    # --- Extract Test Windows ---
+    rng = np.random.default_rng(seed + 2)
+    test_windows, valid_mask = extract_random_windows(X_test, test_fail, win, rng)
+    test_mass_values = test_mass_values[valid_mask]
+    n_discarded = (~valid_mask).sum()
+    print(f"  Extracted {len(test_windows)} test windows (win={win}, {n_discarded} episodes too short)")
 
     # --- Binning Setup ---
     bin_edges, bin_centers = make_bins(MASS_RANGE, BIN_WIDTH, center=1.0)
@@ -272,9 +327,9 @@ def run_experiment(
         model = trained_models[method_key]
         if model is not None:
             try:
-                # Score both training and test data
+                # Score training windows (for percentile reference)
                 train_scores = model.score_samples(X_train)
-                test_scores = model.score_samples(X_test)
+                test_scores = model.score_samples(test_windows)
                 # Compute percentiles relative to training distribution
                 # For each test score: what % of training scores are <= this score?
                 percentiles = 100 * np.mean(train_scores[:, None] <= test_scores[None, :], axis=0)
@@ -325,7 +380,7 @@ def plot_mass_sensitivity(
     ax.set_ylabel('Score Percentile')
     ax.set_xlim([bin_centers.min() - BIN_WIDTH/2, bin_centers.max() + BIN_WIDTH/2])
     ax.set_ylim([0, 105])
-    ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=8)
+    ax.legend(loc='lower left', fontsize=7)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()

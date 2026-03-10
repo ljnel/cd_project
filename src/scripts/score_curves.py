@@ -9,8 +9,8 @@ randomization ranges to produce:
   - High-res rendered frames (PNGs) for every timestep
 
 Usage:
-    python -m scripts.score_curves --env humanoid --n-episodes 5
-    python -m scripts.score_curves --env humanoid --n-episodes 2 --save-every 5
+    python -m scripts.score_curves --env humanoid --eps 5
+    python -m scripts.score_curves --env humanoid --eps 2 --save-every 5
 """
 
 import argparse
@@ -19,7 +19,6 @@ import warnings
 import matplotlib
 import numpy as np
 from PIL import Image
-from sklearn.preprocessing import StandardScaler
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,8 +29,8 @@ from config.datasets import DATASETS
 from config.detectors import get_detector
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
+from data.datasets import filter_successes, load_episodes, normalize_channels
 from envs.mujoco.termination import check_custom_termination
-from tasks.fold_task import create_fold_tasks
 from utils.paths import get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, setup_style
 from utils.windows import strided_window_view
@@ -150,7 +149,7 @@ def save_frames(frames, output_dir, episode_label, save_every=1):
 
 
 def run_env(env_name: str, n_episodes: int, seed: int,
-            frame_size: int, save_every: int, log_scale: bool = False):
+            frame_size: int, save_every: int):
     """Generate score curves + rendered frames for Figure 1."""
     import gymnasium as gym
     import mujoco
@@ -165,18 +164,10 @@ def run_env(env_name: str, n_episodes: int, seed: int,
 
     np.random.seed(seed)
 
-    # ------- Step 1: Load data, fit scaler & detector on fold 0 -------
-    tasks = create_fold_tasks(task_cfg, n_folds=5, seed=seed)
-    task = tasks[0]
-
-    success_mask = task.fail == -1
-    train_success_idx = task.train_idx[success_mask[task.train_idx]]
-    x_train_raw = task.X[train_success_idx]
-
-    scaler = StandardScaler()
-    flat = x_train_raw.reshape(-1, x_train_raw.shape[-1])
-    scaler.fit(flat)
-    x_train = scaler.transform(flat).reshape(x_train_raw.shape)
+    # ------- Step 1: Load data, fit scaler & detector -------
+    X, fail = load_episodes(env_name)
+    x_train = filter_successes(X, fail)
+    scaler, x_train = normalize_channels(x_train)
 
     print("Fitting Basis-CD...")
     detector = get_detector("basis", env=env_name)
@@ -293,47 +284,50 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     env.close()
 
     # ------- Step 6: Plot score curves -------
-    fig, ax = plt.subplots(figsize=(FULL_WIDTH, 2.2))
+    def _plot_curves(log_scale: bool) -> tuple:
+        suffix = "_log" if log_scale else ""
+        fig, ax = plt.subplots(figsize=(FULL_WIDTH, 2.2))
 
-    first_crossing = np.inf
-    last_fail = -1
-    for ts, scores, fail_step, is_success, _label in curve_data:
-        cross_mask = scores > detector.threshold_
-        if cross_mask.any():
-            cross_idx = int(np.argmax(cross_mask))
-            first_crossing = min(first_crossing, ts[cross_idx])
-            # Green segment (up to and including crossing point)
-            ax.plot(ts[:cross_idx + 1], scores[:cross_idx + 1],
-                    color=SUCCESS_COLOR, alpha=0.6)
-            # Red segment (from crossing point onward)
-            ax.plot(ts[cross_idx:], scores[cross_idx:],
-                    color=FAILURE_COLOR, alpha=0.6)
-        else:
-            ax.plot(ts, scores, color=SUCCESS_COLOR, alpha=0.6)
-        if not is_success and fail_step >= 0:
-            ax.plot(fail_step, np.interp(fail_step, ts, scores),
-                    "x", color=FAILURE_COLOR, markersize=6, markeredgewidth=1.5)
-            last_fail = max(last_fail, fail_step)
+        first_crossing = np.inf
+        last_fail = -1
+        for ts, scores, fail_step, is_success, _label in curve_data:
+            cross_mask = scores > detector.threshold_
+            if cross_mask.any():
+                cross_idx = int(np.argmax(cross_mask))
+                first_crossing = min(first_crossing, ts[cross_idx])
+                ax.plot(ts[:cross_idx], scores[:cross_idx],
+                        color=SUCCESS_COLOR, alpha=0.6)
+                ax.plot(ts[max(cross_idx - 1, 0):], scores[max(cross_idx - 1, 0):],
+                        color=FAILURE_COLOR, alpha=0.6)
+            else:
+                ax.plot(ts, scores, color=SUCCESS_COLOR, alpha=0.6)
+            if not is_success and fail_step >= 0:
+                ax.plot(fail_step, np.interp(fail_step, ts, scores),
+                        "x", color=FAILURE_COLOR, markersize=6, markeredgewidth=1.5)
+                last_fail = max(last_fail, fail_step)
 
-    ax.axhline(detector.threshold_, color="gray", linestyle="--",
-               label="threshold")
-    if first_crossing < np.inf:
-        ax.set_xlim(left=first_crossing - 100)
-    if last_fail >= 0:
-        ax.set_xlim(right=last_fail + 100)
-    if log_scale:
-        ax.set_yscale("log")
-    ax.set_xlabel("Timestep")
-    ax.set_ylabel("Score")
-    ax.legend(loc="upper left")
-    fig.tight_layout()
+        ax.axhline(detector.threshold_, color="gray", linestyle="--",
+                   label="threshold")
+        if first_crossing < np.inf:
+            ax.set_xlim(left=first_crossing - 100)
+        if last_fail >= 0:
+            ax.set_xlim(right=last_fail + 100)
+        if log_scale:
+            ax.set_yscale("log")
+        ax.set_xlabel("Timestep")
+        ax.set_ylabel("Score")
+        ax.legend(loc="upper left")
+        fig.tight_layout()
 
-    svg_path = output_dir / "score_curves.svg"
-    pdf_path = output_dir / "score_curves.pdf"
-    fig.savefig(svg_path, bbox_inches="tight")
-    fig.savefig(pdf_path, bbox_inches="tight")
-    plt.close(fig)
-    print(f"\nSaved score curves to {svg_path} and {pdf_path}")
+        svg_path = output_dir / f"score_curves{suffix}.svg"
+        pdf_path = output_dir / f"score_curves{suffix}.pdf"
+        fig.savefig(svg_path, bbox_inches="tight")
+        fig.savefig(pdf_path, bbox_inches="tight")
+        plt.close(fig)
+        return svg_path, pdf_path
+
+    paths = _plot_curves(log_scale=False) + _plot_curves(log_scale=True)
+    print(f"\nSaved score curves to {', '.join(str(p) for p in paths)}")
 
     # ------- Step 7: Save metadata -------
     meta_path = output_dir / "metadata.npz"
@@ -358,7 +352,7 @@ def main():
         help=f"Environment name (default: humanoid). Available: {list(TASK_CONFIGS.keys())}",
     )
     parser.add_argument(
-        "--n-episodes", type=int, default=N_EPISODES,
+        "--eps", type=int, default=N_EPISODES,
         help="Number of success/failure episodes to simulate (default: 5)",
     )
     parser.add_argument(
@@ -369,7 +363,6 @@ def main():
         "--save-every", type=int, default=1,
         help="Save every N-th frame (default: 1 = all frames)",
     )
-    parser.add_argument("--log", action="store_true", help="Use log scale for y-axis")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -390,8 +383,8 @@ def main():
             f"Available: {[k for k in DATASETS if k.endswith('/fail_pred')]}"
         )
 
-    run_env(args.env, args.n_episodes, args.seed,
-            args.frame_size, args.save_every, args.log)
+    run_env(args.env, args.eps, args.seed,
+            args.frame_size, args.save_every)
 
 
 if __name__ == "__main__":

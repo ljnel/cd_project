@@ -3,9 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.linalg import expm
 
-from tasks.experiment import Experiment
-
-
 @dataclass
 class CLO_Config:
     dim: int
@@ -20,7 +17,7 @@ CLO_CFG = {
     'clo1': CLO_Config(dim=25, coupling=0.5, t=1, fs=100, n_tr=250, n_te=500)
 }
 
-class CoupledLinearOsc(Experiment):
+class CoupledLinearOsc:
     def __init__(self, cfg):
         self.cfg = cfg
 

@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS, SafetyMonitorConfig
-from tasks.fold_task import prepare_eval_data
+from data.datasets import load_experiment
 from utils.bootstrap import auroc_fn, bootstrap_metric, tpr_at_fpr_fn
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_root
@@ -283,7 +283,8 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     # Prepare eval data (single train/test split)
     print("\nPreparing evaluation data (train/test split)...")
     np.random.seed(base_seed)
-    x_train, x_test, y_true, episode_ids = prepare_eval_data(cfg, max_train_eps=max_train_eps)
+    kwargs = {} if max_train_eps is None else {'max_train_eps': max_train_eps}
+    x_train, x_test, y_true, episode_ids = load_experiment(env_name, **kwargs)
     assert len(episode_ids) == len(x_test), (
         f"episode_ids length {len(episode_ids)} != x_test length {len(x_test)}")
 

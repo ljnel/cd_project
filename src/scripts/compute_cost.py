@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from tasks.fold_task import create_fold_tasks
+from data.datasets import load_experiment
 from utils.paths import get_root
 from utils.plotting import FULL_WIDTH, setup_style
 
@@ -178,17 +178,14 @@ def run_env(
         available = list(TASK_CONFIGS.keys())
         raise ValueError(f"Unknown environment: {env_name}\nAvailable: {available}")
 
-    cfg = TASK_CONFIGS[env_name]
-
     print(f"\n{'#' * 80}")
     print(f"# Environment: {env_name}")
     print(f"{'#' * 80}")
 
-    # Create a single fold task to get train/test data
+    # Load data with same split as fail_pred_results.py, capped at 300 train episodes
     print("\nLoading data...")
-    tasks = create_fold_tasks(cfg, n_folds=5, seed=seed)
-    task = tasks[0]  # Use first fold for benchmarking
-    X_train, X_test = task.get_train_test(verbose=True)
+    np.random.seed(seed)
+    X_train, X_test, _, _ = load_experiment(env_name)
 
     # Run experiment
     print("\n" + "=" * 60)

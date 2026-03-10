@@ -12,7 +12,8 @@ from algs.kern_cd import KernCD
 from algs.kernels import RBF
 from config.conv_ae import CAE_CFG
 from models.conv_ae import ConvAE, train
-from tasks.safety_monitor import TASK_CONFIGS, SafetyMonitor
+from config.tasks import TASK_CONFIGS
+from data.datasets import load_experiment
 from utils.windows import WindowDataset
 
 BS = 128
@@ -51,12 +52,10 @@ if __name__ == "__main__":
     parser.add_argument('--alg', type=str)
     args = parser.parse_args()
 
-    task = SafetyMonitor(args.env, TASK_CONFIGS[args.env])
-    x_tr, x_te = task.get_train_test()
+    x_tr, x_te, y_true, _ = load_experiment(args.env)
     x_tr = x_tr.astype(np.float32)
     x_tr, x_cal = train_test_split(x_tr, test_size=CAL)
     x_te = x_te.astype(np.float32)
-    y_true = task.y_true
     print(f'x_tr shape: {x_tr.shape}, \
           x_cal shape: {x_cal.shape}, \
           x_te shape: {x_te.shape}')

@@ -9,7 +9,8 @@ from sklearn.model_selection import train_test_split
 from algs.dim_red import PCA_FFT
 from algs.kern_cd import KernCD
 from algs.kernels import RBF, GaussFFT, SigKernel
-from tasks.safety_monitor import TASK_CONFIGS, SafetyMonitor
+from config.tasks import TASK_CONFIGS
+from data.datasets import load_experiment
 from utils.signals import estimate_freq, low_pass
 
 CAL = 0.3  # calibration set size
@@ -49,10 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--alg', type=str)
     args = parser.parse_args()
 
-    sm_cfg = TASK_CONFIGS[args.env]
-
-    task = SafetyMonitor(args.env, sm_cfg)
-    x_tr, x_te = task.get_train_test()
+    x_tr, x_te, y_true, _ = load_experiment(args.env)
 
     from utils.signals import low_pass
     alpha = 0.8
@@ -113,7 +111,7 @@ if __name__ == "__main__":
         y_pred = model.predict(x_te_trial) > q
 
         #y_score = model.predict(x_te_trial)
-        y_true = task.get_test_labels()
+        # y_true already set from load_experiment
         #score, q = fpr_at_recall(y_true, y_score)
         #score, thresh = precision_at_recall(y_true, y_score, recall_level=0.9)
         score = confusion_matrix(y_true, y_pred, normalize='true')
