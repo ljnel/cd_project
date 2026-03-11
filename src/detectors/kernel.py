@@ -3,7 +3,7 @@
 This module provides sklearn-compatible wrappers around kernel methods.
 The underlying algorithm (KernCD) lives in algs.kern_cd.
 """
-
+    
 import logging
 import warnings
 
