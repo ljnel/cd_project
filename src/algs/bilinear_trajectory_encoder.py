@@ -5,8 +5,8 @@ from typing import Union
 
 # --- Enums defining the algorithm design space ---
 class TemporalType(Enum):
-    EXPLICIT = "explicit"  
-    KERNEL = "kernel"      
+    EXPLICIT = "explicit"       # Requires a basis matrix B of shape (T, K)
+    KERNEL = "kernel"           # Requires a kernel matrix K_t of shape (T, T)      
 
 class OptStrategy(Enum):
     SPACE_THEN_TIME = "1_pca_then_ridge"
@@ -55,7 +55,9 @@ class BilinearTrajectoryEncoder:
                 raise ValueError("Must provide kernel_matrix (T, T) for KERNEL type.")
             self.K_t = kernel_matrix
             T = self.K_t.shape[0]
-            self.H = self.K_t @ np.linalg.inv(self.K_t + self.ridge_lambda * np.eye(T))
+            self.H = np.linalg.solve(
+                (self.K_t + self.ridge_lambda * np.eye(T)).T, self.K_t.T
+            ).T
 
         # Internal state to be learned/set during fit
         self.S_ = None 
@@ -93,23 +95,17 @@ class BilinearTrajectoryEncoder:
         self._check_is_fitted()
         N, T, D = X.shape
         
+        X_reduced = X @ self.S_  # (N, T, M)
+
         if self.temporal_type == TemporalType.EXPLICIT:
             K = self.B.shape[1]
-            encodings = np.zeros((N, K, self.M))
-            inv_BtB_Bt = np.linalg.inv(self.B.T @ self.B + self.ridge_lambda * np.eye(K)) @ self.B.T
-            
-            for i in range(N):
-                X_reduced = X[i] @ self.S_
-                encodings[i] = inv_BtB_Bt @ X_reduced
-            return encodings
-            
+            H = np.linalg.solve(
+                self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
+            )  # (K, T)
+            return H @ X_reduced  # (N, K, M)
+
         elif self.temporal_type == TemporalType.KERNEL:
-            encodings = np.zeros((N, T, self.M))
-            
-            for i in range(N):
-                X_reduced = X[i] @ self.S_
-                encodings[i] = self.H @ X_reduced
-            return encodings
+            return self.H @ X_reduced  # (N, T, M)
 
     def inverse_transform(self, encodings: np.ndarray) -> np.ndarray:
         """Maps the low-dimensional encodings back to the (N, T, D) space."""
@@ -117,15 +113,10 @@ class BilinearTrajectoryEncoder:
         N = encodings.shape[0]
         T = self.B.shape[0] if self.temporal_type == TemporalType.EXPLICIT else encodings.shape[1]
         
-        X_reconstructed = np.zeros((N, T, self.S_.shape[0]))
-        
-        for i in range(N):
-            if self.temporal_type == TemporalType.EXPLICIT:
-                X_reconstructed[i] = (self.B @ encodings[i]) @ self.S_.T
-            elif self.temporal_type == TemporalType.KERNEL:
-                X_reconstructed[i] = encodings[i] @ self.S_.T
-                
-        return X_reconstructed
+        if self.temporal_type == TemporalType.EXPLICIT:
+            return (self.B @ encodings) @ self.S_.T  # (N, T, D)
+        elif self.temporal_type == TemporalType.KERNEL:
+            return encodings @ self.S_.T  # (N, T, D)
 
     def reconstruct(self, X: np.ndarray) -> np.ndarray:
         """Convenience method: encodes and immediately decodes the tensor."""
@@ -171,20 +162,16 @@ class BilinearTrajectoryEncoder:
     def _fit_2A(self, X: np.ndarray) -> np.ndarray:
         N, T, D = X.shape
         K = self.B.shape[1]
-        inv_BtB_Bt = np.linalg.inv(self.B.T @ self.B + self.ridge_lambda * np.eye(K)) @ self.B.T
-        
-        C = np.zeros((N, K, D))
-        for i in range(N):
-            C[i] = inv_BtB_Bt @ X[i]
-            
-        return self._extract_pca_components(C.reshape(N * K, D))
+        H = np.linalg.solve(
+            self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
+        )  # (K, T)
+        W = H @ X  # (N, K, D)
+
+        return self._extract_pca_components(W.reshape(N * K, D))
 
     def _fit_2B(self, X: np.ndarray) -> np.ndarray:
         N, T, D = X.shape
-        X_smoothed = np.zeros_like(X)
-        for i in range(N):
-            X_smoothed[i] = self.H @ X[i]
-            
+        X_smoothed = self.H @ X  # (N, T, D)
         return self._extract_pca_components(X_smoothed.reshape(N * T, D))
 
     def _fit_3A_ALS(self, X: np.ndarray) -> np.ndarray:
