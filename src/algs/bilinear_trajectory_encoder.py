@@ -3,10 +3,8 @@ from enum import Enum
 from sklearn.decomposition import PCA
 from typing import Union
 
-# --- Enums defining the algorithm design space ---
-class TemporalType(Enum):
-    EXPLICIT = "explicit"       # Requires a basis matrix B of shape (T, K)
-    KERNEL = "kernel"           # Requires a kernel matrix K_t of shape (T, T)      
+from algs.temporal_basis import TemporalBasis
+from algs.temporal_kernel import TemporalKernel
 
 class OptStrategy(Enum):
     SPACE_THEN_TIME = "1_pca_then_ridge"
@@ -19,21 +17,20 @@ class BilinearTrajectoryEncoder:
     Expects input data X of shape (N, T, D).
     """
     def __init__(
-        self, 
-        n_spatial_components: Union[int, float, None], 
-        temporal_type: TemporalType, 
+        self,
+        n_spatial_components: Union[int, float, None],
+        temporal: Union[TemporalBasis, TemporalKernel],
         strategy: OptStrategy,
-        temporal_basis: np.ndarray = None, 
-        kernel_matrix: np.ndarray = None, 
         ridge_lambda: float = 1e-3,
         max_als_iters: int = 50
     ):
         self.n_spatial_components = n_spatial_components
-        self.temporal_type = temporal_type
+        self.temporal = temporal
         self.strategy = strategy
         self.ridge_lambda = ridge_lambda
         self.max_als_iters = max_als_iters
-        
+        self._is_basis = isinstance(temporal, TemporalBasis)
+
         # --- Priority Logic: n_spatial_components overrides strategy ---
         if isinstance(self.n_spatial_components, float) or self.n_spatial_components is None:
             if self.strategy == OptStrategy.JOINT:
@@ -44,43 +41,42 @@ class BilinearTrajectoryEncoder:
                     "PCA to dynamically select components or if you want to bypass spatial reduction."
                 )
 
-        # --- Validate and Initialize Temporal Inputs ---
-        if self.temporal_type == TemporalType.EXPLICIT:
-            if temporal_basis is None:
-                raise ValueError("Must provide temporal_basis (T, K) for EXPLICIT type.")
-            self.B = temporal_basis
-            
-        elif self.temporal_type == TemporalType.KERNEL:
-            if kernel_matrix is None:
-                raise ValueError("Must provide kernel_matrix (T, T) for KERNEL type.")
-            self.K_t = kernel_matrix
-            T = self.K_t.shape[0]
-            self.H = np.linalg.solve(
-                (self.K_t + self.ridge_lambda * np.eye(T)).T, self.K_t.T
-            ).T
-
         # Internal state to be learned/set during fit
-        self.S_ = None 
+        self.S_ = None
         self.M = None # Dynamically set after fit() determines the final dimension
 
     # --- CORE API METHODS ---
 
     def fit(self, X: np.ndarray):
-        """Learns the shared spatial basis S of shape (D, M)."""
+        """Learns the shared spatial basis S of shape (D, M).
+
+        Assumes uniform temporal sampling: time points are spaced as
+        linspace(0, 1, T) where T = X.shape[1].
+        """
         N, T, D = X.shape
-        
+
+        # Evaluate temporal object to get the matrix
+        t = np.linspace(0, 1, T)
+        if self._is_basis:
+            self.B = self.temporal(t)
+        else:
+            self.K_t = self.temporal(t)
+            self.H = np.linalg.solve(
+                (self.K_t + self.ridge_lambda * np.eye(T)).T, self.K_t.T
+            ).T
+
         if self.strategy == OptStrategy.SPACE_THEN_TIME:
             X_flat = X.reshape(N * T, D)
             self.S_ = self._extract_pca_components(X_flat)
             
         elif self.strategy == OptStrategy.TIME_THEN_SPACE:
-            if self.temporal_type == TemporalType.EXPLICIT:
+            if self._is_basis:
                 self.S_ = self._fit_2A(X)
             else:
                 self.S_ = self._fit_2B(X)
-                
+
         elif self.strategy == OptStrategy.JOINT:
-            if self.temporal_type == TemporalType.EXPLICIT:
+            if self._is_basis:
                 self.S_ = self._fit_3A_ALS(X)
             else:
                 self.S_ = self._fit_3B_ALS(X)
@@ -97,25 +93,22 @@ class BilinearTrajectoryEncoder:
         
         X_reduced = X @ self.S_  # (N, T, M)
 
-        if self.temporal_type == TemporalType.EXPLICIT:
+        if self._is_basis:
             K = self.B.shape[1]
             H = np.linalg.solve(
                 self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
             )  # (K, T)
             return H @ X_reduced  # (N, K, M)
-
-        elif self.temporal_type == TemporalType.KERNEL:
+        else:
             return self.H @ X_reduced  # (N, T, M)
 
     def inverse_transform(self, encodings: np.ndarray) -> np.ndarray:
         """Maps the low-dimensional encodings back to the (N, T, D) space."""
         self._check_is_fitted()
         N = encodings.shape[0]
-        T = self.B.shape[0] if self.temporal_type == TemporalType.EXPLICIT else encodings.shape[1]
-        
-        if self.temporal_type == TemporalType.EXPLICIT:
+        if self._is_basis:
             return (self.B @ encodings) @ self.S_.T  # (N, T, D)
-        elif self.temporal_type == TemporalType.KERNEL:
+        else:
             return encodings @ self.S_.T  # (N, T, D)
 
     def reconstruct(self, X: np.ndarray) -> np.ndarray:

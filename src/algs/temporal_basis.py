@@ -6,7 +6,6 @@ BilinearTrajectoryEncoder.
 """
 
 from abc import ABC, abstractmethod
-
 import numpy as np
 
 
@@ -83,7 +82,8 @@ class BSplineBasis(TemporalBasis):
         for i in range(self.n_basis):
             coeffs = np.zeros(self.n_basis)
             coeffs[i] = 1.0
-            spline = BSpline(self.knots, coeffs, self.order - 1, extrapolate=False)
+            spline = BSpline(self.knots, coeffs,
+                             self.order - 1, extrapolate=False)
             vals = spline(t)
             vals[np.isnan(vals)] = 0.0
             Phi[:, i] = vals
@@ -107,19 +107,17 @@ class FourierBasis(TemporalBasis):
     """Truncated Fourier (real) basis on [0, 1].
 
     Produces ``2*n_harmonics + 1`` basis functions: a constant term plus
-    cos/sin pairs for harmonics 1 .. n_harmonics.  Set ``n_basis`` to the
-    desired number of harmonics; the actual basis size is ``2*n_basis + 1``.
+    cos/sin pairs for harmonics 1 .. n_harmonics.
 
     Parameters
     ----------
-    n_basis : int
-        Number of harmonics (the actual basis size is 2*n_basis + 1).
+    n_harmonics : int
+        Number of harmonics. The actual basis size is 2*n_harmonics + 1.
     """
 
-    def __init__(self, n_basis):
-        self.n_harmonics = n_basis
-        actual_basis = 2 * n_basis + 1
-        super().__init__(actual_basis)
+    def __init__(self, n_harmonics):
+        self.n_harmonics = n_harmonics
+        super().__init__(2 * n_harmonics + 1)
 
     def __call__(self, t):
         t = np.asarray(t)
