@@ -175,7 +175,55 @@ class BilinearTrajectoryEncoder:
         return self._extract_pca_components(X_smoothed.reshape(N * T, D))
 
     def _fit_3A_ALS(self, X: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Joint ALS for explicit basis not implemented.")
+        N, T, D = X.shape
+        K = self.B.shape[1]
+        M = self.n_spatial_components
+        X_flat = X.reshape(N * T, D)
+
+        # Precompute ridge solve matrix for temporal projection
+        H = np.linalg.solve(
+            self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
+        )  # (K, T)
+
+        # Initialize S from strategy 2A
+        W_init = H @ X  # (N, K, D)
+        pca = PCA(n_components=M)
+        pca.fit(W_init.reshape(N * K, D))
+        S = pca.components_.T  # (D, M)
+
+        for _ in range(self.max_als_iters):
+            # Step 1: fix S, solve for W in reduced space
+            W = H @ (X @ S)  # (N, K, M)
+            # Step 2: fix W, solve for S (orthonormal)
+            # Minimize ||X - B @ W @ S'||^2 over orthonormal S
+            R = (self.B @ W).reshape(N * T, M)  # reconstructed in reduced space
+            U, _, Vt = np.linalg.svd(X_flat.T @ R, full_matrices=False)
+            S_new = U @ Vt  # (D, M)
+            if np.linalg.norm(S_new - S) < 1e-8:
+                break
+            S = S_new
+
+        return S
 
     def _fit_3B_ALS(self, X: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Joint ALS for kernel not implemented.")
+        """
+        Joint Optimization for Kernel (Algorithm 3B).
+        Because the bilinear kernel objective has a closed-form solution,
+        the ALS loop analytically collapses into a single eigen-decomposition.
+        """
+        N, T, D = X.shape
+        
+        # 1. Build the modified covariance matrix: sum(X_i^T * H * X_i)
+        A = np.einsum('nti,ts,nsj->ij', X, self.H, X)
+        assert A.shape == (D, D)
+
+        # 2. Extract the spatial directions via SVD
+        U, _, _ = np.linalg.svd(A)
+        
+        # 3. Handle the dynamic spatial component sizing
+        # (Note: We know n_spatial_components is not a float here due to 
+        # the gatekeeping logic in __init__)
+        if self.n_spatial_components is None:
+            return U
+            
+        return U[:, :self.n_spatial_components]

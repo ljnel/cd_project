@@ -8,7 +8,7 @@ from algs.bilinear_trajectory_encoder import (
     OptStrategy,
     TemporalType,
 )
-from algs.basis_projection import BasisProjector, GaussianBasis
+from algs.temporal_basis import GaussianBasis
 
 
 # ---------------------------------------------------------------------------
@@ -25,8 +25,8 @@ def gaussian_basis():
     """(T, K) explicit basis matrix from GaussianBasis."""
     T, K = 50, 10
     t = np.linspace(0, 1, T)
-    basis = GaussianBasis(n_basis=K, n_dims=1)
-    return basis._compute_basis_single(t)
+    basis = GaussianBasis(n_basis=K)
+    return basis(t)
 
 
 @pytest.fixture
@@ -283,22 +283,64 @@ class TestStrategyEquivalence:
 
 
 # ---------------------------------------------------------------------------
-# 6. JOINT raises NotImplementedError
+# 6. JOINT optimization
 # ---------------------------------------------------------------------------
 
-class TestJointNotImplemented:
+class TestJoint:
 
-    def test_joint_explicit_raises(self, rng, gaussian_basis):
-        N, T, D = 10, gaussian_basis.shape[0], 3
+    def test_joint_explicit_shapes(self, rng, gaussian_basis):
+        """3A should fit and produce correct shapes."""
+        T, K = gaussian_basis.shape
+        N, D, M = 20, 6, 3
         X = rng.randn(N, T, D)
         enc = BilinearTrajectoryEncoder(
-            n_spatial_components=2,
+            n_spatial_components=M,
             temporal_type=TemporalType.EXPLICIT,
             strategy=OptStrategy.JOINT,
             temporal_basis=gaussian_basis,
         )
-        with pytest.raises(NotImplementedError):
-            enc.fit(X)
+        enc.fit(X)
+        assert enc.S_.shape == (D, M)
+        assert enc.transform(X).shape == (N, K, M)
+        assert enc.reconstruct(X).shape == (N, T, D)
+
+    def test_joint_explicit_improves_on_sequential(self, rng, gaussian_basis):
+        """3A should achieve reconstruction error <= strategy 2A."""
+        T = gaussian_basis.shape[0]
+        N, D, M = 30, 6, 2
+        X = rng.randn(N, T, D)
+
+        enc_seq = BilinearTrajectoryEncoder(
+            n_spatial_components=M,
+            temporal_type=TemporalType.EXPLICIT,
+            strategy=OptStrategy.TIME_THEN_SPACE,
+            temporal_basis=gaussian_basis,
+        )
+        enc_joint = BilinearTrajectoryEncoder(
+            n_spatial_components=M,
+            temporal_type=TemporalType.EXPLICIT,
+            strategy=OptStrategy.JOINT,
+            temporal_basis=gaussian_basis,
+        )
+
+        err_seq = enc_seq.fit(X).get_stats(X)["relative_error"]
+        err_joint = enc_joint.fit(X).get_stats(X)["relative_error"]
+        assert err_joint <= err_seq + 1e-6, (
+            f"Joint error {err_joint:.6f} > sequential error {err_seq:.6f}"
+        )
+
+    def test_joint_explicit_low_rank(self, low_rank_data, gaussian_basis):
+        """3A should achieve near-zero error on low-rank data."""
+        enc = BilinearTrajectoryEncoder(
+            n_spatial_components=3,
+            temporal_type=TemporalType.EXPLICIT,
+            strategy=OptStrategy.JOINT,
+            temporal_basis=gaussian_basis,
+            ridge_lambda=1e-10,
+        )
+        enc.fit(low_rank_data)
+        stats = enc.get_stats(low_rank_data)
+        assert stats["relative_error"] < 0.05
 
     def test_joint_kernel_raises(self, rng, rbf_kernel):
         N, T, D = 10, rbf_kernel.shape[0], 3
@@ -380,42 +422,3 @@ class TestShapes:
         enc.fit(X)
         assert enc.M < D
 
-
-# ---------------------------------------------------------------------------
-# 8. Consistency with BasisProjector
-# ---------------------------------------------------------------------------
-
-class TestBasisProjectorConsistency:
-    """With n_spatial=None + EXPLICIT + SPACE_THEN_TIME, should match
-    BasisProjector.project up to a transpose."""
-
-    def test_matches_basis_projector(self, rng, gaussian_basis):
-        T, K = gaussian_basis.shape
-        N, D = 20, 4
-        X = rng.randn(N, T, D)
-        ridge_lambda = 1e-6
-        t = np.linspace(0, 1, T)
-
-        # BilinearTrajectoryEncoder
-        enc = BilinearTrajectoryEncoder(
-            n_spatial_components=None,
-            temporal_type=TemporalType.EXPLICIT,
-            strategy=OptStrategy.SPACE_THEN_TIME,
-            temporal_basis=gaussian_basis,
-            ridge_lambda=ridge_lambda,
-        )
-        enc.fit(X)
-        bte_result = enc.transform(X)  # (N, K, D)
-
-        # BasisProjector
-        proj = BasisProjector(
-            n_dims=D, n_basis=K,
-            basis_type="gaussian",
-            ridge_lambda=ridge_lambda,
-        )
-        bp_result = proj.project(X, t)  # (N, D, K)
-
-        # BTE returns (N, K, D), BasisProjector returns (N, D, K) — transpose
-        np.testing.assert_allclose(
-            bte_result, bp_result.transpose(0, 2, 1), atol=1e-6
-        )
