@@ -30,16 +30,37 @@ logger = logging.getLogger("cd.data.datasets")
 # Episode Helpers
 # =============================================================================
 
-def load_episodes(env_name: str, dataset: str = "fail_pred") -> tuple[np.ndarray, np.ndarray]:
+def load_episodes(
+    env_name: str, dataset: str = "fail_pred", obs_only: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
     """Load episodes and failure labels from disk.
 
-    Returns:
-        X: (n_episodes, seq_len, channels)
-        fail: (n_episodes,) — -1 for success, >=0 for failure timestep
+    Parameters
+    ----------
+    env_name : str
+        Environment key (e.g. ``'hopper'``, ``'humanoid'``).
+    dataset : str
+        Dataset variant (e.g. ``'fail_pred'``, ``'tune'``).
+    obs_only : bool
+        If True, keep only the physically observable dimensions
+        (qpos + qvel) as defined by ``EnvInfo.obs_slice``. Has no
+        effect for environments where all dims are already observable.
+
+    Returns
+    -------
+    X : ndarray of shape (n_episodes, seq_len, channels)
+    fail : ndarray of shape (n_episodes,)
+        ``-1`` for success, ``>= 0`` for failure timestep.
     """
     ds_cfg = DATASETS[f"{env_name}/{dataset}"]
     data = load_dataset(ds_cfg)
-    return data['X'], data['fail']
+    X = data['X']
+    if obs_only:
+        from config.envs import ENV_INFO
+        obs_slice = ENV_INFO[env_name].obs_slice
+        if obs_slice is not None:
+            X = X[:, :, obs_slice]
+    return X, data['fail']
 
 
 def split_train_test(
@@ -255,6 +276,8 @@ def load_experiment(
     env_name: str,
     split_at: int | None = 1000,
     max_train_eps: int | None = 300,
+    trim: bool = False,
+    obs_only: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load eval dataset and split into train/test with normalization.
 
@@ -264,9 +287,17 @@ def load_experiment(
     Train = successes from episodes [:split_at].
     Test  = all episodes from [split_at:], windowed.
 
+    Parameters
+    ----------
+    trim : bool
+        If True, discard the first ``cfg.win`` timesteps from every
+        episode before splitting (via ``trim_transient``).
+    obs_only : bool
+        If True, keep only physically observable dimensions (qpos + qvel).
+
     Returns:
         (x_train, x_test, y_true, episode_ids) where episode_ids maps
-        each test window back to its source episode index.
+        each test window back to its original episode index.
     """
     from config.tasks import EVAL_SPLIT, TASK_CONFIGS
     from utils.windows import sample_test_windows
@@ -276,7 +307,10 @@ def load_experiment(
 
     cfg = TASK_CONFIGS[env_name]
 
-    X, fail = load_episodes(env_name)
+    X, fail = load_episodes(env_name, obs_only=obs_only)
+    if trim:
+        X, fail, kept = trim_transient(X, fail, cfg.win)
+        split_at = int((kept < split_at).sum())
     X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
     x_train = filter_successes(X_tr, fail_tr, eps=max_train_eps)
     _, x_train, X_te = normalize_channels(x_train, X_te)

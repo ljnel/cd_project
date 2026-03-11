@@ -125,7 +125,7 @@ _CLS_REGISTRY = {}
 def _ensure_registry():
     if _CLS_REGISTRY:
         return
-    from detectors.basis import BasisDetector
+    # from detectors.basis import BasisDetector  # TODO: algs.basis_projection missing
     from detectors.conv import ConvAEDetector
     from detectors.iforest import IForestDetector
     from detectors.kernel import KernDetector
@@ -134,7 +134,7 @@ def _ensure_registry():
     _CLS_REGISTRY.update({
         'KernDetector': KernDetector,
         'ConvAEDetector': ConvAEDetector,
-        'BasisDetector': BasisDetector,
+        # 'BasisDetector': BasisDetector,
         'TuckerDetector': TuckerDetector,
         'KNNDetector': KNNDetector,
         'IForestDetector': IForestDetector,

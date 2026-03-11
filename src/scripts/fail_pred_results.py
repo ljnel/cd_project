@@ -169,7 +169,7 @@ def print_metric_summary(all_results: dict[str, dict], metric_key: str):
 
 
 def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
-            base_seed: int = 42, max_train_eps: int = None):
+            base_seed: int = 42, max_train_eps: int = None, obs_only: bool = True):
     """Run experiments for a single environment."""
     from config.tasks import EVAL_SPLIT
     from data.datasets import load_episodes
@@ -181,11 +181,11 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     cfg = TASK_CONFIGS[env_name]
 
     print(f"\n{'#'*80}")
-    print(f"# Environment: {env_name}")
+    print(f"# Environment: {env_name} (obs_only={obs_only})")
     print(f"{'#'*80}")
 
     # Compute data statistics from raw episodes
-    X, fail = load_episodes(env_name)
+    X, fail = load_episodes(env_name, obs_only=obs_only)
     n_test = len(fail) - EVAL_SPLIT
     n_test_failures = int((fail[EVAL_SPLIT:] >= 0).sum())
     stats = {
@@ -205,7 +205,7 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     print("\nPreparing evaluation data (train/test split)...")
     np.random.seed(base_seed)
     kwargs = {} if max_train_eps is None else {'max_train_eps': max_train_eps}
-    x_train, x_test, y_true, _episode_ids = load_experiment(env_name, **kwargs)
+    x_train, x_test, y_true, _episode_ids = load_experiment(env_name, obs_only=obs_only, **kwargs)
 
     # Run experiments
     results = run_experiments(
@@ -259,6 +259,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
     parser.add_argument('--tr-ep', type=int, default=None,
                         help='Max number of successful train episodes to keep (default: all)')
+    parser.add_argument('--obs-only', action='store_true', help='Use only physically observable dims (qpos+qvel)')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable info-level logging')
     args = parser.parse_args()
 
@@ -286,6 +287,7 @@ if __name__ == "__main__":
             results, stats = run_env(
                 env_name, method_keys, n_bootstrap=args.n_bootstrap,
                 base_seed=args.seed, max_train_eps=args.tr_ep,
+                obs_only=args.obs_only,
             )
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
