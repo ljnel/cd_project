@@ -83,7 +83,19 @@ def plot_kern_mat(K, y, ax, title=None):
         ax.set_title(title)
 
 
-def plot_channels(x, y, max_channels=9, max_batches=20):
+def plot_channels(x: np.ndarray, y: np.ndarray, max_channels: int = 9, max_batches: int = 20):
+    """Plot per-channel time series colored by binary label.
+
+    Parameters
+    ----------
+    x : ndarray of shape (n_batch, n_steps, n_channels)
+    y : ndarray of shape (n_batch,)
+        Binary label: 0 = green, 1 = red.
+    max_channels : int
+        Maximum number of channels to plot (randomly sampled if exceeded).
+    max_batches : int
+        Maximum number of trajectories per subplot (randomly sampled if exceeded).
+    """
     import math
     n_batch, n_step, n_channel = x.shape
 
