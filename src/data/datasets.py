@@ -93,6 +93,40 @@ def filter_successes(
     return X_success
 
 
+def stratified_subsample(
+    x: np.ndarray, y: np.ndarray, n_eps: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Subsample to n_eps episodes, preserving the inlier/outlier ratio.
+
+    Args:
+        x: (N, T, D) trajectory data
+        y: (N,) binary, False = inlier, True = outlier
+        n_eps: total number of episodes to keep
+
+    Returns:
+        x_sub: (n_eps, T, D)
+        y_sub: (n_eps,)
+    """
+    y = np.asarray(y)
+    assert np.isin(y, [0, 1]).all() or y.dtype == bool, f"y must be binary, got unique values {np.unique(y)}"
+    y = y.astype(bool)
+    N = len(y)
+    ratio = y.sum() / N
+    n_out = int(round(n_eps * ratio))
+    n_in = n_eps - n_out
+
+    x_in = x[~y][:n_in]
+    x_out = x[y][:n_out]
+    if len(x_in) < n_in:
+        logger.warning(f"Requested {n_in} inliers but only {len(x_in)} available")
+    if len(x_out) < n_out:
+        logger.warning(f"Requested {n_out} outliers but only {len(x_out)} available")
+
+    x_sub = np.concatenate([x_in, x_out], axis=0)
+    y_sub = np.array([False] * len(x_in) + [True] * len(x_out))
+    return x_sub, y_sub
+
+
 def normalize_channels(
     X_fit: np.ndarray, *X_others: np.ndarray,
 ) -> tuple:
