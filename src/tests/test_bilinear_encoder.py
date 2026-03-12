@@ -7,10 +7,11 @@ from algs.bilinear_trajectory_encoder import BilinearTrajectoryEncoder, OptStrat
 from algs.temporal_basis import GaussianBasis
 from algs.temporal_kernel import RBFKernel
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+T = 50
 
 @pytest.fixture
 def rng():
@@ -20,20 +21,19 @@ def rng():
 @pytest.fixture
 def gaussian_basis():
     """GaussianBasis object with K=10."""
-    return GaussianBasis(n_basis=10)
+    return GaussianBasis(n_basis=10, n_steps=T)
 
 
 @pytest.fixture
 def rbf_kernel():
     """RBFKernel object."""
-    return RBFKernel(length_scale=1.0 / 50)
+    return RBFKernel(n_steps=T, length_scale=1.0 / T)
 
 
 @pytest.fixture
 def low_rank_data(rng, gaussian_basis):
     """Data exactly representable by the basis: X = A @ B.T expanded per dim."""
     N, D, rank = 30, 6, 3
-    T = 50
     K = gaussian_basis.n_basis
     t = np.linspace(0, 1, T)
     B = gaussian_basis(t)  # (T, K)
@@ -49,7 +49,7 @@ def low_rank_data(rng, gaussian_basis):
 @pytest.fixture
 def smooth_signal_with_noise(rng):
     """D-1 smooth dims + 1 pure noise dim."""
-    N, T, D = 40, 50, 5
+    N, D = 40, 5
     t = np.linspace(0, 2 * np.pi, T)
     X = np.zeros((N, T, D))
     for d in range(D - 1):
@@ -63,7 +63,7 @@ def smooth_signal_with_noise(rng):
 @pytest.fixture
 def variance_data(rng):
     """Dim 0 has 10x the variance of dim 1, rest are small."""
-    N, T, D = 50, 50, 4
+    N, D = 50, 4
     X = 0.01 * rng.randn(N, T, D)
     X[:, :, 0] += 10.0 * rng.randn(N, T)
     X[:, :, 1] += 1.0 * rng.randn(N, T)
@@ -83,14 +83,13 @@ WORKING_COMBOS = [
 
 
 def make_encoder(temporal_key, strategy, gaussian_basis, rbf_kernel,
-                 n_spatial=3, ridge_lambda=1e-6):
+                 n_spatial=3):
     """Helper to build an encoder for a given combination."""
     temporal = gaussian_basis if temporal_key == "basis" else rbf_kernel
     return BilinearTrajectoryEncoder(
         n_spatial_components=n_spatial,
         temporal=temporal,
         strategy=strategy,
-        ridge_lambda=ridge_lambda,
     )
 
 
@@ -105,7 +104,7 @@ class TestLowRankReconstruction:
     def test_low_rank_reconstruction(self, temporal_key, strategy,
                                      low_rank_data, gaussian_basis, rbf_kernel):
         enc = make_encoder(temporal_key, strategy, gaussian_basis, rbf_kernel,
-                           n_spatial=None, ridge_lambda=1e-10)
+                           n_spatial=None)
         enc.fit(low_rank_data)
         stats = enc.get_stats(low_rank_data)
         assert stats["relative_error"] < 0.05, (
@@ -122,47 +121,47 @@ class TestIdentitySpatial:
     """With no spatial reduction, output should match manual temporal projection."""
 
     def test_explicit_identity_matches_manual(self, rng, gaussian_basis):
-        T, N, D = 50, 20, 4
+        N, D = 20, 4
         X = rng.randn(N, T, D)
-        ridge_lambda = 1e-6
+        ridge = 1e-6
         K = gaussian_basis.n_basis
 
+        basis_manual = GaussianBasis(n_basis=10, n_steps=T, ridge=ridge)
         enc = BilinearTrajectoryEncoder(
             n_spatial_components=None,
-            temporal=gaussian_basis,
+            temporal=basis_manual,
             strategy=OptStrategy.SPACE_THEN_TIME,
-            ridge_lambda=ridge_lambda,
         )
         enc.fit(X)
         result = enc.transform(X)
 
         # Manual: (B'B + λI)^{-1} B' X
         t = np.linspace(0, 1, T)
-        B = gaussian_basis(t)
-        BtB = B.T @ B + ridge_lambda * np.eye(K)
+        B = basis_manual(t)
+        BtB = B.T @ B + ridge * np.eye(K)
         H = np.linalg.solve(BtB, B.T)
         expected = H @ X  # (K, T) @ (N, T, D) -> (N, K, D)
 
         np.testing.assert_allclose(result, expected, atol=1e-8)
 
-    def test_kernel_identity_matches_manual(self, rng, rbf_kernel):
-        T, N, D = 50, 20, 4
+    def test_kernel_identity_matches_manual(self, rng):
+        N, D = 20, 4
         X = rng.randn(N, T, D)
-        ridge_lambda = 1e-3
+        ridge = 1e-3
 
+        kernel = RBFKernel(n_steps=T, ridge=ridge, length_scale=1.0 / T)
         enc = BilinearTrajectoryEncoder(
             n_spatial_components=None,
-            temporal=rbf_kernel,
+            temporal=kernel,
             strategy=OptStrategy.SPACE_THEN_TIME,
-            ridge_lambda=ridge_lambda,
         )
         enc.fit(X)
         result = enc.transform(X)
 
         # Manual: K (K + λI)^{-1} X
         t = np.linspace(0, 1, T)
-        K_t = rbf_kernel(t)
-        H = K_t @ np.linalg.inv(K_t + ridge_lambda * np.eye(T))
+        K_t = kernel(t)
+        H = K_t @ np.linalg.inv(K_t + ridge * np.eye(T))
         expected = H @ X
 
         np.testing.assert_allclose(result, expected, atol=1e-8)
@@ -225,7 +224,7 @@ class TestStrategyEquivalence:
     when n_spatial_components=None (no spatial reduction)."""
 
     def test_explicit_strategies_equivalent(self, rng, gaussian_basis):
-        T, N, D = 50, 20, 4
+        N, D = 20, 4
         X = rng.randn(N, T, D)
 
         enc1 = BilinearTrajectoryEncoder(
@@ -244,7 +243,7 @@ class TestStrategyEquivalence:
         np.testing.assert_allclose(recon1, recon2, atol=1e-8)
 
     def test_kernel_strategies_equivalent(self, rng, rbf_kernel):
-        T, N, D = 50, 20, 4
+        N, D = 20, 4
         X = rng.randn(N, T, D)
 
         enc1 = BilinearTrajectoryEncoder(
@@ -270,8 +269,8 @@ class TestStrategyEquivalence:
 class TestJoint:
 
     def test_joint_explicit_shapes(self, rng, gaussian_basis):
-        """3A should fit and produce correct shapes."""
-        T, K = 50, gaussian_basis.n_basis
+        """Joint should fit and produce correct shapes."""
+        K = gaussian_basis.n_basis
         N, D, M = 20, 6, 3
         X = rng.randn(N, T, D)
         enc = BilinearTrajectoryEncoder(
@@ -285,8 +284,8 @@ class TestJoint:
         assert enc.reconstruct(X).shape == (N, T, D)
 
     def test_joint_explicit_improves_on_sequential(self, rng, gaussian_basis):
-        """3A should achieve reconstruction error <= strategy 2A."""
-        T, N, D, M = 50, 30, 6, 2
+        """Joint should achieve reconstruction error <= TIME_THEN_SPACE."""
+        N, D, M = 30, 6, 2
         X = rng.randn(N, T, D)
 
         enc_seq = BilinearTrajectoryEncoder(
@@ -306,13 +305,13 @@ class TestJoint:
             f"Joint error {err_joint:.6f} > sequential error {err_seq:.6f}"
         )
 
-    def test_joint_explicit_low_rank(self, low_rank_data, gaussian_basis):
-        """3A should achieve near-zero error on low-rank data."""
+    def test_joint_explicit_low_rank(self, low_rank_data):
+        """Joint should achieve near-zero error on low-rank data."""
+        basis = GaussianBasis(n_basis=10, n_steps=T, ridge=1e-10)
         enc = BilinearTrajectoryEncoder(
             n_spatial_components=3,
-            temporal=gaussian_basis,
+            temporal=basis,
             strategy=OptStrategy.JOINT,
-            ridge_lambda=1e-10,
         )
         enc.fit(low_rank_data)
         stats = enc.get_stats(low_rank_data)
@@ -328,7 +327,7 @@ class TestShapes:
     @pytest.mark.parametrize("temporal_key,strategy", WORKING_COMBOS)
     def test_transform_shape(self, temporal_key, strategy, rng,
                              gaussian_basis, rbf_kernel):
-        T, K = 50, gaussian_basis.n_basis
+        K = gaussian_basis.n_basis
         N, D, M = 15, 6, 3
         X = rng.randn(N, T, D)
 
@@ -345,7 +344,7 @@ class TestShapes:
     @pytest.mark.parametrize("temporal_key,strategy", WORKING_COMBOS)
     def test_inverse_transform_shape(self, temporal_key, strategy, rng,
                                      gaussian_basis, rbf_kernel):
-        T, N, D, M = 50, 15, 6, 3
+        N, D, M = 15, 6, 3
         X = rng.randn(N, T, D)
 
         enc = make_encoder(temporal_key, strategy, gaussian_basis, rbf_kernel,
@@ -357,7 +356,7 @@ class TestShapes:
     @pytest.mark.parametrize("temporal_key,strategy", WORKING_COMBOS)
     def test_n_features(self, temporal_key, strategy, rng,
                         gaussian_basis, rbf_kernel):
-        T, N, D, M = 50, 15, 6, 3
+        N, D, M = 15, 6, 3
         X = rng.randn(N, T, D)
 
         enc = make_encoder(temporal_key, strategy, gaussian_basis, rbf_kernel,
@@ -367,7 +366,7 @@ class TestShapes:
 
     def test_float_n_spatial_reduces_dims(self, rng, gaussian_basis):
         """Using a float (variance threshold) should produce M < D."""
-        T, N, D = 50, 20, 8
+        N, D = 20, 8
         X = rng.randn(N, T, D)
         # Make first 2 dims dominant
         X[:, :, 0] *= 100
@@ -380,4 +379,3 @@ class TestShapes:
         )
         enc.fit(X)
         assert enc.M < D
-

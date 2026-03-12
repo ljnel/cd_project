@@ -78,6 +78,44 @@ def spectral_entropy(x, axis=1, trunc=None, eps=1e-12):
     return H
 
 
+def estimate_period_acf(x: np.ndarray, min_lag: int = 2) -> int:
+    """Estimate dominant period from the first peak of the autocorrelation.
+
+    Computes the ACF for each episode/feature via FFT, averages across
+    all of them, and returns the lag of the first local maximum.
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, T, D)
+        Trajectory data.
+    min_lag : int
+        Minimum lag to consider (avoids the trivial peak at lag 0).
+
+    Returns
+    -------
+    period : int
+        Estimated dominant period in time steps.
+    """
+    N, T, D = x.shape
+    x_centered = x - x.mean(axis=1, keepdims=True)
+
+    n_fft = 2 * T
+    X_freq = np.fft.rfft(x_centered, n=n_fft, axis=1)
+    acf_full = np.fft.irfft(X_freq * np.conj(X_freq), n=n_fft, axis=1)
+    acf_full = acf_full[:, :T, :]
+    acf_full = acf_full / (acf_full[:, 0:1, :] + 1e-12)
+
+    mean_acf = acf_full.mean(axis=(0, 2))
+
+    # Find first local maximum after min_lag
+    for i in range(min_lag, T - 1):
+        if mean_acf[i] >= mean_acf[i - 1] and mean_acf[i] >= mean_acf[i + 1]:
+            return i
+
+    # No peak found — signal is not periodic
+    return T
+
+
 def low_pass(x: np.ndarray, alpha: float) -> np.ndarray:
     # x: (time, channel)
     # y[n] = alpha*x[n] + (1-alpha)*y[n-1]

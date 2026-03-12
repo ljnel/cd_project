@@ -312,6 +312,8 @@ def load_experiment(
     max_train_eps: int | None = 300,
     trim: bool = False,
     obs_only: bool = True,
+    win: int | None = None,
+    hor: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load eval dataset and split into train/test with normalization.
 
@@ -324,10 +326,14 @@ def load_experiment(
     Parameters
     ----------
     trim : bool
-        If True, discard the first ``cfg.win`` timesteps from every
+        If True, discard the first ``win`` timesteps from every
         episode before splitting (via ``trim_transient``).
     obs_only : bool
         If True, keep only physically observable dimensions (qpos + qvel).
+    win : int, optional
+        Window length. Overrides the task config if provided.
+    hor : int, optional
+        Failure prediction horizon. Overrides the task config if provided.
 
     Returns:
         (x_train, x_test, y_true, episode_ids) where episode_ids maps
@@ -340,10 +346,12 @@ def load_experiment(
         split_at = EVAL_SPLIT
 
     cfg = TASK_CONFIGS[env_name]
+    win = win if win is not None else cfg.win
+    hor = hor if hor is not None else cfg.hor
 
     X, fail = load_episodes(env_name, obs_only=obs_only)
     if trim:
-        X, fail, kept = trim_transient(X, fail, cfg.win)
+        X, fail, kept = trim_transient(X, fail, win)
         split_at = int((kept < split_at).sum())
     X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
     x_train = filter_successes(X_tr, fail_tr, eps=max_train_eps)
@@ -351,8 +359,8 @@ def load_experiment(
 
     x_test, y_true, episode_ids = sample_test_windows(
         X_te, fail_te,
-        window=cfg.win,
-        horizon=cfg.hor,
+        window=win,
+        horizon=hor,
         episode_id_offset=split_at,
     )
 

@@ -6,14 +6,21 @@ BilinearTrajectoryEncoder.
 """
 
 from abc import ABC, abstractmethod
+
 import numpy as np
 
 
 class TemporalBasis(ABC):
     """Abstract base class for temporal basis functions."""
 
-    def __init__(self, n_basis):
+    def __init__(self, n_basis, n_steps, ridge=1e-3):
         self.n_basis = n_basis  # K
+        t = np.linspace(0, 1, n_steps)
+        self.B_ = self(t)  # (T, K)
+        K = self.B_.shape[1]
+        self.H_ = np.linalg.solve(
+            self.B_.T @ self.B_ + ridge * np.eye(K), self.B_.T
+        )  # (K, T)
 
     @abstractmethod
     def __call__(self, t: np.ndarray) -> np.ndarray:
@@ -29,12 +36,20 @@ class TemporalBasis(ABC):
         Phi : ndarray of shape (T, K)
         """
 
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Apply temporal smoothing: (..., T, ...) -> (..., K, ...)."""
+        return self.H_ @ X
+
+    def inverse_transform(self, encodings: np.ndarray) -> np.ndarray:
+        """Reconstruct from basis coefficients: (..., K, ...) -> (..., T, ...)."""
+        return self.B_ @ encodings
+
 
 class GaussianBasis(TemporalBasis):
-    def __init__(self, n_basis, width=None):
-        super().__init__(n_basis)
+    def __init__(self, n_basis, n_steps, ridge=1e-3, width=None):
         self.centers = np.linspace(0, 1, n_basis)
         self.width = width if width else (1.0 / max(n_basis - 1, 1))**2
+        super().__init__(n_basis, n_steps, ridge)
 
     def __call__(self, t):
         t = t[:, None]
@@ -43,10 +58,10 @@ class GaussianBasis(TemporalBasis):
 
 
 class VonMisesBasis(TemporalBasis):
-    def __init__(self, n_basis, concentration=None):
-        super().__init__(n_basis)
+    def __init__(self, n_basis, n_steps, ridge=1e-3, concentration=None):
         self.centers = np.linspace(0, 2 * np.pi, n_basis, endpoint=False)
         self.h = concentration if concentration else n_basis**2 / (4 * np.pi)
+        super().__init__(n_basis, n_steps, ridge)
 
     def __call__(self, t):
         theta = 2 * np.pi * t[:, None]
@@ -64,8 +79,7 @@ class BSplineBasis(TemporalBasis):
         Spline order (degree + 1). Default 4 (cubic splines).
     """
 
-    def __init__(self, n_basis, order=4):
-        super().__init__(n_basis)
+    def __init__(self, n_basis, n_steps, ridge=1e-3, order=4):
         self.order = order
         n_internal = n_basis - order + 2
         internal = np.linspace(0, 1, n_internal)
@@ -74,6 +88,7 @@ class BSplineBasis(TemporalBasis):
             internal,
             np.ones(order - 1),
         ])
+        super().__init__(n_basis, n_steps, ridge)
 
     def __call__(self, t):
         from scipy.interpolate import BSpline
@@ -97,6 +112,9 @@ class SineBasis(TemporalBasis):
     from a shared start/goal after mean trajectory subtraction.
     """
 
+    def __init__(self, n_basis, n_steps, ridge=1e-3):
+        super().__init__(n_basis, n_steps, ridge)
+
     def __call__(self, t):
         t = np.asarray(t)
         k = np.arange(1, self.n_basis + 1)  # (K,)
@@ -115,9 +133,9 @@ class FourierBasis(TemporalBasis):
         Number of harmonics. The actual basis size is 2*n_harmonics + 1.
     """
 
-    def __init__(self, n_harmonics):
+    def __init__(self, n_harmonics, n_steps, ridge=1e-3):
         self.n_harmonics = n_harmonics
-        super().__init__(2 * n_harmonics + 1)
+        super().__init__(2 * n_harmonics + 1, n_steps, ridge)
 
     def __call__(self, t):
         t = np.asarray(t)

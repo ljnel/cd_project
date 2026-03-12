@@ -1,10 +1,11 @@
-import numpy as np
 from enum import Enum
+
+import numpy as np
 from sklearn.decomposition import PCA
-from typing import Union
 
 from algs.temporal_basis import TemporalBasis
 from algs.temporal_kernel import TemporalKernel
+
 
 class OptStrategy(Enum):
     SPACE_THEN_TIME = "1_pca_then_ridge"
@@ -18,22 +19,20 @@ class BilinearTrajectoryEncoder:
     """
     def __init__(
         self,
-        n_spatial_components: Union[int, float, None],
-        temporal: Union[TemporalBasis, TemporalKernel],
+        n_spatial_components: int | float | None,
+        temporal: TemporalBasis | TemporalKernel,
         strategy: OptStrategy,
-        ridge_lambda: float = 1e-3,
         max_als_iters: int = 50
     ):
         self.n_spatial_components = n_spatial_components
         self.temporal = temporal
         self.strategy = strategy
-        self.ridge_lambda = ridge_lambda
         self.max_als_iters = max_als_iters
-        self._is_basis = isinstance(temporal, TemporalBasis)
 
         # --- Priority Logic: n_spatial_components overrides strategy ---
-        if isinstance(self.n_spatial_components, float) or self.n_spatial_components is None:
-            if self.strategy == OptStrategy.JOINT:
+        if (
+            isinstance(self.n_spatial_components, float) or self.n_spatial_components is None
+        ) and self.strategy == OptStrategy.JOINT:
                 raise ValueError(
                     f"Conflict: n_spatial_components was set to {self.n_spatial_components}. "
                     "Joint Optimization (ALS) requires a fixed integer for matrix shapes. "
@@ -48,38 +47,18 @@ class BilinearTrajectoryEncoder:
     # --- CORE API METHODS ---
 
     def fit(self, X: np.ndarray):
-        """Learns the shared spatial basis S of shape (D, M).
-
-        Assumes uniform temporal sampling: time points are spaced as
-        linspace(0, 1, T) where T = X.shape[1].
-        """
+        """Learns the shared spatial basis S of shape (D, M)."""
         N, T, D = X.shape
-
-        # Evaluate temporal object to get the matrix
-        t = np.linspace(0, 1, T)
-        if self._is_basis:
-            self.B = self.temporal(t)
-        else:
-            self.K_t = self.temporal(t)
-            self.H = np.linalg.solve(
-                (self.K_t + self.ridge_lambda * np.eye(T)).T, self.K_t.T
-            ).T
 
         if self.strategy == OptStrategy.SPACE_THEN_TIME:
             X_flat = X.reshape(N * T, D)
             self.S_ = self._extract_pca_components(X_flat)
-            
+
         elif self.strategy == OptStrategy.TIME_THEN_SPACE:
-            if self._is_basis:
-                self.S_ = self._fit_2A(X)
-            else:
-                self.S_ = self._fit_2B(X)
+            self.S_ = self._fit_time_then_space(X)
 
         elif self.strategy == OptStrategy.JOINT:
-            if self._is_basis:
-                self.S_ = self._fit_3A_ALS(X)
-            else:
-                self.S_ = self._fit_3B_ALS(X)
+            self.S_ = self._fit_joint(X)
 
         # Dynamically store the exact number of spatial components kept
         self.M = self.S_.shape[1]
@@ -87,29 +66,15 @@ class BilinearTrajectoryEncoder:
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
-        """Projects the input tensor X into its low-dimensional encoding."""
+        """Encodes the input tensor X into its low-dimensional representation."""
         self._check_is_fitted()
-        N, T, D = X.shape
-        
         X_reduced = X @ self.S_  # (N, T, M)
-
-        if self._is_basis:
-            K = self.B.shape[1]
-            H = np.linalg.solve(
-                self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
-            )  # (K, T)
-            return H @ X_reduced  # (N, K, M)
-        else:
-            return self.H @ X_reduced  # (N, T, M)
+        return self.temporal.transform(X_reduced)
 
     def inverse_transform(self, encodings: np.ndarray) -> np.ndarray:
         """Maps the low-dimensional encodings back to the (N, T, D) space."""
         self._check_is_fitted()
-        N = encodings.shape[0]
-        if self._is_basis:
-            return (self.B @ encodings) @ self.S_.T  # (N, T, D)
-        else:
-            return encodings @ self.S_.T  # (N, T, D)
+        return self.temporal.inverse_transform(encodings) @ self.S_.T
 
     def reconstruct(self, X: np.ndarray) -> np.ndarray:
         """Convenience method: encodes and immediately decodes the tensor."""
@@ -118,16 +83,16 @@ class BilinearTrajectoryEncoder:
     def get_stats(self, X: np.ndarray) -> dict:
         """Returns the relative approximation error and compression ratio."""
         self._check_is_fitted()
-        
+
         encodings = self.transform(X)
         X_reconstructed = self.inverse_transform(encodings)
-        
+
         error_norm = np.linalg.norm(X - X_reconstructed)
         original_norm = np.linalg.norm(X)
         relative_error = error_norm / original_norm
-        
+
         compression_ratio = X.size / encodings.size
-        
+
         return {
             "relative_error": relative_error,
             "compression_ratio": compression_ratio,
@@ -146,50 +111,33 @@ class BilinearTrajectoryEncoder:
         if self.n_spatial_components is None:
             D = data_2d.shape[1]
             return np.eye(D)
-            
+
         # 2. Sklearn handles both int (exact count) and float (variance explained)
         pca = PCA(n_components=self.n_spatial_components)
         pca.fit(data_2d)
-        return pca.components_.T 
+        return pca.components_.T
 
-    def _fit_2A(self, X: np.ndarray) -> np.ndarray:
+    def _fit_time_then_space(self, X: np.ndarray) -> np.ndarray:
         N, T, D = X.shape
-        K = self.B.shape[1]
-        H = np.linalg.solve(
-            self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
-        )  # (K, T)
-        W = H @ X  # (N, K, D)
+        W = self.temporal.transform(X)  # (N, K_or_r_or_T, D)
+        return self._extract_pca_components(W.reshape(-1, D))
 
-        return self._extract_pca_components(W.reshape(N * K, D))
-
-    def _fit_2B(self, X: np.ndarray) -> np.ndarray:
+    def _fit_joint(self, X: np.ndarray) -> np.ndarray:
         N, T, D = X.shape
-        X_smoothed = self.H @ X  # (N, T, D)
-        return self._extract_pca_components(X_smoothed.reshape(N * T, D))
-
-    def _fit_3A_ALS(self, X: np.ndarray) -> np.ndarray:
-        N, T, D = X.shape
-        K = self.B.shape[1]
         M = self.n_spatial_components
         X_flat = X.reshape(N * T, D)
 
-        # Precompute ridge solve matrix for temporal projection
-        H = np.linalg.solve(
-            self.B.T @ self.B + self.ridge_lambda * np.eye(K), self.B.T
-        )  # (K, T)
-
-        # Initialize S from strategy 2A
-        W_init = H @ X  # (N, K, D)
+        # Initialize S from TIME_THEN_SPACE
+        W_init = self.temporal.transform(X)  # (N, K_or_r_or_T, D)
         pca = PCA(n_components=M)
-        pca.fit(W_init.reshape(N * K, D))
+        pca.fit(W_init.reshape(-1, D))
         S = pca.components_.T  # (D, M)
 
         for _ in range(self.max_als_iters):
             # Step 1: fix S, solve for W in reduced space
-            W = H @ (X @ S)  # (N, K, M)
+            W = self.temporal.transform(X @ S)  # (N, K_or_r_or_T, M)
             # Step 2: fix W, solve for S (orthonormal)
-            # Minimize ||X - B @ W @ S'||^2 over orthonormal S
-            R = (self.B @ W).reshape(N * T, M)  # reconstructed in reduced space
+            R = self.temporal.inverse_transform(W).reshape(N * T, M)
             U, _, Vt = np.linalg.svd(X_flat.T @ R, full_matrices=False)
             S_new = U @ Vt  # (D, M)
             if np.linalg.norm(S_new - S) < 1e-8:
@@ -197,26 +145,3 @@ class BilinearTrajectoryEncoder:
             S = S_new
 
         return S
-
-    def _fit_3B_ALS(self, X: np.ndarray) -> np.ndarray:
-        """
-        Joint Optimization for Kernel (Algorithm 3B).
-        Because the bilinear kernel objective has a closed-form solution,
-        the ALS loop analytically collapses into a single eigen-decomposition.
-        """
-        N, T, D = X.shape
-        
-        # 1. Build the modified covariance matrix: sum(X_i^T * H * X_i)
-        A = np.einsum('nti,ts,nsj->ij', X, self.H, X)
-        assert A.shape == (D, D)
-
-        # 2. Extract the spatial directions via SVD
-        U, _, _ = np.linalg.svd(A)
-        
-        # 3. Handle the dynamic spatial component sizing
-        # (Note: We know n_spatial_components is not a float here due to 
-        # the gatekeeping logic in __init__)
-        if self.n_spatial_components is None:
-            return U
-            
-        return U[:, :self.n_spatial_components]

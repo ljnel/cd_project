@@ -23,7 +23,6 @@ from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
 from utils.windows import strided_window_view
 
-
 STRATEGY_MAP = {
     "space_then_time": OptStrategy.SPACE_THEN_TIME,
     "time_then_space": OptStrategy.TIME_THEN_SPACE,
@@ -31,7 +30,7 @@ STRATEGY_MAP = {
 }
 
 
-def run(env_name, n_basis, n_spatial, strategy, ridge_lambda, seed):
+def run(env_name, n_basis, n_spatial, strategy, ridge, seed):
     np.random.seed(seed)
 
     # Load data (test is already windowed and normalized)
@@ -58,12 +57,11 @@ def run(env_name, n_basis, n_spatial, strategy, ridge_lambda, seed):
         print(f"Subsampled to {max_windows} windows")
 
     # Fit encoder
-    basis = GaussianBasis(n_basis=n_basis)
+    basis = GaussianBasis(n_basis=n_basis, n_steps=window, ridge=ridge)
     enc = BilinearTrajectoryEncoder(
         n_spatial_components=n_spatial,
         temporal=basis,
         strategy=strategy,
-        ridge_lambda=ridge_lambda,
     )
     enc.fit(train_windows)
     stats = enc.get_stats(train_windows)
@@ -98,7 +96,7 @@ if __name__ == "__main__":
                         help="Spatial components: int, float (variance fraction), or 'none'")
     parser.add_argument("--strategy", type=str, default="space_then_time",
                         choices=list(STRATEGY_MAP.keys()))
-    parser.add_argument("--ridge-lambda", type=float, default=1e-5)
+    parser.add_argument("--ridge", type=float, default=1e-5)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -115,6 +113,6 @@ if __name__ == "__main__":
         n_basis=args.n_basis,
         n_spatial=n_spatial,
         strategy=STRATEGY_MAP[args.strategy],
-        ridge_lambda=args.ridge_lambda,
+        ridge=args.ridge,
         seed=args.seed,
     )
