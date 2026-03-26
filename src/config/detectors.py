@@ -67,13 +67,13 @@ DETECTOR_CONFIGS = {
     "basis": dict(
         cls='BasisDetector',
         n_basis=10,
+        basis_type='gaussian',
+        strategy='time_then_space',
         window_frac=0.1,
         max_windows=1000,
         reg=1e-5,
         gamma='median',
-        display_name='SideKIC',
-        ridge_lambda=1e1,
-        basis_type='gaussian',
+        display_name='Basis-KIC',
     ),
     "tucker": dict(
         cls='TuckerDetector',
@@ -99,23 +99,28 @@ DETECTOR_CONFIGS = {
         max_windows=10_000,
         display_name='IForest',
     ),
+    "dist": dict(
+        cls='RFFMeanDetector',
+        n_components=256,
+        reg=1e-5,
+        display_name='Dist-KIC',
+    ),
 }
 
 DEFAULT_METHODS = [
-    # Baselines
+    # Standard ML baselines
     "rec",
     "knn",
     "iforest",
     # KIC variants
     "fft",
     "sig",
-    "lat",
-    # Proposed
     "basis",
+    "dist",
 ]
 
 # Indices where a \midrule should be inserted (before that row)
-METHOD_GROUP_BREAKS = {6}  # before SideKIC
+METHOD_GROUP_BREAKS = {3}  # before FFT-KIC
 
 # Registry mapping cls string to class. Imports are deferred to avoid
 # circular dependencies (detectors may import from config).
@@ -125,19 +130,21 @@ _CLS_REGISTRY = {}
 def _ensure_registry():
     if _CLS_REGISTRY:
         return
-    # from detectors.basis import BasisDetector  # TODO: algs.basis_projection missing
+    from detectors.basis import BasisDetector
     from detectors.conv import ConvAEDetector
     from detectors.iforest import IForestDetector
     from detectors.kernel import KernDetector
     from detectors.knn import KNNDetector
+    from detectors.rff_mean import RFFMeanDetector
     from detectors.tucker import TuckerDetector
     _CLS_REGISTRY.update({
         'KernDetector': KernDetector,
         'ConvAEDetector': ConvAEDetector,
-        # 'BasisDetector': BasisDetector,
+        'BasisDetector': BasisDetector,
         'TuckerDetector': TuckerDetector,
         'KNNDetector': KNNDetector,
         'IForestDetector': IForestDetector,
+        'RFFMeanDetector': RFFMeanDetector,
     })
 
 
