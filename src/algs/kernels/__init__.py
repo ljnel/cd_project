@@ -19,6 +19,8 @@ from .rbf import RBF
 from .scattering import ScatteringKernel
 from .signature import SigKernel
 
+from algs.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
+
 __all__ = [
     "Kernel",
     "RBF",
@@ -27,4 +29,7 @@ __all__ = [
     "SigKernel",
     "ScatteringKernel",
     "MiniRocketKernel",
+    "SpatiotemporalKernel",
+    "SumKernel",
+    "RFFMeanKernel",
 ]

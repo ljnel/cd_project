@@ -167,3 +167,23 @@ class ChebyshevBasis(Basis):
             Tkp1 = 2.0 * x * Tk - Tkm1
             Tkm1, Tk = Tk, Tkp1
         return Tk
+
+
+class HermiteBasis(Basis):
+    """Probabilist's Hermite polynomials He_k, orthogonal w.r.t. N(0,1).
+
+    He_0 = 1, He_1 = x, He_{k+1} = x He_k - k He_{k-1}.
+    These are the natural choice when the latent space is Gaussian (e.g. VAE).
+    """
+
+    def _eval_1d(self, k: int, x: Tensor, dim: int) -> Tensor:
+        if k == 0:
+            return torch.ones_like(x)
+        if k == 1:
+            return x
+        Hkm1 = torch.ones_like(x)
+        Hk = x
+        for i in range(1, k):
+            Hkp1 = x * Hk - i * Hkm1
+            Hkm1, Hk = Hk, Hkp1
+        return Hk
