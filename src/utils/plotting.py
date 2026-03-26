@@ -73,8 +73,11 @@ def plot_func(f, ax, **plot_kwargs):
     ax.plot(ts, f(ts), **plot_kwargs)
 
 
-def plot_kern_mat(K, y, ax, title=None):
+def plot_gram(K: np.ndarray, y: np.ndarray, ax: plt.Axes | None = None, title: str | None = None):
     "Plot a kernel matrix, ordered by label."
+    assert np.isin(y, [0, 1]).all(), f"y must be binary, got unique values {np.unique(y)}"
+    if ax is None:
+        ax = plt.gca()
     idx = np.argsort(y)  # reorder by label
     K_sorted = K[np.ix_(idx, idx)]
 
@@ -138,6 +141,145 @@ def plot_channels(x: np.ndarray, y: np.ndarray, max_channels: int = 9, max_batch
 
     for j in range(i + 1, len(axes)):
         axes[j].axis('off')
+
+    return fig
+
+
+def plot_heatmaps(
+    x: np.ndarray,
+    y: np.ndarray,
+    n_samples: int = 4,
+    cmap: str = "viridis",
+):
+    """Heatmap grid of sampled trajectories, split by binary label.
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, T, D)
+    y : ndarray of shape (N,), binary (0 or 1).
+    n_samples : int
+        Number of trajectories to sample per class.
+    cmap : str
+        Colormap for the heatmaps.
+    """
+    assert x.ndim == 3
+    assert y.ndim == 1 and len(y) == len(x)
+    assert np.isin(y, [0, 1]).all(), f"y must be binary, got unique values {np.unique(y)}"
+
+    idx_false = np.where(y == 0)[0]
+    idx_true = np.where(y == 1)[0]
+
+    rng = np.random.default_rng()
+    pick_f = rng.choice(idx_false, min(n_samples, len(idx_false)), replace=False)
+    pick_t = rng.choice(idx_true, min(n_samples, len(idx_true)), replace=False)
+
+    cols = max(len(pick_f), len(pick_t))
+    fig, axes = plt.subplots(2, cols, figsize=(3 * cols, 5), constrained_layout=True)
+    if cols == 1:
+        axes = axes[:, None]
+
+    for j in range(cols):
+        # Top row: label=0 (success)
+        ax = axes[0, j]
+        if j < len(pick_f):
+            ax.imshow(x[pick_f[j]].T, aspect="auto", cmap=cmap, interpolation="nearest")
+            ax.set_ylabel("Dim") if j == 0 else None
+            ax.set_xlabel("Step")
+        else:
+            ax.axis("off")
+
+        # Bottom row: label=1 (failure)
+        ax = axes[1, j]
+        if j < len(pick_t):
+            ax.imshow(x[pick_t[j]].T, aspect="auto", cmap=cmap, interpolation="nearest")
+            ax.set_ylabel("Dim") if j == 0 else None
+            ax.set_xlabel("Step")
+        else:
+            ax.axis("off")
+
+    axes[0, 0].set_title("Success (y=0)", loc="left", fontsize=10)
+    axes[1, 0].set_title("Failure (y=1)", loc="left", fontsize=10)
+
+    return fig
+
+
+def plot_hists(
+    x: np.ndarray,
+    y: np.ndarray,
+    n_dims: int = 4,
+    cmap: str = "viridis",
+    n_trajs: int = 6,
+    most_different: bool = False,
+):
+    """Density comparison of sampled dimensions, split by binary label.
+
+    For each selected observation dimension, overlays per-trajectory KDE plots
+    to show distributional stability. Top row = success (y=0),
+    bottom = failure (y=1).
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, T, D)
+    y : ndarray of shape (N,), binary (0 or 1).
+    n_dims : int
+        Number of observation dimensions to sample.
+    cmap : str
+        Unused, kept for signature compatibility with plot_heatmaps.
+    n_trajs : int
+        Number of trajectories to overlay per class per dimension.
+    most_different : bool
+        If True, pick dimensions with largest KS distance between classes.
+        If False, pick randomly.
+    """
+    from scipy.stats import ks_2samp
+
+    assert x.ndim == 3
+    assert y.ndim == 1 and len(y) == len(x)
+    assert np.isin(y, [0, 1]).all(), f"y must be binary, got unique values {np.unique(y)}"
+
+    N, T, D = x.shape
+    rng = np.random.default_rng()
+    n_dims = min(n_dims, D)
+
+    if most_different:
+        ks_max_trajs = 50
+        x_succ = x[y == 0][:ks_max_trajs]
+        x_fail = x[y == 1][:ks_max_trajs]
+        ks_scores = [
+            ks_2samp(x_succ[:, :, d].ravel(), x_fail[:, :, d].ravel()).statistic
+            for d in range(D)
+        ]
+        dim_idx = np.argsort(ks_scores)[-n_dims:]
+        dim_idx.sort()
+    else:
+        dim_idx = np.sort(rng.choice(D, n_dims, replace=False))
+
+    idx_succ = np.where(y == 0)[0]
+    idx_fail = np.where(y == 1)[0]
+    pick_succ = rng.choice(idx_succ, min(n_trajs, len(idx_succ)), replace=False)
+    pick_fail = rng.choice(idx_fail, min(n_trajs, len(idx_fail)), replace=False)
+
+    fig, axes = plt.subplots(2, n_dims, figsize=(3 * n_dims, 5), constrained_layout=True)
+    if n_dims == 1:
+        axes = axes[:, None]
+
+    for j, d in enumerate(dim_idx):
+        ax = axes[0, j]
+        for i in pick_succ:
+            sns.kdeplot(x[i, :, d], ax=ax, color=SUCCESS_COLOR, alpha=0.5)
+        ax.set_title(f"Dim {d}")
+        if j == 0:
+            ax.set_ylabel("Density")
+
+        ax = axes[1, j]
+        for i in pick_fail:
+            sns.kdeplot(x[i, :, d], ax=ax, color=FAILURE_COLOR, alpha=0.5)
+        ax.set_xlabel("Value")
+        if j == 0:
+            ax.set_ylabel("Density")
+
+    axes[0, 0].set_title(f"Success (y=0) — Dim {dim_idx[0]}", loc="left", fontsize=10)
+    axes[1, 0].set_title("Failure (y=1)", loc="left", fontsize=10)
 
     return fig
 

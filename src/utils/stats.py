@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def trajectory_stats(states: np.ndarray, dim_names: list[str] | None = None) -> dict:
+def channel_stats(states: np.ndarray, dim_names: list[str] | None = None) -> dict:
     """Per-dimension stats for trajectory data of shape (N, T, D)."""
     N, T, D = states.shape
     flat = states.reshape(-1, D)  # (N * T, D)
@@ -30,23 +30,46 @@ def trajectory_stats(states: np.ndarray, dim_names: list[str] | None = None) -> 
     return stats
 
 
-def mmd_squared(K_in: np.ndarray, K_out: np.ndarray, K_cross: np.ndarray) -> np.ndarray:
-    """Unbiased MMD^2 from kernel matrices. All inputs (T, *, *). Returns (T,)."""
-    T = K_in.shape[0]
-    n = K_in.shape[1]
-    m = K_out.shape[1]
+def mmd_squared(K: np.ndarray, y: np.ndarray) -> np.ndarray | float:
+    """Unbiased MMD^2 from a Gram matrix and binary labels.
 
-    K_in = K_in.copy()
-    K_out = K_out.copy()
-    for t in range(T):
-        np.fill_diagonal(K_in[t], 0)
-        np.fill_diagonal(K_out[t], 0)
+    Args:
+        K: Gram matrix, shape (N, N) or (T, N, N).
+        y: binary labels (N,), 0 = inlier, 1 = outlier.
 
-    term_in = K_in.sum(axis=(1, 2)) / (n * (n - 1))
-    term_out = K_out.sum(axis=(1, 2)) / (m * (m - 1))
-    term_cross = K_cross.sum(axis=(1, 2)) / (n * m)
+    Returns:
+        Scalar if K is 2D, array of shape (T,) if K is 3D.
+    """
+    assert np.isin(y, [0, 1]).all(), f"y must be binary, got unique values {np.unique(y)}"
+    batched = K.ndim == 3
+    if not batched:
+        K = K[None]  # (1, N, N)
 
-    return term_in + term_out - 2 * term_cross
+    mask_in = y == 0
+    mask_out = y == 1
+    n = mask_in.sum()
+    m = mask_out.sum()
+
+    ix_in = np.where(mask_in)[0]
+    ix_out = np.where(mask_out)[0]
+
+    K_in = K[:, ix_in[:, None], ix_in[None, :]].copy() if n > 1 else np.zeros((K.shape[0], 0, 0))
+    K_out = K[:, ix_out[:, None], ix_out[None, :]].copy() if m > 1 else np.zeros((K.shape[0], 0, 0))
+    K_cross = K[:, ix_in[:, None], ix_out[None, :]]
+
+    # Zero diagonals for unbiased estimate
+    for t in range(K.shape[0]):
+        if n > 1:
+            np.fill_diagonal(K_in[t], 0)
+        if m > 1:
+            np.fill_diagonal(K_out[t], 0)
+
+    term_in = K_in.sum(axis=(1, 2)) / (n * (n - 1)) if n > 1 else 0.0
+    term_out = K_out.sum(axis=(1, 2)) / (m * (m - 1)) if m > 1 else 0.0
+    term_cross = K_cross.sum(axis=(1, 2)) / (n * m) if n > 0 and m > 0 else 0.0
+
+    result = term_in + term_out - 2 * term_cross
+    return result if batched else result.item()
 
 
 def mmd_kernel_comparison(
@@ -67,12 +90,11 @@ def mmd_kernel_comparison(
         fit_gammas, fit_rbf_gamma, humanoid_kernel_matrices, rbf_kernel_matrices,
     )
 
-    y = np.asarray(y, dtype=bool)
-    x_in = x[~y]
-    x_out = x[y]
-    N_in, N_out = x_in.shape[0], x_out.shape[0]
+    y = np.asarray(y, dtype=int)
+    N_in, N_out = (y == 0).sum(), (y == 1).sum()
     T = x.shape[1]
 
+    x_in = x[y == 0]
     if not kernel_kwargs:
         kernel_kwargs = fit_gammas(x_in)
     if rbf_gamma is None:
@@ -83,10 +105,8 @@ def mmd_kernel_comparison(
         ("composite", lambda a, b=None: humanoid_kernel_matrices(a, b, **kernel_kwargs)),
         ("rbf", lambda a, b=None: rbf_kernel_matrices(a, b, gamma=rbf_gamma)),
     ]:
-        K_in = kern_fn(x_in)
-        K_out = kern_fn(x_out)
-        K_cross = kern_fn(x_in, x_out)
-        results[name] = mmd_squared(K_in, K_out, K_cross)
+        K = kern_fn(x)  # (T, N, N)
+        results[name] = mmd_squared(K, y)
 
     header = f"{'step':>6} {'composite':>12} {'rbf':>12} {'ratio':>8}"
     print(f"MMD^2 per timestep (N_in={N_in}, N_out={N_out})")
