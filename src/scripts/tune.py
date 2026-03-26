@@ -49,7 +49,6 @@ SEARCH_SPACE = {
     },
     "basis": {
         "window_frac": [0.05, 0.07, 0.1],
-        "ridge_lambda": [1e-2, 1e-1, 1e0, 1e1],
         "n_basis": [3, 5, 10],
     },
     "rec": {

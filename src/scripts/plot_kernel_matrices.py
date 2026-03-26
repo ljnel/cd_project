@@ -20,7 +20,7 @@ import numpy as np
 from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
-from utils.plotting import FULL_WIDTH, plot_kern_mat, setup_style
+from utils.plotting import FULL_WIDTH, plot_gram, setup_style
 
 setup_style()
 
@@ -97,7 +97,7 @@ def main():
         K = kernel(x_test)
 
         # Plot with ordering by label
-        plot_kern_mat(K, y_test, ax, title=name)
+        plot_gram(K, y_test, ax, title=name)
 
         # Report gamma if available
         if hasattr(kernel, 'gamma'):

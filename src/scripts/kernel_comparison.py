@@ -6,7 +6,7 @@ from sklearn.metrics.pairwise import rbf_kernel
 
 from algs.kernels import GaussFFT, SigKernel
 from data.datasets import load_experiment
-from utils.plotting import plot_kern_mat
+from utils.plotting import plot_gram
 from utils.signals import estimate_freq, spectral_entropy
 
 N_PERIOD = 2
@@ -68,22 +68,22 @@ if __name__ == "__main__":
     # approach 1
     kern = GaussFFT(gamma=.005)
     K = kern(x_sub)
-    plot_kern_mat(K, y_sub, ax[0, 0], title='Full FFT')
+    plot_gram(K, y_sub, ax[0, 0], title='Full FFT')
 
     # approach 2
     peak_indices = np.argmax(np.abs(np.fft.rfft(x_sub, axis=1)[:, 1:]), axis=1)
     freq = np.fft.rfftfreq(x_sub.shape[1])[1:][peak_indices]
     K = rbf_kernel(freq, gamma=0.67)
-    plot_kern_mat(K, y_sub, ax[0, 1], title='Dominant Freq')
+    plot_gram(K, y_sub, ax[0, 1], title='Dominant Freq')
 
     # approach 3
     ent = spectral_entropy(x_sub, axis=1)
     K = rbf_kernel(ent, gamma=.2)
-    plot_kern_mat(K, y_sub, ax[1, 0], title='Spectral Entropy')
+    plot_gram(K, y_sub, ax[1, 0], title='Spectral Entropy')
 
     # approach 4
     K = SigKernel(gamma=0.001)(x_sub[:, -window//2:])
-    plot_kern_mat(K, y_sub, ax[1, 1], title='Sig Kernel')
+    plot_gram(K, y_sub, ax[1, 1], title='Sig Kernel')
 
     plt.tight_layout()
     plt.show()

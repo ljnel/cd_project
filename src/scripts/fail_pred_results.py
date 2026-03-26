@@ -205,7 +205,7 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     print("\nPreparing evaluation data (train/test split)...")
     np.random.seed(base_seed)
     kwargs = {} if max_train_eps is None else {'max_train_eps': max_train_eps}
-    x_train, x_test, y_true, _episode_ids = load_experiment(env_name, obs_only=obs_only, **kwargs)
+    x_train, x_test, y_true, _episode_ids = load_experiment(env_name, obs_only=obs_only, trim=True, **kwargs)
 
     # Run experiments
     results = run_experiments(
@@ -259,7 +259,6 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help='Base random seed')
     parser.add_argument('--tr-ep', type=int, default=None,
                         help='Max number of successful train episodes to keep (default: all)')
-    parser.add_argument('--obs-only', action='store_true', help='Use only physically observable dims (qpos+qvel)')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable info-level logging')
     args = parser.parse_args()
 
@@ -287,7 +286,7 @@ if __name__ == "__main__":
             results, stats = run_env(
                 env_name, method_keys, n_bootstrap=args.n_bootstrap,
                 base_seed=args.seed, max_train_eps=args.tr_ep,
-                obs_only=args.obs_only,
+                obs_only=True,
             )
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:

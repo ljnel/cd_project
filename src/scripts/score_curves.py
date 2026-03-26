@@ -266,7 +266,8 @@ def run_env(env_name: str, n_episodes: int, seed: int,
         label = f"ep{i:02d}_{kind}"
 
         # Score only the original episode portion (not the extended horizon)
-        obs_score = obs_buf[win:ep_len]
+        # Slice to obs-only dims to match training data
+        obs_score = obs_buf[win:ep_len, env_info.obs_slice]
         obs_norm = scaler.transform(obs_score)
         ts, scores = score_episode(detector, obs_norm)
         ts += win  # offset to original simulation time

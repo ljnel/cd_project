@@ -185,7 +185,7 @@ def run_env(
     # Load data with same split as fail_pred_results.py, capped at 300 train episodes
     print("\nLoading data...")
     np.random.seed(seed)
-    X_train, X_test, _, _ = load_experiment(env_name)
+    X_train, X_test, _, _ = load_experiment(env_name, trim=True, obs_only=True)
 
     # Run experiment
     print("\n" + "=" * 60)
