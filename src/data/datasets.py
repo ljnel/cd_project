@@ -314,6 +314,7 @@ def load_experiment(
     obs_only: bool = True,
     win: int | None = None,
     hor: int | None = None,
+    normalize: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load eval dataset and split into train/test with normalization.
 
@@ -334,6 +335,8 @@ def load_experiment(
         Window length. Overrides the task config if provided.
     hor : int, optional
         Failure prediction horizon. Overrides the task config if provided.
+    normalize : bool
+        If True (default), z-score normalize channels using training data.
 
     Returns:
         (x_train, x_test, y_true, episode_ids) where episode_ids maps
@@ -355,7 +358,8 @@ def load_experiment(
         split_at = int((kept < split_at).sum())
     X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
     x_train = filter_successes(X_tr, fail_tr, eps=max_train_eps)
-    _, x_train, X_te = normalize_channels(x_train, X_te)
+    if normalize:
+        _, x_train, X_te = normalize_channels(x_train, X_te)
 
     x_test, y_true, episode_ids = sample_test_windows(
         X_te, fail_te,
