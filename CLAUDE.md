@@ -25,3 +25,4 @@ Anomaly detection for robot trajectories using the Christoffel-Darboux polynomia
 - No star imports
 - Data format: states `(n_episodes, seq_len, state_dim)`, fail `-1` = success, `>=0` = failure timestep
 - Linting: ruff (E/F/I/UP/B/SIM), type checking: mypy (permissive)
+- Plotting: use `setup_style()` from `utils.plotting` for IEEE two-column defaults (serif fonts, LaTeX, `COL_WIDTH`/`FULL_WIDTH` figure widths, colorblind-safe `SUCCESS_COLOR`/`FAILURE_COLOR`). Use `save_plot()` for output.

@@ -28,16 +28,16 @@ if [[ ! -d "$RESULTS_DIR" ]]; then
     exit 1
 fi
 
-echo "Syncing PDFs: $RESULTS_DIR -> $OVERLEAF_DIR/figures/"
+echo "Syncing PDFs: $RESULTS_DIR -> $OVERLEAF_DIR/synced_figures/"
 
 rsync -av --delete --include='*/' --include='*.pdf' --exclude='*' \
-    "$RESULTS_DIR/" "$OVERLEAF_DIR/figures/"
+    "$RESULTS_DIR/" "$OVERLEAF_DIR/synced_figures/"
 
 rsync -av --delete --include='*/' --include='*.tex' --exclude='*' \
     "$RESULTS_DIR/" "$OVERLEAF_DIR/tables/"
 
 cd "$OVERLEAF_DIR"
-git add figures/ tables/
+git add synced_figures/ tables/
 
 if git diff --cached --quiet; then
     echo "No changes to commit."
