@@ -15,7 +15,7 @@ def fit_gammas(x: np.ndarray, n_samples: int = 1000) -> dict:
         n_samples: subsample size for pairwise distances.
 
     Returns:
-        dict with keys gamma_z, gamma_r, gamma_theta, gamma_v.
+        dict with keys gamma_r, gamma_theta, gamma_v (gamma_z is hardcoded).
     """
     if x.ndim == 3:
         x = x.reshape(-1, x.shape[-1])
@@ -26,42 +26,41 @@ def fit_gammas(x: np.ndarray, n_samples: int = 1000) -> dict:
         idx = np.random.choice(len(x), n_samples, replace=False)
         x = x[idx]
 
-    z = x[:, 0:1]
     q = x[:, 1:5]
     q = q / np.linalg.norm(q, axis=-1, keepdims=True)
     theta = x[:, 5:22]
     v = x[:, 22:45]
 
-    # Height: pairwise squared distances
-    dz = z[:, None, :] - z[None, :, :]
-    gamma_z = _median_gamma((dz ** 2).sum(axis=-1).ravel())
-
     # Quaternion: 1 - dot_q^2
     dot_q = (q[:, None, :] * q[None, :, :]).sum(axis=-1)
     gamma_r = _median_gamma((1.0 - dot_q ** 2).ravel())
 
-    # Joint angles
+    # Joint angles (periodic distance)
     dtheta = theta[:, None, :] - theta[None, :, :]
-    gamma_theta = _median_gamma((dtheta ** 2).sum(axis=-1).ravel())
+    gamma_theta = _median_gamma((np.sin(dtheta / 2) ** 2).sum(axis=-1).ravel())
 
     # Velocities
     dv = v[:, None, :] - v[None, :, :]
     gamma_v = _median_gamma((dv ** 2).sum(axis=-1).ravel())
 
-    return dict(gamma_z=gamma_z, gamma_r=gamma_r, gamma_theta=gamma_theta, gamma_v=gamma_v)
+    return dict(gamma_r=gamma_r, gamma_theta=gamma_theta, gamma_v=gamma_v)
 
 
 def humanoid_composite_kernel(
     obs1: np.ndarray,
     obs2: np.ndarray,
-    gamma_z: float = 1.0,       # 1/D = 1/1
+    gamma_z: float = 0.1,
     gamma_r: float = 0.25,      # 1/D = 1/4
     gamma_theta: float = 1 / 17,
     gamma_v: float = 1 / 23,
+    additive: bool = False,
 ) -> np.ndarray:
     """
     Composite kernel for the Gymnasium Humanoid-v5 observation space (dims 0-44).
     Inputs have shape (..., 45). Returns shape (...).
+
+    By default uses the product kernel (k_height * k_rot * k_joints * k_vel).
+    Set additive=True for the sum kernel (0.25 * (k_height + ...)).
     """
     assert obs1.shape[-1] == 45, f"Expected qpos+qvel obs (45 dims), got {obs1.shape[-1]}"
     assert obs2.shape[-1] == 45, f"Expected qpos+qvel obs (45 dims), got {obs2.shape[-1]}"
@@ -81,14 +80,18 @@ def humanoid_composite_kernel(
     dot_q = (q1 * q2).sum(axis=-1, keepdims=True)
     k_rot = np.exp(-gamma_r * (1.0 - dot_q ** 2))
 
-    # Joint angles: RBF
-    k_joints = np.exp(-gamma_theta * ((theta1 - theta2) ** 2).sum(axis=-1, keepdims=True))
+    # Joint angles: periodic RBF
+    k_joints = np.exp(-gamma_theta * (np.sin((theta1 - theta2) / 2) ** 2).sum(axis=-1, keepdims=True))
 
     # Velocities: RBF
     k_vel = np.exp(-gamma_v * ((v1 - v2) ** 2).sum(axis=-1, keepdims=True))
 
-    k_total = k_height * k_rot * k_joints * k_vel
+    if additive:
+        k_total = 0.25 * (k_height + k_rot + k_joints + k_vel)
+    else:
+        k_total = k_height * k_rot * k_joints * k_vel
     return k_total.squeeze(-1)
+
 
 
 def humanoid_kernel_matrices(
