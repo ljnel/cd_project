@@ -10,26 +10,12 @@ import numpy as np
 
 
 class TemporalKernel(ABC):
-    """Abstract base class for temporal kernel functions."""
+    """Abstract base class for temporal kernel functions.
 
-    def __init__(self, n_steps: int, ridge: float = 1e-3,
-                 rank: int | None = None):
-        t = np.linspace(0, 1, n_steps)
-        K_t = self(t)  # (T, T)
-        T = len(t)
-
-        if rank is None:
-            self.H_ = np.linalg.solve(
-                (K_t + ridge * np.eye(T)).T, K_t.T
-            ).T  # (T, T)
-            self.U_r_ = None
-        else:
-            eigvals, eigvecs = np.linalg.eigh(K_t)
-            # eigh returns ascending order; take the top r
-            idx = np.argsort(eigvals)[::-1][:rank]
-            lam = eigvals[idx]                # (r,)
-            self.U_r_ = eigvecs[:, idx]       # (T, r)
-            self.H_ = np.diag(lam / (lam + ridge)) @ self.U_r_.T  # (r, T)
+    Subclasses implement ``__call__`` to evaluate the kernel matrix.
+    Call ``fit`` to compute the smoothing/projection matrices needed
+    for ``transform`` and ``inverse_transform``.
+    """
 
     @abstractmethod
     def __call__(self, t: np.ndarray) -> np.ndarray:
@@ -43,9 +29,42 @@ class TemporalKernel(ABC):
         Returns
         -------
         K : ndarray of shape (T, T)
-            The evaluated kernel covariance matrix.
         """
-        pass
+
+    def fit(self, n_steps: int, ridge: float = 1e-3,
+            rank: int | None = None):
+        """Compute smoothing matrices from the kernel evaluated on a grid.
+
+        Parameters
+        ----------
+        n_steps : int
+            Number of evenly-spaced time points in [0, 1].
+        ridge : float
+            Tikhonov regularisation.
+        rank : int or None
+            If given, truncate to the top ``rank`` eigenvectors.
+
+        Returns
+        -------
+        self
+        """
+        t = np.linspace(0, 1, n_steps)
+        K_t = self(t)
+        T = len(t)
+
+        if rank is None:
+            self.H_ = np.linalg.solve(
+                (K_t + ridge * np.eye(T)).T, K_t.T
+            ).T  # (T, T)
+            self.U_r_ = None
+        else:
+            eigvals, eigvecs = np.linalg.eigh(K_t)
+            idx = np.argsort(eigvals)[::-1][:rank]
+            lam = eigvals[idx]
+            self.U_r_ = eigvecs[:, idx]       # (T, r)
+            self.H_ = np.diag(lam / (lam + ridge)) @ self.U_r_.T  # (r, T)
+
+        return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
         """Apply temporal smoothing.
@@ -65,6 +84,28 @@ class TemporalKernel(ABC):
             return encodings
         return self.U_r_ @ encodings
 
+    def __mul__(self, other):
+        """Element-wise product of two temporal kernels."""
+        if not isinstance(other, TemporalKernel):
+            return NotImplemented
+        return ProductKernel(self, other)
+
+    def __rmul__(self, other):
+        if not isinstance(other, TemporalKernel):
+            return NotImplemented
+        return ProductKernel(other, self)
+
+    def __add__(self, other):
+        """Sum of two temporal kernels."""
+        if not isinstance(other, TemporalKernel):
+            return NotImplemented
+        return SumKernel(self, other)
+
+    def __radd__(self, other):
+        if not isinstance(other, TemporalKernel):
+            return NotImplemented
+        return SumKernel(other, self)
+
 
 class RBFKernel(TemporalKernel):
     """Radial Basis Function (Squared Exponential) kernel.
@@ -78,10 +119,10 @@ class RBFKernel(TemporalKernel):
         Controls the smoothness. Larger values mean smoother functions.
     """
 
-    def __init__(self, n_steps: int, ridge: float = 1e-3,
-                 rank: int | None = None, length_scale: float = 0.1):
+    def __init__(self, length_scale: float = 0.1, **fit_kwargs):
         self.length_scale = length_scale
-        super().__init__(n_steps, ridge, rank)
+        if fit_kwargs:
+            self.fit(**fit_kwargs)
 
     def __call__(self, t: np.ndarray) -> np.ndarray:
         t = np.asarray(t)
@@ -108,14 +149,13 @@ class MaternKernel(TemporalKernel):
 
     _VALID_ORDERS = {0, 1, 2}
 
-    def __init__(self, n_steps: int, ridge: float = 1e-3,
-                 rank: int | None = None, order: int = 2,
-                 length_scale: float = 0.1):
+    def __init__(self, order: int = 2, length_scale: float = 0.1, **fit_kwargs):
         if order not in self._VALID_ORDERS:
             raise ValueError(f"order must be one of {self._VALID_ORDERS}, got {order}")
         self.order = order
         self.length_scale = length_scale
-        super().__init__(n_steps, ridge, rank)
+        if fit_kwargs:
+            self.fit(**fit_kwargs)
 
     def __call__(self, t: np.ndarray) -> np.ndarray:
         t = np.asarray(t)
@@ -144,12 +184,12 @@ class PeriodicKernel(TemporalKernel):
         The distance between repeating cycles (as a fraction of the [0, 1] domain).
     """
 
-    def __init__(self, n_steps: int, ridge: float = 1e-3,
-                 rank: int | None = None, length_scale: float = 0.1,
-                 period: float = 0.5):
+    def __init__(self, length_scale: float = 0.1, period: float = 0.5,
+                 **fit_kwargs):
         self.length_scale = length_scale
         self.period = period
-        super().__init__(n_steps, ridge, rank)
+        if fit_kwargs:
+            self.fit(**fit_kwargs)
 
     def __call__(self, t: np.ndarray) -> np.ndarray:
         t = np.asarray(t)
@@ -157,3 +197,29 @@ class PeriodicKernel(TemporalKernel):
 
         sine_term = np.sin(np.pi * abs_dists / self.period)
         return np.exp(-2.0 * (sine_term / self.length_scale) ** 2)
+
+
+class ProductKernel(TemporalKernel):
+    """Element-wise product of two temporal kernels."""
+
+    def __init__(self, k1: TemporalKernel, k2: TemporalKernel, **fit_kwargs):
+        self.k1 = k1
+        self.k2 = k2
+        if fit_kwargs:
+            self.fit(**fit_kwargs)
+
+    def __call__(self, t: np.ndarray) -> np.ndarray:
+        return self.k1(t) * self.k2(t)
+
+
+class SumKernel(TemporalKernel):
+    """Sum of two temporal kernels."""
+
+    def __init__(self, k1: TemporalKernel, k2: TemporalKernel, **fit_kwargs):
+        self.k1 = k1
+        self.k2 = k2
+        if fit_kwargs:
+            self.fit(**fit_kwargs)
+
+    def __call__(self, t: np.ndarray) -> np.ndarray:
+        return self.k1(t) + self.k2(t)
