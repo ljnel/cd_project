@@ -282,7 +282,8 @@ def format_env_summary_table(
     """Format an environment summary as a LaTeX table.
 
     Each row dict contains: display_name, W, H, obs_dim,
-    mass_range, friction_range, damping_range, failure_prop (float or None).
+    mass_range, friction_range, damping_range, failure_prop (float or None),
+    term_cond, term_note, term_custom.
     """
     n_envs = len(env_keys)
     assert len(rows) == n_envs
@@ -292,27 +293,35 @@ def format_env_summary_table(
         "\\centering\n"
         "\\caption{Setup summary for each environment, showing window length,\n"
         "horizon length, observation space dimension, ranges for domain\n"
-        "randomization, and the proportion of failed episodes in the dataset.}\n"
+        "randomization, proportion of failed episodes, and termination condition.}\n"
         "\\label{tab:env_summary}\n"
-        "\\begin{tabular}{@{}lccccccc@{}}\n"
+        "\\begin{tabular}{@{}lcccccccp{3.8cm}@{}}\n"
         "\\toprule\n"
         "\\textbf{Environment} & \\textbf{$W$} & \\textbf{$H$}"
         " & \\textbf{Obs dim} & \\textbf{Mass} & \\textbf{Friction}"
-        " & \\textbf{Damping} & \\textbf{Failure prop.} \\\\\n"
+        " & \\textbf{Damping} & \\textbf{Fail.\\ prop.}"
+        " & \\textbf{Termination} \\\\\n"
         "\\midrule\n"
     )
 
     for row in rows:
         fp = f"{row['failure_prop']:.3f}" if row['failure_prop'] is not None else "---"
+        star = "*" if row['term_custom'] else ""
+        term_cell = f"{row['term_cond']}{star} {{\\scriptsize ({row['term_note']})}}"
         latex += (
             f"{row['display_name']} & {row['W']} & {row['H']} & {row['obs_dim']} "
             f"& {_format_range(row['mass_range'])} "
             f"& {_format_range(row['friction_range'])} "
             f"& {_format_range(row['damping_range'])} "
-            f"& {fp} \\\\\n"
+            f"& {fp} & {term_cell} \\\\\n"
         )
 
-    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
+    latex += "\\bottomrule\n\\end{tabular}\n"
+    if any(r['term_custom'] for r in rows):
+        latex += ("\\smallskip\\\\\n"
+                  "{\\scriptsize *Custom termination condition"
+                  " (all others are environment defaults).}\n")
+    latex += "\\end{table*}\n"
     return latex
 
 
@@ -347,11 +356,15 @@ def generate_env_summary_table(output_dir: Path):
             'display_name': env_info.display_name,
             'W': task_cfg.win,
             'H': task_cfg.hor,
-            'obs_dim': env_info.obs_dim,
+            'obs_dim': (env_info.obs_slice.stop - (env_info.obs_slice.start or 0)
+                       if env_info.obs_slice is not None else env_info.obs_dim),
             'mass_range': mass_range,
             'friction_range': friction_range,
             'damping_range': damping_range,
             'failure_prop': failure_prop,
+            'term_cond': env_info.term_cond,
+            'term_note': env_info.term_note,
+            'term_custom': env_info.term_custom,
         })
 
     output_dir.mkdir(parents=True, exist_ok=True)
