@@ -114,7 +114,7 @@ DEFAULT_METHODS = [
     "iforest",
     # KIC variants
     "fft",
-    "sig",
+    # "sig",  # disabled: sktime signature kernel is too slow
     "basis",
     "dist",
 ]

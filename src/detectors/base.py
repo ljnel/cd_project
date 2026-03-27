@@ -29,23 +29,23 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
     """
     
     def __init__(self,
-                 cal_fraction: float = 0.3, 
+                 cal_fraction: float = 0.3,
                  threshold_quantile: float = 0.95,
                 ):
         self.cal_fraction = cal_fraction
         self.threshold_quantile = threshold_quantile
         self.window = None
-    
+
     def fit(self, X: np.ndarray, y=None) -> "AnomalyDetector":
         """Fit detector on training trajectories.
-        
+
         Parameters
         ----------
         X : ndarray of shape (n_samples, seq_len) or (n_samples, seq_len, n_features)
             Training trajectories.
         y : ignored
             Not used, present for API consistency.
-        
+
         Returns
         -------
         self : AnomalyDetector
@@ -56,24 +56,31 @@ class AnomalyDetector(BaseEstimator, OutlierMixin):
         X = np.asarray(X, dtype=np.float32)
         if X.ndim == 2:
             X = X[:, :, np.newaxis]
-        
-        # episode-level train/cal split
-        X_train, X_cal = train_test_split(X, test_size=self.cal_fraction)
-        logger.info(f"Train/cal split: {len(X_train)}/{len(X_cal)} episodes")
+
+        if self.cal_fraction > 0:
+            # episode-level train/cal split
+            X_train, X_cal = train_test_split(X, test_size=self.cal_fraction)
+            logger.info(f"Train/cal split: {len(X_train)}/{len(X_cal)} episodes")
+        else:
+            X_train = X
+            X_cal = None
+            logger.info(f"Training on all {len(X_train)} episodes (no calibration)")
 
         # implementation-specific fitting and scoring
         self._fit_impl(X_train)
 
         if self.window is None:
             raise RuntimeError(f"{self.__class__.__name__}._fit_impl() must set self.window")
-    
-        X_cal_windows = self._get_cal_windows(X_cal)
-        
-        cal_scores = self._score_impl(X_cal_windows)
-        self.threshold_ = np.quantile(cal_scores, self.threshold_quantile)
-        logger.info(f"Threshold: {self.threshold_:.3g} "
-                    f"(scores: {cal_scores.min():.2g}/{np.median(cal_scores):.2g}/{cal_scores.max():.2g} min/med/max, "
-                    f"q={self.threshold_quantile})")
+
+        if X_cal is not None:
+            X_cal_windows = self._get_cal_windows(X_cal)
+            cal_scores = self._score_impl(X_cal_windows)
+            self.threshold_ = np.quantile(cal_scores, self.threshold_quantile)
+            logger.info(f"Threshold: {self.threshold_:.3g} "
+                        f"(scores: {cal_scores.min():.2g}/{np.median(cal_scores):.2g}/{cal_scores.max():.2g} min/med/max, "
+                        f"q={self.threshold_quantile})")
+        else:
+            self.threshold_ = None
 
         return self
     
