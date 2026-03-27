@@ -183,9 +183,13 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     x_norm_cal = x_success[n_train:n_train + n_norm]
     x_thresh_cal = x_success[n_train + n_norm:]
 
-    # Test episode indices
+    # Test episode indices — exclude failures before first window completes
     te_succ_idx = np.where(fail_te == -1)[0]
-    te_fail_idx = np.where(fail_te >= 0)[0]
+    te_fail_idx = np.where(fail_te >= cfg.win)[0]
+    n_too_early = int(((fail_te >= 0) & (fail_te < cfg.win)).sum())
+    if n_too_early > 0:
+        print(f"  Excluded {n_too_early} failure episodes "
+              f"(fail < win={cfg.win}, undetectable)")
     fail_steps = fail_te[te_fail_idx]
 
     # IID test windows for Part 1
