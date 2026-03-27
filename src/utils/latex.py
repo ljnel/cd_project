@@ -376,6 +376,214 @@ def generate_env_summary_table(output_dir: Path):
 
 
 # ---------------------------------------------------------------------------
+# Evaluation (score quality + deployment quality) formatting
+# ---------------------------------------------------------------------------
+
+def _load_evaluation_results(results_dir: Path) -> dict[str, dict]:
+    """Load evaluation .npz files into a structured dict.
+
+    Returns {env: {method_key: {pauroc, fpr, det_rate, med_ttd}}}
+    """
+    npz_files = sorted(results_dir.glob("*_results.npz"))
+    all_results = {}
+    for npz_file in npz_files:
+        env_name = npz_file.stem.replace("_results", "")
+        data = np.load(npz_file, allow_pickle=True)
+        methods = list(data['methods'])
+        env_results = {}
+        for m in methods:
+            env_results[m] = {
+                'pauroc': float(data[f'pauroc_{m}']),
+                'fpr': float(data.get(f'fpr_{m}', np.nan)),
+                'det_rate': float(data.get(f'det_rate_{m}', np.nan)),
+                'med_ttd': float(data.get(f'med_ttd_{m}', np.nan)),
+            }
+        all_results[env_name] = env_results
+    return all_results
+
+
+def format_evaluation_score_table(
+    all_results: dict[str, dict],
+) -> str:
+    """Format pAUROC scores across environments as a LaTeX table."""
+    envs = list(all_results.keys())
+    methods = list(next(iter(all_results.values())).keys())
+    display_methods = [get_method_display_name(m) for m in methods]
+
+    env_display = [get_env_display_name(e) for e in envs]
+    col_spec = "@{}l" + "c" * len(envs) + "c@{}"
+    header = " & ".join(f"\\textbf{{{n}}}" for n in env_display)
+
+    # Best per env (higher is better)
+    best_per_env = {}
+    for env in envs:
+        best_val = -1
+        best_m = None
+        for m in methods:
+            v = all_results[env][m]['pauroc']
+            if not np.isnan(v) and v > best_val:
+                best_val = v
+                best_m = m
+        best_per_env[env] = best_m
+
+    # Average ranks (higher pauroc = rank 1)
+    scores = np.array([
+        [all_results[env][m]['pauroc'] for m in methods] for env in envs
+    ])
+    ranks = np.array([rankdata(-row, method='average') for row in scores])
+    avg_ranks = ranks.mean(axis=0)
+    best_rank_idx = int(np.argmin(avg_ranks))
+
+    latex = (
+        "\\begin{table*}[htbp]\n"
+        "\\centering\n"
+        "\\caption{Score quality: pAUROC@10\\%FPR$\\uparrow$ across all environments.}\n"
+        "\\label{tab:eval_pauroc}\n"
+        f"\\begin{{tabular}}{{{col_spec}}}\n"
+        "\\toprule\n"
+        f"\\textbf{{Method}} & {header}"
+        " & \\textbf{Avg.\\ Rank} \\\\\n"
+        "\\midrule\n"
+    )
+
+    for i, m in enumerate(methods):
+        if i in METHOD_GROUP_BREAKS:
+            latex += "\\midrule\n"
+        cells = [display_methods[i]]
+        for env in envs:
+            v = all_results[env][m]['pauroc']
+            cell = f"{v:.3f}" if not np.isnan(v) else "---"
+            if m == best_per_env[env]:
+                cell = f"\\textbf{{{cell}}}"
+            cells.append(cell)
+        rank_val = f"{avg_ranks[i]:.1f}"
+        if i == best_rank_idx:
+            rank_val = f"\\textbf{{{rank_val}}}"
+        cells.append(rank_val)
+        latex += " & ".join(cells) + " \\\\\n"
+
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
+    return latex
+
+
+def format_evaluation_deployment_table(
+    all_results: dict[str, dict],
+) -> str:
+    """Format deployment metrics (FPR, Detection, Med. TTD) as a LaTeX table."""
+    envs = list(all_results.keys())
+    methods = list(next(iter(all_results.values())).keys())
+    display_methods = [get_method_display_name(m) for m in methods]
+
+    metrics = [
+        ('fpr', 'FPR (\\%)$\\downarrow$', '{:.1f}', True),
+        ('det_rate', 'Detection (\\%)$\\uparrow$', '{:.1f}', False),
+        ('med_ttd', 'Med.\\ TTD (\\%)$\\uparrow$', '{:.1f}', False),
+    ]
+
+    env_display = [get_env_display_name(e) for e in envs]
+    # 3 sub-columns per env
+    n_cols = len(envs) * len(metrics)
+    col_spec = "@{}l" + "c" * n_cols + "@{}"
+
+    # Header row 1: env names spanning 3 columns each
+    header1_cells = [""]
+    for name in env_display:
+        header1_cells.append(
+            f"\\multicolumn{{{len(metrics)}}}{{c}}{{\\textbf{{{name}}}}}"
+        )
+    header1 = " & ".join(header1_cells) + " \\\\\n"
+
+    # Cmidrules under each env group
+    cmidrules = ""
+    for j in range(len(envs)):
+        start = 2 + j * len(metrics)
+        end = start + len(metrics) - 1
+        cmidrules += f"\\cmidrule(lr){{{start}-{end}}} "
+    cmidrules += "\n"
+
+    # Header row 2: metric names repeated for each env
+    header2_cells = [""]
+    for _ in envs:
+        for _, label, _, _ in metrics:
+            header2_cells.append(f"\\textbf{{{label}}}")
+    header2 = " & ".join(header2_cells) + " \\\\\n"
+
+    # Best per (env, metric)
+    best_per = {}
+    for env in envs:
+        for mkey, _, _, lower_better in metrics:
+            best_val = np.inf if lower_better else -np.inf
+            best_m = None
+            for m in methods:
+                v = all_results[env][m][mkey]
+                if np.isnan(v):
+                    continue
+                if (lower_better and v < best_val) or (not lower_better and v > best_val):
+                    best_val = v
+                    best_m = m
+            best_per[(env, mkey)] = best_m
+
+    latex = (
+        "\\begin{table*}[htbp]\n"
+        "\\centering\n"
+        "\\caption{Deployment quality: episode-level metrics with"
+        " two-level conformal calibration.}\n"
+        "\\label{tab:eval_deployment}\n"
+        f"\\begin{{tabular}}{{{col_spec}}}\n"
+        "\\toprule\n"
+        f"{header1}"
+        f"{cmidrules}"
+        f"{header2}"
+        "\\midrule\n"
+    )
+
+    for i, m in enumerate(methods):
+        if i in METHOD_GROUP_BREAKS:
+            latex += "\\midrule\n"
+        cells = [display_methods[i]]
+        for env in envs:
+            for mkey, _, fmt, _ in metrics:
+                v = all_results[env][m][mkey]
+                if mkey == 'med_ttd':
+                    v = v / 10.0  # convert timesteps to % of episode length
+                cell = fmt.format(v) if not np.isnan(v) else "---"
+                if m == best_per[(env, mkey)]:
+                    cell = f"\\textbf{{{cell}}}"
+                cells.append(cell)
+        latex += " & ".join(cells) + " \\\\\n"
+
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
+    return latex
+
+
+def generate_evaluation_tables(results_dir: Path):
+    """Generate evaluation LaTeX tables from .npz files."""
+    all_results = _load_evaluation_results(results_dir)
+    if not all_results:
+        return
+
+    # Filter to methods in DEFAULT_METHODS, in order
+    default_keys = [k for k in DEFAULT_METHODS
+                    if all(k in all_results[env] for env in all_results)]
+    if not default_keys:
+        return
+    filtered = {
+        env: {m: res[m] for m in default_keys}
+        for env, res in all_results.items()
+    }
+
+    tex = format_evaluation_score_table(filtered)
+    tex_file = results_dir / "all_envs_pauroc.tex"
+    tex_file.write_text(tex)
+    print(f"  {tex_file}")
+
+    tex = format_evaluation_deployment_table(filtered)
+    tex_file = results_dir / "all_envs_deployment.tex"
+    tex_file.write_text(tex)
+    print(f"  {tex_file}")
+
+
+# ---------------------------------------------------------------------------
 # Table generation from .npz files
 # ---------------------------------------------------------------------------
 
@@ -501,6 +709,9 @@ def main():
 
     print("\npanda:")
     generate_panda_tables(results_dir / "panda")
+
+    print("\nevaluation:")
+    generate_evaluation_tables(results_dir / "evaluation")
 
     print("\ncompute_cost:")
     generate_compute_cost_tables(results_dir / "compute_cost")
