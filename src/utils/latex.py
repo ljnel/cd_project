@@ -467,12 +467,13 @@ def format_evaluation_score_table(
 
 
 def format_evaluation_deployment_table(
-    all_results: dict[str, dict],
+    env_name: str,
+    env_results: dict[str, dict],
 ) -> str:
-    """Format deployment metrics (FPR, Detection, Med. TTD) as a LaTeX table."""
-    envs = list(all_results.keys())
-    methods = list(next(iter(all_results.values())).keys())
+    """Format deployment metrics for one environment as a LaTeX table."""
+    methods = list(env_results.keys())
     display_methods = [get_method_display_name(m) for m in methods]
+    display_name = get_env_display_name(env_name)
 
     metrics = [
         ('fpr', 'FPR (\\%)$\\downarrow$', '{:.1f}', True),
@@ -480,60 +481,31 @@ def format_evaluation_deployment_table(
         ('med_ttd', 'Med.\\ TTD (\\%)$\\uparrow$', '{:.1f}', False),
     ]
 
-    env_display = [get_env_display_name(e) for e in envs]
-    # 3 sub-columns per env
-    n_cols = len(envs) * len(metrics)
-    col_spec = "@{}l" + "c" * n_cols + "@{}"
+    col_spec = "@{}l" + "c" * len(metrics) + "@{}"
+    header = " & ".join(f"\\textbf{{{label}}}" for _, label, _, _ in metrics)
 
-    # Header row 1: env names spanning 3 columns each
-    header1_cells = [""]
-    for name in env_display:
-        header1_cells.append(
-            f"\\multicolumn{{{len(metrics)}}}{{c}}{{\\textbf{{{name}}}}}"
-        )
-    header1 = " & ".join(header1_cells) + " \\\\\n"
-
-    # Cmidrules under each env group
-    cmidrules = ""
-    for j in range(len(envs)):
-        start = 2 + j * len(metrics)
-        end = start + len(metrics) - 1
-        cmidrules += f"\\cmidrule(lr){{{start}-{end}}} "
-    cmidrules += "\n"
-
-    # Header row 2: metric names repeated for each env
-    header2_cells = [""]
-    for _ in envs:
-        for _, label, _, _ in metrics:
-            header2_cells.append(f"\\textbf{{{label}}}")
-    header2 = " & ".join(header2_cells) + " \\\\\n"
-
-    # Best per (env, metric)
+    # Best per metric
     best_per = {}
-    for env in envs:
-        for mkey, _, _, lower_better in metrics:
-            best_val = np.inf if lower_better else -np.inf
-            best_m = None
-            for m in methods:
-                v = all_results[env][m][mkey]
-                if np.isnan(v):
-                    continue
-                if (lower_better and v < best_val) or (not lower_better and v > best_val):
-                    best_val = v
-                    best_m = m
-            best_per[(env, mkey)] = best_m
+    for mkey, _, _, lower_better in metrics:
+        best_val = np.inf if lower_better else -np.inf
+        best_m = None
+        for m in methods:
+            v = env_results[m][mkey]
+            if np.isnan(v):
+                continue
+            if (lower_better and v < best_val) or (not lower_better and v > best_val):
+                best_val = v
+                best_m = m
+        best_per[mkey] = best_m
 
     latex = (
-        "\\begin{table*}[htbp]\n"
+        "\\begin{table}[htbp]\n"
         "\\centering\n"
-        "\\caption{Deployment quality: episode-level metrics with"
-        " two-level conformal calibration.}\n"
-        "\\label{tab:eval_deployment}\n"
+        f"\\caption{{Deployment quality on {display_name}.}}\n"
+        f"\\label{{tab:eval_deploy_{env_name}}}\n"
         f"\\begin{{tabular}}{{{col_spec}}}\n"
         "\\toprule\n"
-        f"{header1}"
-        f"{cmidrules}"
-        f"{header2}"
+        f"\\textbf{{Method}} & {header} \\\\\n"
         "\\midrule\n"
     )
 
@@ -541,18 +513,17 @@ def format_evaluation_deployment_table(
         if i in METHOD_GROUP_BREAKS:
             latex += "\\midrule\n"
         cells = [display_methods[i]]
-        for env in envs:
-            for mkey, _, fmt, _ in metrics:
-                v = all_results[env][m][mkey]
-                if mkey == 'med_ttd':
-                    v = v / 10.0  # convert timesteps to % of episode length
-                cell = fmt.format(v) if not np.isnan(v) else "---"
-                if m == best_per[(env, mkey)]:
-                    cell = f"\\textbf{{{cell}}}"
-                cells.append(cell)
+        for mkey, _, fmt, _ in metrics:
+            v = env_results[m][mkey]
+            if mkey == 'med_ttd':
+                v = v / 10.0  # convert timesteps to % of episode length
+            cell = fmt.format(v) if not np.isnan(v) else "---"
+            if m == best_per[mkey]:
+                cell = f"\\textbf{{{cell}}}"
+            cells.append(cell)
         latex += " & ".join(cells) + " \\\\\n"
 
-    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     return latex
 
 
@@ -577,10 +548,11 @@ def generate_evaluation_tables(results_dir: Path):
     tex_file.write_text(tex)
     print(f"  {tex_file}")
 
-    tex = format_evaluation_deployment_table(filtered)
-    tex_file = results_dir / "all_envs_deployment.tex"
-    tex_file.write_text(tex)
-    print(f"  {tex_file}")
+    for env, env_results in filtered.items():
+        tex = format_evaluation_deployment_table(env, env_results)
+        tex_file = results_dir / f"{env}_deployment.tex"
+        tex_file.write_text(tex)
+        print(f"  {tex_file}")
 
 
 # ---------------------------------------------------------------------------

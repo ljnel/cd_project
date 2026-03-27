@@ -58,7 +58,7 @@ class ConvAEDetector(AnomalyDetector):
                  lr: float = 3e-4,
                  epochs: int = 10,
                  batch_size: int = 128,
-                 device: str = "mps",
+                 device: str = "auto",
                  max_samples: int = 1000):
         super().__init__(cal_fraction, threshold_quantile)
         self.window_frac = window_frac
@@ -69,7 +69,13 @@ class ConvAEDetector(AnomalyDetector):
         self.lr = lr
         self.epochs = epochs
         self.batch_size = batch_size
-        self.device = device
+        if device == "auto":
+            import torch
+            self.device = ("cuda" if torch.cuda.is_available()
+                           else "mps" if torch.backends.mps.is_available()
+                           else "cpu")
+        else:
+            self.device = device
         self.max_samples = max_samples
 
     def _fit_impl(self, X_train: np.ndarray) -> None:
