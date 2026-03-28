@@ -15,7 +15,6 @@ import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import roc_auc_score
 
 from config.detectors import DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
@@ -100,23 +99,9 @@ def evaluate_alarms(
     det_rate = detected / n_fail * 100
     med_lead = float(np.median(lead_times)) if lead_times else float('nan')
 
-    # AUROC
-    y_true = np.array([0] * n_succ + [1] * n_fail)
-    if np.ndim(threshold) == 0:
-        max_scores = np.array(
-            [s.max() for s in success_scores] +
-            [s.max() for s in failure_scores]
-        )
-    else:
-        max_scores = np.array(
-            [(s - threshold[:len(s)]).max() for s in success_scores] +
-            [(s - threshold[:len(s)]).max() for s in failure_scores]
-        )
-    auroc = roc_auc_score(y_true, max_scores)
-
     print(f"  {label:<30s}  FPR={fpr:5.1f}%  Det={det_rate:5.1f}%  "
-          f"MedLead={med_lead:5.0f}  AUROC={auroc:.3f}")
-    return dict(fpr=fpr, det_rate=det_rate, med_lead=med_lead, auroc=auroc)
+          f"MedLead={med_lead:5.0f}")
+    return dict(fpr=fpr, det_rate=det_rate, med_lead=med_lead)
 
 
 def main():
@@ -164,6 +149,14 @@ def main():
     te_success_idx = np.where(fail_te == -1)[0]
     te_failure_idx = np.where(fail_te >= 0)[0]
 
+    # Filter out undetectable failures (failure before first scored timestep)
+    first_scored = task_cfg.win - 1
+    detectable = fail_te[te_failure_idx] >= first_scored
+    n_removed = (~detectable).sum()
+    te_failure_idx = te_failure_idx[detectable]
+    if n_removed > 0:
+        print(f"  Removed {n_removed} undetectable failures (fail < t={first_scored})")
+
     # --- Score norm-cal episodes to get per-timestep mean/std ---
     print(f"Scoring {len(x_norm_cal)} norm-cal episodes...")
     norm_scores, timesteps = score_episodes_by_timestep(detector, x_norm_cal)
@@ -171,13 +164,24 @@ def main():
     score_mean = norm_matrix.mean(axis=0)
     score_std = np.maximum(norm_matrix.std(axis=0), 1e-8)
 
-    def normalize_scores(scores_list):
+    score_median = np.maximum(np.median(norm_matrix, axis=0), 1e-8)
+    score_mad = np.maximum(
+        np.median(np.abs(norm_matrix - np.median(norm_matrix, axis=0)), axis=0), 1e-8
+    )
+
+    def normalize_zscore(scores_list):
         return [(s - score_mean[:len(s)]) / score_std[:len(s)] for s in scores_list]
+
+    def normalize_ratio(scores_list):
+        return [s / score_median[:len(s)] for s in scores_list]
+
+    def normalize_robust(scores_list):
+        return [(s - score_median[:len(s)]) / score_mad[:len(s)] for s in scores_list]
 
     # --- Score threshold-cal episodes ---
     print(f"Scoring {len(x_cal)} threshold-cal episodes...")
     cal_scores_raw, _ = score_episodes_by_timestep(detector, x_cal)
-    cal_scores_norm = normalize_scores(cal_scores_raw)
+    cal_scores_norm = normalize_zscore(cal_scores_raw)
     cal_matrix_raw = np.array(cal_scores_raw)
     cal_matrix_norm = np.array(cal_scores_norm)
 
@@ -189,81 +193,149 @@ def main():
     threshold_curve = np.quantile(cal_matrix_raw, args.quantile, axis=0)
     # 2. Two-level conformal
     cal_traj_scores = np.quantile(cal_matrix_raw, 1 - alpha_trans, axis=1)
-    bajcsy_threshold = np.quantile(cal_traj_scores, 1 - alpha_cal)
+    twolevel_raw_threshold = np.quantile(cal_traj_scores, 1 - alpha_cal)
     # 3. Pooled quantile
     global_threshold = np.quantile(cal_matrix_raw.ravel(), args.quantile)
 
-    # Normalized thresholds
-    # 4. Two-level conformal on normalized scores
+    # Normalized thresholds (z-score)
+    # 4. Two-level conformal on z-score normalized scores
     cal_traj_norm = np.quantile(cal_matrix_norm, 1 - alpha_trans, axis=1)
-    twolevel_norm_threshold = np.quantile(cal_traj_norm, 1 - alpha_cal)
+    twolevel_zscore_threshold = np.quantile(cal_traj_norm, 1 - alpha_cal)
+
+    # Ratio-normalized thresholds
+    # 5. Two-level conformal on ratio-normalized scores (score / mean)
+    cal_scores_ratio = normalize_ratio(cal_scores_raw)
+    cal_matrix_ratio = np.array(cal_scores_ratio)
+    cal_traj_ratio = np.quantile(cal_matrix_ratio, 1 - alpha_trans, axis=1)
+    twolevel_ratio_threshold = np.quantile(cal_traj_ratio, 1 - alpha_cal)
+
+    # Robust-normalized (median-centered, MAD-scaled)
+    cal_scores_robust = normalize_robust(cal_scores_raw)
+    cal_matrix_robust = np.array(cal_scores_robust)
+
+    # 6-9. Max-conformal: trajectory max as conformal score + finite-sample correction
+    n_cal = len(cal_matrix_raw)
+    q_corrected = min(np.ceil((n_cal + 1) * args.quantile) / n_cal, 1.0)
+    max_conformal_threshold = np.quantile(cal_matrix_raw.max(axis=1), q_corrected)
+    max_conformal_zscore_threshold = np.quantile(cal_matrix_norm.max(axis=1), q_corrected)
+    max_conformal_ratio_threshold = np.quantile(cal_matrix_ratio.max(axis=1), q_corrected)
+    max_conformal_robust_threshold = np.quantile(cal_matrix_robust.max(axis=1), q_corrected)
 
     # --- Score ALL test episodes ---
     print(f"Scoring {len(te_success_idx)} success + {len(te_failure_idx)} failure test episodes...")
     all_success_scores_raw, _ = score_episodes_by_timestep(detector, X_te_norm[te_success_idx])
     all_failure_scores_raw, _ = score_episodes_by_timestep(detector, X_te_norm[te_failure_idx])
-    all_success_scores_norm = normalize_scores(all_success_scores_raw)
-    all_failure_scores_norm = normalize_scores(all_failure_scores_raw)
+    all_success_scores_zscore = normalize_zscore(all_success_scores_raw)
+    all_failure_scores_zscore = normalize_zscore(all_failure_scores_raw)
+    all_success_scores_ratio = normalize_ratio(all_success_scores_raw)
+    all_failure_scores_ratio = normalize_ratio(all_failure_scores_raw)
+    all_success_scores_robust = normalize_robust(all_success_scores_raw)
+    all_failure_scores_robust = normalize_robust(all_failure_scores_raw)
 
     # --- Metrics ---
     fail_steps = fail_te[te_failure_idx]
     print(f"\nEpisode-level detection (q={args.quantile}, "
           f"{len(te_success_idx)} safe / {len(te_failure_idx)} fail):")
-    print(f"  {'Method':<40s}  {'FPR':>5s}   {'Det':>5s}   {'MedLead':>7s}  {'AUROC':>5s}")
+    print(f"  {'Method':<40s}  {'FPR':>5s}   {'Det':>5s}   {'MedLead':>7s}")
     evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, global_threshold,
                     "Pooled quantile (raw)",
                     timesteps=timesteps, fail_steps=fail_steps)
-    evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, bajcsy_threshold,
+    evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, twolevel_raw_threshold,
                     "Two-level conformal (raw)",
                     timesteps=timesteps, fail_steps=fail_steps)
     evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, threshold_curve,
                     "Per-timestep (raw)",
                     timesteps=timesteps, fail_steps=fail_steps)
-    evaluate_alarms(all_success_scores_norm, all_failure_scores_norm, twolevel_norm_threshold,
-                    "Two-level conformal (normalized)",
+    evaluate_alarms(all_success_scores_zscore, all_failure_scores_zscore, twolevel_zscore_threshold,
+                    "Two-level conformal (z-score)",
+                    timesteps=timesteps, fail_steps=fail_steps)
+    evaluate_alarms(all_success_scores_ratio, all_failure_scores_ratio, twolevel_ratio_threshold,
+                    "Two-level conformal (ratio)",
+                    timesteps=timesteps, fail_steps=fail_steps)
+    evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, max_conformal_threshold,
+                    "Max-conformal (raw)",
+                    timesteps=timesteps, fail_steps=fail_steps)
+    evaluate_alarms(all_success_scores_zscore, all_failure_scores_zscore,
+                    max_conformal_zscore_threshold,
+                    "Max-conformal (z-score)",
+                    timesteps=timesteps, fail_steps=fail_steps)
+    evaluate_alarms(all_success_scores_ratio, all_failure_scores_ratio,
+                    max_conformal_ratio_threshold,
+                    "Max-conformal (ratio)",
+                    timesteps=timesteps, fail_steps=fail_steps)
+    evaluate_alarms(all_success_scores_robust, all_failure_scores_robust,
+                    max_conformal_robust_threshold,
+                    "Max-conformal (robust)",
                     timesteps=timesteps, fail_steps=fail_steps)
 
-    # --- Plot: normalized scores ---
+    # --- Plot: 3 subplots (raw, z-score, ratio) ---
     rng = np.random.default_rng(args.seed)
     n_plot = args.n_plot
-    pick_s = rng.choice(len(all_success_scores_norm), min(n_plot, len(all_success_scores_norm)), replace=False)
-    pick_f = rng.choice(len(all_failure_scores_norm), min(n_plot, len(all_failure_scores_norm)), replace=False)
-
-    fig, ax = plt.subplots(figsize=(FULL_WIDTH, 2.5))
-
-    for i in pick_s:
-        s = all_success_scores_norm[i]
-        ax.plot(timesteps[:len(s)], s,
-                color=SUCCESS_COLOR, alpha=0.15, linewidth=0.8)
+    pick_s = rng.choice(len(all_success_scores_raw), min(n_plot, len(all_success_scores_raw)), replace=False)
+    pick_f = rng.choice(len(all_failure_scores_raw), min(n_plot, len(all_failure_scores_raw)), replace=False)
     fail_te_failures = fail_te[te_failure_idx]
-    for i in pick_f:
-        s = all_failure_scores_norm[i]
-        ft = fail_te_failures[i]
-        t = timesteps[:len(s)]
-        mask = t <= ft
-        ax.plot(t[mask], s[mask],
-                color=FAILURE_COLOR, alpha=0.25, linewidth=0.8)
-        if ft >= timesteps[0] and ft <= t[-1]:
-            score_at_fail = np.interp(ft, t, s)
-            ax.plot(ft, score_at_fail, "x", color=FAILURE_COLOR,
-                    markersize=4, markeredgewidth=1.2)
 
-    ax.axhline(twolevel_norm_threshold, color="#4477AA", linestyle="-.", linewidth=1.2,
-               label="Two-level conformal")
+    rows = [
+        ("Raw scores", all_success_scores_raw, all_failure_scores_raw,
+         twolevel_raw_threshold, max_conformal_threshold, "Score"),
+        ("Z-score normalized", all_success_scores_zscore, all_failure_scores_zscore,
+         twolevel_zscore_threshold, max_conformal_zscore_threshold, "Z-score"),
+        ("Ratio normalized", all_success_scores_ratio, all_failure_scores_ratio,
+         twolevel_ratio_threshold, max_conformal_ratio_threshold, "Score / median"),
+        ("Robust normalized", all_success_scores_robust, all_failure_scores_robust,
+         None, max_conformal_robust_threshold, "(s - median) / MAD"),
+    ]
 
-    q_lo = np.quantile(cal_matrix_norm, 0.25, axis=0)
-    q_hi = np.quantile(cal_matrix_norm, 0.75, axis=0)
-    ax.fill_between(timesteps, q_lo, q_hi, color="gray", alpha=0.12,
-                    label="Cal. IQR")
-    ax.axhline(0, color="gray", linestyle=":", linewidth=0.5, alpha=0.5)
+    fig, axes = plt.subplots(4, 2, figsize=(FULL_WIDTH, 8), sharex=True)
 
-    ax.set_yscale("symlog", linthresh=1)
-    ax.set_xlabel("Timestep")
-    ax.set_ylabel("Normalized score")
-    ax.legend(loc="upper left", fontsize=7)
-    ax.set_title(f"{args.env.capitalize()} — {method_name} normalized scores")
+    for row, (title, succ, fail_sc, tl_thresh, mc_thresh, ylabel) in enumerate(rows):
+        for col, yscale in enumerate(["linear", "log"]):
+            ax = axes[row, col]
+            for i in pick_s:
+                s = succ[i]
+                ax.plot(timesteps[:len(s)], s,
+                        color=SUCCESS_COLOR, alpha=0.15, linewidth=0.5)
+            for i in pick_f:
+                s = fail_sc[i]
+                ft = fail_te_failures[i]
+                t = timesteps[:len(s)]
+                mask = t <= ft
+                ax.plot(t[mask], s[mask],
+                        color=FAILURE_COLOR, alpha=0.25, linewidth=0.5)
+                if ft >= timesteps[0] and ft <= t[-1]:
+                    score_at_fail = np.interp(ft, t, s)
+                    ax.plot(ft, score_at_fail, "x", color=FAILURE_COLOR,
+                            markersize=3, markeredgewidth=1)
 
-    save_plot(f"conformal_{args.method}_{args.env}", ax=ax)
+            if tl_thresh is not None:
+                ax.axhline(tl_thresh, color="#4477AA", linestyle="-.", linewidth=1.2,
+                            label="Two-level conformal")
+            ax.axhline(mc_thresh, color="#EE6677", linestyle="--",
+                        linewidth=1.2, label="Max-conformal")
+            ax.set_yscale(yscale)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+            if row == 0:
+                ax.set_title("Linear" if yscale == "linear" else "Log", fontsize=8)
+            if row == 0 and col == 1:
+                ax.legend(loc="upper left", fontsize=6)
+
+        # Row label on left edge
+        axes[row, 0].annotate(title, xy=(0, 0.5), xytext=(-0.35, 0.5),
+                              xycoords="axes fraction", textcoords="axes fraction",
+                              fontsize=7, rotation=90, va="center", ha="center")
+
+    axes[-1, 0].set_xlabel("Timestep")
+    axes[-1, 1].set_xlabel("Timestep")
+    for ax in axes[-1]:
+        ax.set_xlim(left=timesteps[0])
+        ticks = ax.get_xticks()
+        if ticks[0] != timesteps[0]:
+            ax.set_xticks([timesteps[0], *ticks[ticks > timesteps[0]]])
+    fig.suptitle(f"{args.env.capitalize()} — {method_name}", fontsize=10)
+    fig.tight_layout()
+
+    save_plot(f"conformal_{args.method}_{args.env}", ax=axes[0, 0])
     plt.show()
     print("Done.")
 
