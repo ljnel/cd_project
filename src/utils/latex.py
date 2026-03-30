@@ -419,7 +419,7 @@ def format_evaluation_table(
 
     metrics = [
         ('det_rate', 'EDR (\\%)', '{:.1f}', False),
-        ('med_ttd', 'TTD (\\%)', '{:.0f}', False),
+        ('med_ttd', 'TTD (\\%)', '{:.3g}', False),
     ]
     n_met = len(metrics)
 
