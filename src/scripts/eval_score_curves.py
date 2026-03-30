@@ -41,34 +41,27 @@ plt.rcParams['text.usetex'] = False
 MAX_EPISODES = 20  # max episodes to plot per category (avoid clutter)
 
 
-def load_env_results(env_name: str) -> dict:
-    """Load evaluation results for one environment."""
-    path = get_root() / "results" / "evaluation" / f"{env_name}_results.npz"
+def load_method_results(env_name: str, method: str) -> dict | None:
+    """Load per-method evaluation results."""
+    path = get_root() / "results" / "evaluation" / env_name / f"{method}.npz"
     if not path.exists():
-        raise FileNotFoundError(f"No evaluation results for {env_name}: {path}")
-    return dict(np.load(path, allow_pickle=True))
-
-
-def get_method_scores(data: dict, method: str) -> dict:
-    """Extract per-method scores and metadata from loaded npz data."""
-    threshold_key = f"threshold_{method}"
-    if threshold_key not in data:
         return None
+    data = dict(np.load(path, allow_pickle=True))
 
     timesteps = data['timesteps']
-    threshold = float(data[threshold_key])
+    threshold = float(data['threshold'])
     fail_steps = data['fail_steps']
 
     succ_scores = []
     i = 0
-    while f"scores_success_{method}_{i}" in data:
-        succ_scores.append(data[f"scores_success_{method}_{i}"])
+    while f"scores_success_{i}" in data:
+        succ_scores.append(data[f"scores_success_{i}"])
         i += 1
 
     fail_scores = []
     i = 0
-    while f"scores_failure_{method}_{i}" in data:
-        fail_scores.append(data[f"scores_failure_{method}_{i}"])
+    while f"scores_failure_{i}" in data:
+        fail_scores.append(data[f"scores_failure_{i}"])
         i += 1
 
     return {
@@ -120,17 +113,18 @@ def plot_method_curves(ax, method_data: dict, title: str):
 
 def plot_env(env_name: str, method_keys: list[str]):
     """Plot score curves for all methods in one environment."""
-    data = load_env_results(env_name)
-
-    # Filter to methods that have deployment scores
-    valid_methods = []
+    # Load per-method results, filter to available
+    method_data_map = {}
     for m in method_keys:
-        if f"threshold_{m}" in data:
-            valid_methods.append(m)
+        md = load_method_results(env_name, m)
+        if md is not None:
+            method_data_map[m] = md
 
-    if not valid_methods:
+    if not method_data_map:
         print(f"  No deployment scores for {env_name}, skipping.")
         return
+
+    valid_methods = list(method_data_map.keys())
 
     for log_scale in (False, True):
         suffix = "_log" if log_scale else ""
@@ -142,7 +136,7 @@ def plot_env(env_name: str, method_keys: list[str]):
 
         for i, method in enumerate(valid_methods):
             ax = axes[i // ncols][i % ncols]
-            method_data = get_method_scores(data, method)
+            method_data = method_data_map[method]
             display = get_method_display_name(method)
             plot_method_curves(ax, method_data, display)
             if log_scale:

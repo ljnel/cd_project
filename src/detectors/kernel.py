@@ -99,8 +99,9 @@ class KernDetector(AnomalyDetector):
                 f"Sampling {max_windows} episodes with 1 window each.", stacklevel=2
             )
             ep_idx = np.linspace(0, n_episodes - 1, max_windows).astype(int)
-            start = n_possible // 2
-            return X[ep_idx, start:start + self.window, :]
+            starts = np.random.randint(0, n_possible, size=max_windows)
+            window_idx = starts[:, None] + np.arange(self.window)
+            return X[ep_idx[:, None], window_idx, :]
 
         windows_per_episode = max_windows // n_episodes
 

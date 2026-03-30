@@ -382,22 +382,26 @@ def generate_env_summary_table(output_dir: Path):
 def _load_evaluation_results(results_dir: Path) -> dict[str, dict]:
     """Load evaluation .npz files into a structured dict.
 
+    Expects per-method files at ``results_dir/{env}/{method}.npz``.
+
     Returns {env: {method_key: {fpr, det_rate, med_ttd}}}
     """
-    npz_files = sorted(results_dir.glob("*_results.npz"))
     all_results = {}
-    for npz_file in npz_files:
-        env_name = npz_file.stem.replace("_results", "")
-        data = np.load(npz_file, allow_pickle=True)
-        methods = list(data['methods'])
+    for env_dir in sorted(results_dir.iterdir()):
+        if not env_dir.is_dir():
+            continue
+        env_name = env_dir.name
         env_results = {}
-        for m in methods:
-            env_results[m] = {
-                'fpr': float(data.get(f'fpr_{m}', np.nan)),
-                'det_rate': float(data.get(f'det_rate_{m}', np.nan)),
-                'med_ttd': float(data.get(f'med_ttd_{m}', np.nan)),
+        for npz_file in sorted(env_dir.glob("*.npz")):
+            data = np.load(npz_file, allow_pickle=True)
+            method = npz_file.stem
+            env_results[method] = {
+                'fpr': float(data.get('fpr', np.nan)),
+                'det_rate': float(data.get('det_rate', np.nan)),
+                'med_ttd': float(data.get('med_ttd', np.nan)),
             }
-        all_results[env_name] = env_results
+        if env_results:
+            all_results[env_name] = env_results
     return all_results
 
 
@@ -414,8 +418,7 @@ def format_evaluation_table(
     env_display = [get_env_display_name(e) for e in envs]
 
     metrics = [
-        ('fpr', 'FPR', '{:.1f}', True),
-        ('det_rate', 'Det', '{:.1f}', False),
+        ('det_rate', 'EDR', '{:.1f}', False),
         ('med_ttd', 'TTD', '{:.0f}', False),
     ]
     n_met = len(metrics)
@@ -460,7 +463,7 @@ def format_evaluation_table(
     latex = (
         "\\begin{table*}[htbp]\n"
         "\\centering\n"
-        "\\caption{Deployment evaluation: max-conformal with z-score normalization.}\n"
+        "\\caption{Deployment evaluation: Early Detection Rate and Time To Detect across all environments.}\n"
         "\\label{tab:eval_deployment}\n"
         "\\resizebox{\\textwidth}{!}{%\n"
         f"\\begin{{tabular}}{{{col_spec}}}\n"
