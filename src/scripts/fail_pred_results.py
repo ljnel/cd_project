@@ -171,7 +171,6 @@ def print_metric_summary(all_results: dict[str, dict], metric_key: str):
 def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
             base_seed: int = 42, max_train_eps: int = None, obs_only: bool = True):
     """Run experiments for a single environment."""
-    from config.tasks import EVAL_SPLIT
     from data.datasets import load_episodes
 
     if env_name not in TASK_CONFIGS:
@@ -185,16 +184,17 @@ def run_env(env_name: str, method_keys: list[str], n_bootstrap: int = 10_000,
     print(f"{'#'*80}")
 
     # Compute data statistics from raw episodes
-    X, fail = load_episodes(env_name, obs_only=obs_only)
-    n_test = len(fail) - EVAL_SPLIT
-    n_test_failures = int((fail[EVAL_SPLIT:] >= 0).sum())
+    X_train, _ = load_episodes(env_name, dataset='train', obs_only=obs_only)
+    X_test, fail_test = load_episodes(env_name, dataset='test', obs_only=obs_only)
+    n_test = len(fail_test)
+    n_test_failures = int((fail_test >= 0).sum())
     stats = {
-        'n_episodes': len(X),
-        'n_train_successes': int((fail[:EVAL_SPLIT] == -1).sum()),
+        'n_episodes': len(X_train) + n_test,
+        'n_train_successes': len(X_train),
         'n_test': n_test,
         'n_test_failures': n_test_failures,
-        'obs_dim': X.shape[-1],
-        'ep_len': X.shape[1],
+        'obs_dim': X_train.shape[-1],
+        'ep_len': X_train.shape[1],
         'win': cfg.win,
         'hor': cfg.hor,
         'failure_prop': n_test_failures / n_test if n_test > 0 else 0,

@@ -334,7 +334,7 @@ def generate_env_summary_table(output_dir: Path):
     for env in env_keys:
         task_cfg = TASK_CONFIGS[env]
         env_info = ENV_INFO[env]
-        ds_key = f"{env}/fail_pred"
+        ds_key = f"{env}/test"
         ds_cfg = DATASETS.get(ds_key)
 
         # Domain randomization ranges
@@ -382,7 +382,7 @@ def generate_env_summary_table(output_dir: Path):
 def _load_evaluation_results(results_dir: Path) -> dict[str, dict]:
     """Load evaluation .npz files into a structured dict.
 
-    Returns {env: {method_key: {pauroc, fpr, det_rate, med_ttd}}}
+    Returns {env: {method_key: {fpr, det_rate, med_ttd}}}
     """
     npz_files = sorted(results_dir.glob("*_results.npz"))
     all_results = {}
@@ -393,7 +393,6 @@ def _load_evaluation_results(results_dir: Path) -> dict[str, dict]:
         env_results = {}
         for m in methods:
             env_results[m] = {
-                'pauroc': float(data[f'pauroc_{m}']),
                 'fpr': float(data.get(f'fpr_{m}', np.nan)),
                 'det_rate': float(data.get(f'det_rate_{m}', np.nan)),
                 'med_ttd': float(data.get(f'med_ttd_{m}', np.nan)),
@@ -402,47 +401,73 @@ def _load_evaluation_results(results_dir: Path) -> dict[str, dict]:
     return all_results
 
 
-def format_evaluation_score_table(
+def format_evaluation_table(
     all_results: dict[str, dict],
 ) -> str:
-    """Format pAUROC scores across environments as a LaTeX table."""
+    """Format deployment metrics across all environments as a single LaTeX table.
+
+    Methods as rows, environments as column groups with FPR/Det/TTD sub-columns.
+    """
     envs = list(all_results.keys())
     methods = list(next(iter(all_results.values())).keys())
     display_methods = [get_method_display_name(m) for m in methods]
-
     env_display = [get_env_display_name(e) for e in envs]
-    col_spec = "@{}l" + "c" * len(envs) + "c@{}"
-    header = " & ".join(f"\\textbf{{{n}}}" for n in env_display)
 
-    # Best per env (higher is better)
-    best_per_env = {}
+    metrics = [
+        ('fpr', 'FPR', '{:.1f}', True),
+        ('det_rate', 'Det', '{:.1f}', False),
+        ('med_ttd', 'TTD', '{:.0f}', False),
+    ]
+    n_met = len(metrics)
+
+    # Column spec: method name + 3 sub-columns per env
+    col_spec = "@{}l" + "ccc" * len(envs) + "@{}"
+
+    # Header row 1: env names spanning 3 columns each
+    env_headers = " & ".join(
+        f"\\multicolumn{{{n_met}}}{{c}}{{\\textbf{{{name}}}}}"
+        for name in env_display
+    )
+
+    # Header row 2: metric sub-headers repeated per env
+    sub_headers = " & ".join(
+        " & ".join(f"\\textbf{{{label}}}" for _, label, _, _ in metrics)
+        for _ in envs
+    )
+
+    # cmidrules under each env group
+    cmidrules = ""
+    for i in range(len(envs)):
+        start = 2 + i * n_met
+        end = start + n_met - 1
+        cmidrules += f"\\cmidrule(lr){{{start}-{end}}} "
+
+    # Best per env per metric
+    best_per = {}
     for env in envs:
-        best_val = -1
-        best_m = None
-        for m in methods:
-            v = all_results[env][m]['pauroc']
-            if not np.isnan(v) and v > best_val:
-                best_val = v
-                best_m = m
-        best_per_env[env] = best_m
-
-    # Average ranks (higher pauroc = rank 1)
-    scores = np.array([
-        [all_results[env][m]['pauroc'] for m in methods] for env in envs
-    ])
-    ranks = np.array([rankdata(-row, method='average') for row in scores])
-    avg_ranks = ranks.mean(axis=0)
-    best_rank_idx = int(np.argmin(avg_ranks))
+        for mkey, _, _, lower_better in metrics:
+            best_val = np.inf if lower_better else -np.inf
+            best_m = None
+            for m in methods:
+                v = all_results[env][m][mkey]
+                if np.isnan(v):
+                    continue
+                if (lower_better and v < best_val) or (not lower_better and v > best_val):
+                    best_val = v
+                    best_m = m
+            best_per[(env, mkey)] = best_m
 
     latex = (
         "\\begin{table*}[htbp]\n"
         "\\centering\n"
-        "\\caption{Score quality: pAUROC@10\\%FPR$\\uparrow$ across all environments.}\n"
-        "\\label{tab:eval_pauroc}\n"
+        "\\caption{Deployment evaluation: max-conformal with z-score normalization.}\n"
+        "\\label{tab:eval_deployment}\n"
+        "\\resizebox{\\textwidth}{!}{%\n"
         f"\\begin{{tabular}}{{{col_spec}}}\n"
         "\\toprule\n"
-        f"\\textbf{{Method}} & {header}"
-        " & \\textbf{Avg.\\ Rank} \\\\\n"
+        f"\\textbf{{Method}} & {env_headers} \\\\\n"
+        f"{cmidrules}\n"
+        f" & {sub_headers} \\\\\n"
         "\\midrule\n"
     )
 
@@ -451,79 +476,15 @@ def format_evaluation_score_table(
             latex += "\\midrule\n"
         cells = [display_methods[i]]
         for env in envs:
-            v = all_results[env][m]['pauroc']
-            cell = f"{v:.3f}" if not np.isnan(v) else "---"
-            if m == best_per_env[env]:
-                cell = f"\\textbf{{{cell}}}"
-            cells.append(cell)
-        rank_val = f"{avg_ranks[i]:.1f}"
-        if i == best_rank_idx:
-            rank_val = f"\\textbf{{{rank_val}}}"
-        cells.append(rank_val)
+            for mkey, _, fmt, _ in metrics:
+                v = all_results[env][m][mkey]
+                cell = fmt.format(v) if not np.isnan(v) else "---"
+                if m == best_per[(env, mkey)]:
+                    cell = f"\\textbf{{{cell}}}"
+                cells.append(cell)
         latex += " & ".join(cells) + " \\\\\n"
 
-    latex += "\\bottomrule\n\\end{tabular}\n\\end{table*}\n"
-    return latex
-
-
-def format_evaluation_deployment_table(
-    env_name: str,
-    env_results: dict[str, dict],
-) -> str:
-    """Format deployment metrics for one environment as a LaTeX table."""
-    methods = list(env_results.keys())
-    display_methods = [get_method_display_name(m) for m in methods]
-    display_name = get_env_display_name(env_name)
-
-    metrics = [
-        ('fpr', 'FPR (\\%)$\\downarrow$', '{:.1f}', True),
-        ('det_rate', 'Detection (\\%)$\\uparrow$', '{:.1f}', False),
-        ('med_ttd', 'Med.\\ TTD (\\%)$\\uparrow$', '{:.1f}', False),
-    ]
-
-    col_spec = "@{}l" + "c" * len(metrics) + "@{}"
-    header = " & ".join(f"\\textbf{{{label}}}" for _, label, _, _ in metrics)
-
-    # Best per metric
-    best_per = {}
-    for mkey, _, _, lower_better in metrics:
-        best_val = np.inf if lower_better else -np.inf
-        best_m = None
-        for m in methods:
-            v = env_results[m][mkey]
-            if np.isnan(v):
-                continue
-            if (lower_better and v < best_val) or (not lower_better and v > best_val):
-                best_val = v
-                best_m = m
-        best_per[mkey] = best_m
-
-    latex = (
-        "\\begin{table}[htbp]\n"
-        "\\centering\n"
-        f"\\caption{{Deployment quality on {display_name}.}}\n"
-        f"\\label{{tab:eval_deploy_{env_name}}}\n"
-        f"\\begin{{tabular}}{{{col_spec}}}\n"
-        "\\toprule\n"
-        f"\\textbf{{Method}} & {header} \\\\\n"
-        "\\midrule\n"
-    )
-
-    for i, m in enumerate(methods):
-        if i in METHOD_GROUP_BREAKS:
-            latex += "\\midrule\n"
-        cells = [display_methods[i]]
-        for mkey, _, fmt, _ in metrics:
-            v = env_results[m][mkey]
-            if mkey == 'med_ttd':
-                v = v / 10.0  # convert timesteps to % of episode length
-            cell = fmt.format(v) if not np.isnan(v) else "---"
-            if m == best_per[mkey]:
-                cell = f"\\textbf{{{cell}}}"
-            cells.append(cell)
-        latex += " & ".join(cells) + " \\\\\n"
-
-    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
+    latex += "\\bottomrule\n\\end{tabular}}%\n\\end{table*}\n"
     return latex
 
 
@@ -543,16 +504,10 @@ def generate_evaluation_tables(results_dir: Path):
         for env, res in all_results.items()
     }
 
-    tex = format_evaluation_score_table(filtered)
-    tex_file = results_dir / "all_envs_pauroc.tex"
+    tex = format_evaluation_table(filtered)
+    tex_file = results_dir / "deployment.tex"
     tex_file.write_text(tex)
     print(f"  {tex_file}")
-
-    for env, env_results in filtered.items():
-        tex = format_evaluation_deployment_table(env, env_results)
-        tex_file = results_dir / f"{env}_deployment.tex"
-        tex_file.write_text(tex)
-        print(f"  {tex_file}")
 
 
 # ---------------------------------------------------------------------------

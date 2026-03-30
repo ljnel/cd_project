@@ -76,10 +76,10 @@ def _get_cache_path(env_name: str, kind: str, params: dict) -> Path:
 
 
 def _get_base_config(env_name: str) -> DatasetConfig:
-    """Get the fail_pred dataset config as a template for data generation."""
-    key = f"{env_name}/fail_pred"
+    """Get the test dataset config as a template for data generation."""
+    key = f"{env_name}/test"
     if key not in DATASETS:
-        raise ValueError(f"No fail_pred dataset for {env_name}")
+        raise ValueError(f"No test dataset for {env_name}")
     return copy.deepcopy(DATASETS[key])
 
 

@@ -120,7 +120,10 @@ def _run_episodes(
     upkie.envs.register()
 
     # Create environment
-    base_env = gym.make("Upkie-PyBullet-Pendulum", frequency=frequency, gui=gui)
+    base_env = gym.make(
+        "Upkie-PyBullet-Pendulum", frequency=frequency, gui=gui,
+        regulate_frequency=gui,  # only rate-limit when rendering
+    )
     base_env.unwrapped.update_init_rand(pitch=0.02)
     simulator = base_env.unwrapped.backend
     robot_id = simulator.robot_id
@@ -297,12 +300,35 @@ def _gen_data_parallel(
     }
 
 
+def _dispatch(n_episodes, n_steps, episode_seeds, mass_scales, friction_scales,
+              damping_scales, frequency, disturbance, use_ppo, policy_path,
+              deterministic, n_jobs, render):
+    """Dispatch to sequential or parallel generation."""
+    if render:
+        return _gen_data_sequential(
+            n_episodes=n_episodes, n_steps=n_steps,
+            episode_seeds=episode_seeds, mass_scales=mass_scales,
+            friction_scales=friction_scales, damping_scales=damping_scales,
+            frequency=frequency, disturbance=disturbance,
+            use_ppo=use_ppo, policy_path=policy_path,
+            deterministic=deterministic, render=render,
+        )
+    return _gen_data_parallel(
+        n_episodes=n_episodes, n_steps=n_steps,
+        episode_seeds=episode_seeds, mass_scales=mass_scales,
+        friction_scales=friction_scales, damping_scales=damping_scales,
+        frequency=frequency, disturbance=disturbance,
+        use_ppo=use_ppo, policy_path=policy_path,
+        deterministic=deterministic, n_jobs=n_jobs,
+    )
+
+
 def gen_data(cfg: DatasetConfig, n_jobs: int = -1, render: bool = False) -> dict:
     """
     Generate rollout data with parameter variations and optional disturbances.
 
-    Automatically uses parallel execution for speed. Falls back to sequential
-    when render=True (GUI requires single process).
+    When ``cfg.success_only`` is True, uses rejection sampling to collect
+    exactly ``cfg.n_episodes`` successful episodes.
 
     Args:
         cfg: Dataset configuration
@@ -312,74 +338,92 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1, render: bool = False) -> dict
     Returns:
         dict with X, actions, fail, mass_scale, friction_scale, damping_scale, seeds
     """
-    # Extract config values
-    n_episodes = cfg.n_episodes
     n_steps = cfg.ep_len
     frequency = cfg.frequency
     use_ppo = (cfg.balancer == "ppo")
     policy_path = str(get_root() / 'src/policies' / cfg.policy) if cfg.policy else None
     disturbance = cfg.get_disturbance()
+    target = cfg.n_episodes
 
-    # Create RNG from config seed
-    rng = np.random.default_rng(cfg.seed)
-
-    # Sample parameters for all episodes
-    episode_seeds = rng.integers(0, 2**31, size=n_episodes, dtype=np.int64)
-    mass_scales = rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=n_episodes).astype(np.float32)
-    friction_scales = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=n_episodes).astype(np.float32)
-    damping_scales = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=n_episodes).astype(np.float32)
-
-    logger.info(f"Generating {n_episodes} episodes, {cfg.time}s @ {frequency}Hz")
+    logger.info(f"Generating {target} episodes, {cfg.time}s @ {frequency}Hz"
+                f"{' (success-only)' if cfg.success_only else ''}")
     logger.info(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
     logger.info(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
     logger.info(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
     if disturbance:
         logger.info(f"  Disturbance: {disturbance.__class__.__name__}")
     logger.info(f"  Balancer: {'PPO' if use_ppo else 'MPC'}")
-
-    # Dispatch: use sequential when render needed, parallel otherwise
     if render:
         logger.info("Using sequential execution (render enabled)")
-        result = _gen_data_sequential(
-            n_episodes=n_episodes,
-            n_steps=n_steps,
-            episode_seeds=episode_seeds,
-            mass_scales=mass_scales,
-            friction_scales=friction_scales,
-            damping_scales=damping_scales,
-            frequency=frequency,
-            disturbance=disturbance,
-            use_ppo=use_ppo,
-            policy_path=policy_path,
-            deterministic=True,
-            render=render,
-        )
-    else:
-        result = _gen_data_parallel(
-            n_episodes=n_episodes,
-            n_steps=n_steps,
-            episode_seeds=episode_seeds,
-            mass_scales=mass_scales,
-            friction_scales=friction_scales,
-            damping_scales=damping_scales,
-            frequency=frequency,
-            disturbance=disturbance,
-            use_ppo=use_ppo,
-            policy_path=policy_path,
-            deterministic=True,
-            n_jobs=n_jobs,
+
+    rng = np.random.default_rng(cfg.seed)
+
+    def _sample_params(n):
+        return (
+            rng.integers(0, 2**31, size=n, dtype=np.int64),
+            rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=n).astype(np.float32),
+            rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=n).astype(np.float32),
+            rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=n).astype(np.float32),
         )
 
-    # Add parameter scales and seeds to result
-    result['mass_scale'] = mass_scales
-    result['friction_scale'] = friction_scales
-    result['damping_scale'] = damping_scales
-    result['seeds'] = episode_seeds
+    if not cfg.success_only:
+        seeds, mass_scales, friction_scales, damping_scales = _sample_params(target)
+        result = _dispatch(
+            target, n_steps, seeds, mass_scales, friction_scales,
+            damping_scales, frequency, disturbance, use_ppo, policy_path,
+            True, n_jobs, render,
+        )
+        result['mass_scale'] = mass_scales
+        result['friction_scale'] = friction_scales
+        result['damping_scale'] = damping_scales
+        result['seeds'] = seeds
+        n_failed = (result['fail'] >= 0).sum()
+        logger.info(f"Done: X={result['X'].shape}, "
+                    f"failed={n_failed}/{target}")
+        return result
 
-    n_failed = (result['fail'] >= 0).sum()
-    logger.info(f"Done: X={result['X'].shape}, actions={result['actions'].shape}, failed={n_failed}/{n_episodes}")
+    # Rejection sampling: collect only successful episodes
+    collected = []
+    n_collected = 0
+    max_iters = 20
+    batch_size = int(np.ceil(target * 1.5))
 
-    return result
+    for iteration in range(max_iters):
+        n_needed = target - n_collected
+        if n_needed <= 0:
+            break
+        n_gen = max(n_needed, batch_size // 2)
+
+        seeds, mass_scales, friction_scales, damping_scales = _sample_params(n_gen)
+        result = _dispatch(
+            n_gen, n_steps, seeds, mass_scales, friction_scales,
+            damping_scales, frequency, copy.deepcopy(disturbance),
+            use_ppo, policy_path, True, n_jobs, render,
+        )
+
+        mask = result['fail'] == -1
+        n_success = mask.sum()
+        collected.append({
+            'X': result['X'][mask],
+            'actions': result['actions'][mask],
+            'fail': result['fail'][mask],
+            'mass_scale': mass_scales[mask],
+            'friction_scale': friction_scales[mask],
+            'damping_scale': damping_scales[mask],
+            'seeds': seeds[mask],
+        })
+        n_collected += n_success
+        logger.info(f"  Rejection iter {iteration + 1}: {n_success}/{n_gen} "
+                    f"successes, total {n_collected}/{target}")
+
+    if n_collected < target:
+        logger.warning(f"Only collected {n_collected}/{target} successes "
+                       f"after {max_iters} iterations")
+
+    combined = {k: np.concatenate([c[k] for c in collected])[:target]
+                for k in collected[0]}
+    logger.info(f"Done: {len(combined['X'])} success episodes collected")
+    return combined
 
 
 # =============================================================================

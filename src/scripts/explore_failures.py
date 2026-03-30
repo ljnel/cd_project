@@ -443,27 +443,27 @@ def main():
     parser.add_argument('--n_failures', type=int, default=5,
                         help='Number of failures to collect per env (default: 5)')
     parser.add_argument('--envs', nargs='+', default=None,
-                        help='Environments to explore (default: all fail_pred configs)')
+                        help='Environments to explore (default: all test configs)')
     parser.add_argument('--seed', type=int, default=123,
                         help='Random seed (default: 123)')
     parser.add_argument('--n_jobs', type=int, default=-1,
                         help='Number of parallel workers for upkie (default: -1 = all cores)')
     args = parser.parse_args()
 
-    # Collect fail_pred configs
-    fail_pred_keys = [k for k in DATASETS if k.endswith('/fail_pred')]
+    # Collect test configs
+    test_keys = [k for k in DATASETS if k.endswith('/test')]
     if args.envs:
-        fail_pred_keys = [k for k in fail_pred_keys
-                          if k.split('/')[0] in args.envs]
+        test_keys = [k for k in test_keys
+                     if k.split('/')[0] in args.envs]
 
-    if not fail_pred_keys:
-        available = [k.split('/')[0] for k in DATASETS if k.endswith('/fail_pred')]
+    if not test_keys:
+        available = [k.split('/')[0] for k in DATASETS if k.endswith('/test')]
         logger.error(f"No matching envs. Available: {available}")
         return
 
     output_dir = get_root() / 'results' / 'explore_failures'
 
-    for key in sorted(fail_pred_keys):
+    for key in sorted(test_keys):
         cfg = DATASETS[key]
         env_info = ENV_INFO[cfg.env]
 

@@ -31,7 +31,7 @@ logger = logging.getLogger("cd.data.datasets")
 # =============================================================================
 
 def load_episodes(
-    env_name: str, dataset: str = "fail_pred", obs_only: bool = True,
+    env_name: str, dataset: str, obs_only: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Load episodes and failure labels from disk.
 
@@ -308,7 +308,6 @@ def _generate_upkie(cfg: DatasetConfig, n_jobs: int) -> dict:
 
 def load_experiment(
     env_name: str,
-    split_at: int | None = 1000,
     max_train_eps: int | None = 300,
     trim: bool = False,
     obs_only: bool = True,
@@ -316,13 +315,10 @@ def load_experiment(
     hor: int | None = None,
     normalize: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load eval dataset and split into train/test with normalization.
+    """Load train + test datasets and prepare for evaluation.
 
-    Looks up the task config for env_name, loads the fail_pred dataset,
-    splits sequentially, normalizes, and windows test episodes.
-
-    Train = successes from episodes [:split_at].
-    Test  = all episodes from [split_at:], windowed.
+    Train = success-only episodes from the 'train' dataset.
+    Test  = mixed episodes from the 'test' dataset, windowed.
 
     Parameters
     ----------
@@ -342,22 +338,23 @@ def load_experiment(
         (x_train, x_test, y_true, episode_ids) where episode_ids maps
         each test window back to its original episode index.
     """
-    from config.tasks import EVAL_SPLIT, TASK_CONFIGS
+    from config.tasks import TASK_CONFIGS
     from utils.windows import sample_test_windows
-
-    if split_at is None:
-        split_at = EVAL_SPLIT
 
     cfg = TASK_CONFIGS[env_name]
     win = win if win is not None else cfg.win
     hor = hor if hor is not None else cfg.hor
 
-    X, fail = load_episodes(env_name, obs_only=obs_only)
+    x_train, _ = load_episodes(env_name, dataset='train', obs_only=obs_only)
+    X_te, fail_te = load_episodes(env_name, dataset='test', obs_only=obs_only)
+
     if trim:
-        X, fail, kept = trim_transient(X, fail, win)
-        split_at = int((kept < split_at).sum())
-    X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
-    x_train = filter_successes(X_tr, fail_tr, eps=max_train_eps)
+        x_train, _, _ = trim_transient(x_train, np.full(len(x_train), -1), win)
+        X_te, fail_te, _ = trim_transient(X_te, fail_te, win)
+
+    if max_train_eps is not None:
+        x_train = x_train[:max_train_eps]
+
     if normalize:
         _, x_train, X_te = normalize_channels(x_train, X_te)
 
@@ -365,13 +362,79 @@ def load_experiment(
         X_te, fail_te,
         window=win,
         horizon=hor,
-        episode_id_offset=split_at,
     )
 
     logger.info(f"Eval split: train={x_train.shape}, test={x_test.shape}, "
                 f"failures={y_true.sum():.0f}, successes={(~y_true).sum():.0f}")
 
     return x_train, x_test, y_true, episode_ids
+
+
+def load_train_cal_test(
+    env_name: str,
+    splits: dict[str, float],
+    obs_only: bool = True,
+    normalize: bool = True,
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, StandardScaler | None]:
+    """Load train and test data, splitting train into named sub-splits.
+
+    Loads the 'train' dataset (success-only) and divides it into named
+    sub-splits according to the given proportions. Loads the 'test'
+    dataset (mixed success/fail) as-is.
+
+    Parameters
+    ----------
+    env_name : str
+        Environment key (e.g. ``'hopper'``).
+    splits : dict[str, float]
+        Named proportions to split the train dataset into.
+        Must sum to <= 1.0.
+        Example: ``{'train': 0.6, 'norm_cal': 0.2, 'thresh_cal': 0.2}``
+    obs_only : bool
+        If True, keep only physically observable dimensions.
+    normalize : bool
+        If True, z-score normalize using the first split.
+
+    Returns
+    -------
+    train_splits : dict[str, ndarray]
+        Arrays keyed by split name.
+    X_test : ndarray
+        Full test episodes (mixed success/fail).
+    fail_test : ndarray
+        Failure labels for test episodes.
+    scaler : StandardScaler or None
+        Fitted on the first split. None if ``normalize=False``.
+    """
+    total = sum(splits.values())
+    if total > 1.0 + 1e-9:
+        raise ValueError(f"Split proportions sum to {total:.3f}, must be <= 1.0")
+
+    X_train, _ = load_episodes(env_name, dataset='train', obs_only=obs_only)
+    X_test, fail_test = load_episodes(env_name, dataset='test', obs_only=obs_only)
+
+    # Partition train data by proportions
+    n = len(X_train)
+    train_splits = {}
+    offset = 0
+    for name, frac in splits.items():
+        size = int(n * frac)
+        train_splits[name] = X_train[offset:offset + size]
+        offset += size
+
+    scaler = None
+    if normalize:
+        first_key = next(iter(splits))
+        all_arrays = [train_splits[k] for k in splits] + [X_test]
+        result = normalize_channels(*all_arrays)
+        scaler = result[0]
+        normalized = result[1:]
+        keys = list(splits.keys())
+        for i, k in enumerate(keys):
+            train_splits[k] = normalized[i]
+        X_test = normalized[len(keys)]
+
+    return train_splits, X_test, fail_test, scaler
 
 
 def load_tune_data(
@@ -412,7 +475,7 @@ def load_tune_data(
 
 def report_fail_proportions() -> dict:
     """
-    Report the proportion of failed episodes for each 'fail_pred' dataset.
+    Report the proportion of failed episodes for each 'test' dataset.
 
     Failed episodes are those where fail > -1.
 
@@ -421,10 +484,10 @@ def report_fail_proportions() -> dict:
     """
     results = {}
     rows = []
-    fail_pred_keys = [k for k in DATASETS if k.endswith('fail_pred')]
+    test_keys = [k for k in DATASETS if k.endswith('/test')]
 
     # Collect data
-    for key in fail_pred_keys:
+    for key in test_keys:
         cfg = DATASETS[key]
         path = get_dataset_path(cfg)
 

@@ -5,9 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from config.detectors import get_detector
-from data.datasets import (
-    filter_successes, load_episodes, normalize_channels, split_train_test,
-)
+from data.datasets import load_episodes, normalize_channels
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.windows import strided_window_view
 
@@ -30,9 +28,8 @@ envs = ["hopper", "half_cheetah"]
 fig, axes = plt.subplots(4, len(envs), figsize=(FULL_WIDTH, 7), sharex="col")
 
 for col, env in enumerate(envs):
-    X, fail = load_episodes(env)
-    X_tr, fail_tr, _, _ = split_train_test(X, fail, 1000)
-    x_success = filter_successes(X_tr, fail_tr, eps=400)
+    x_success, _ = load_episodes(env, dataset='train')
+    x_success = x_success[:400]
     scaler, x_success = normalize_channels(x_success)
 
     x_det_train = x_success[:200]

@@ -21,9 +21,9 @@ DETECTOR_CONFIGS = {
         cls='KernDetector',
         kernel_type='sig',
         window_frac=0.1,
-        max_windows=250,
+        max_windows=300,
         display_name='Sig-KIC',
-        reg=1e-5,
+        reg='adaptive',
         gamma='median',
         target_steps=30,
     ),
@@ -114,7 +114,7 @@ DEFAULT_METHODS = [
     "iforest",
     # KIC variants
     "fft",
-    # "sig",  # disabled: sktime signature kernel is too slow
+    # "sig",  # too slow for per-timestep scoring
     "basis",
     "dist",
 ]

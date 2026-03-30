@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "cd_project"
 version = "0.1.0"
 channels = ["conda-forge"]
@@ -33,10 +33,19 @@ tensorboard = "*"
 tensorboardX = "*"
 upkie = "*"
 cd_project = { path = ".", editable = true }
+sigkerax = ">=0.2.1, <0.3"
 
 [tasks]
 gen_data = "python -m data.datasets --overwrite"
-gen_fail_pred = "python -m data.datasets --keys inv_pend/fail_pred hopper/fail_pred half_cheetah/fail_pred ant/fail_pred humanoid/fail_pred upkie/fail_pred --overwrite"
+gen_train = "python -m data.datasets --keys inv_pend/train hopper/train half_cheetah/train ant/train humanoid/train upkie/train --overwrite"
+gen_test = "python -m data.datasets --keys inv_pend/test hopper/test half_cheetah/test ant/test humanoid/test upkie/test --overwrite"
 gen_tune = "python -m data.datasets --keys inv_pend/tune hopper/tune half_cheetah/tune ant/tune humanoid/tune upkie/tune --overwrite"
 tune = "rm -rf results/tuned && python src/scripts/tune.py --env all"
 fail_pred = "python src/scripts/fail_pred_results.py --env all --tr-ep 500"
+
+[target.linux-64.dependencies]
+cuda-nvcc = ">=12.6.3"
+
+[target.linux-64.pypi-dependencies]
+jax = {version = "*", extras = ["cuda12"]}
+

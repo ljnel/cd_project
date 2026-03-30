@@ -1,18 +1,51 @@
+from functools import partial
 from typing import Literal
 
+import jax
+import jax.numpy as jnp
 import numpy as np
-from sktime.dists_kernels import SignatureKernel
+from sigkerax.solver import FiniteDifferenceSolver
+
+# Enable float64 in JAX for numerical stability
+jax.config.update("jax_enable_x64", True)
 
 from utils.misc import median_heuristic
 
 from .base import Kernel
 
 
+def _patch_sigkerax_solver():
+    """Patch sigkerax's FiniteDifferenceSolver for JAX >=0.4 compatibility.
+
+    sigkerax 0.2.1 marks `p` as a static arg in _solution_diag_update, but
+    `p` is a loop variable (tracer) inside fori_loop.  Replacing the decorator
+    with static_argnums=(0,) only fixes this — `p` is only used in jnp.where
+    which handles tracers fine.
+    """
+    # Only patch once
+    if getattr(FiniteDifferenceSolver, '_patched', False):
+        return
+
+    # Unwrap the original function from jit
+    orig = FiniteDifferenceSolver._solution_diag_update
+    while hasattr(orig, '__wrapped__'):
+        orig = orig.__wrapped__
+
+    # Re-wrap with corrected static_argnums (self only)
+    FiniteDifferenceSolver._solution_diag_update = partial(
+        jax.jit, static_argnums=(0,)
+    )(orig)
+    FiniteDifferenceSolver._patched = True
+
+
+_patch_sigkerax_solver()
+
+
 class SigKernel(Kernel):
     """
-    Signature kernel with RBF static kernel.
+    Signature kernel with RBF static kernel (sigkerax / JAX backend).
 
-    Computes the signature kernel via PDE-based method (sktime).
+    Computes the signature kernel via PDE-based method on GPU.
     The signature kernel compares paths via their path signatures —
     the canonical feature map from rough path theory.
 
@@ -28,26 +61,19 @@ class SigKernel(Kernel):
     def __init__(self, gamma: float | Literal["median"] = "median"):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
-        self.k = None  # Will be initialized after fit or when gamma is known
+        self._solver = None
 
         if self._gamma is not None:
             self._init_kernel()
 
     def _init_kernel(self):
-        """Initialize the signature kernel with the current gamma."""
-        gamma = self._gamma
-
-        def _fast_rbf(X, Y=None):
-            """RBF kernel bypassing sklearn validation overhead."""
-            if Y is None:
-                Y = X
-            X_sqnorms = np.sum(X ** 2, axis=1, keepdims=True)
-            Y_sqnorms = np.sum(Y ** 2, axis=1, keepdims=True)
-            dist_sq = X_sqnorms - 2 * X @ Y.T + Y_sqnorms.T
-            np.maximum(dist_sq, 0, out=dist_sq)
-            return np.exp(-gamma * dist_sq)
-
-        self.k = SignatureKernel(kernel=_fast_rbf, normalize=True)
+        """Initialize the sigkerax PDE solver with the current gamma."""
+        # sigkerax RBF uses scale = 1 / sqrt(2 * gamma)
+        scale = float(1.0 / np.sqrt(2.0 * self._gamma))
+        self._solver = FiniteDifferenceSolver(
+            static_kernel_kind="rbf",
+            scale=scale,
+        )
 
     @property
     def gamma(self) -> float:
@@ -71,10 +97,9 @@ class SigKernel(Kernel):
         self : SigKernel
         """
         if isinstance(self._gamma_param, (int, float)):
-            return self
-
-        if self._gamma_param == "median":
-            # Compute cross-trajectory distances at each timestep
+            if self._solver is None:
+                self._init_kernel()
+        elif self._gamma_param == "median":
             from sklearn.metrics.pairwise import euclidean_distances
             X = np.asarray(X)
             m, n, d = X.shape
@@ -87,17 +112,54 @@ class SigKernel(Kernel):
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 
+        # Cache self-kernel diagonal for normalization during predict
+        self._train_diag_sqrt = np.sqrt(np.maximum(
+            self._raw_diag(jnp.asarray(X, dtype=jnp.float64)), 1e-12,
+        ))
+
         return self
 
+    def _raw(self, x: jnp.ndarray, y: jnp.ndarray) -> np.ndarray:
+        """Compute raw (unnormalized) kernel matrix."""
+        K = self._solver.solve(x, y)
+        return np.array(K[..., 0])  # drop state_space_dim axis
+
+    def _raw_diag(self, x: jnp.ndarray, batch_size: int = 100) -> np.ndarray:
+        """Compute diagonal of raw kernel matrix in batches."""
+        n = x.shape[0]
+        diag = np.empty(n)
+        for start in range(0, n, batch_size):
+            chunk = x[start:start + batch_size]
+            K_chunk = self._solver.solve(chunk, chunk)
+            diag[start:start + batch_size] = np.diag(np.array(K_chunk[..., 0]))
+        return diag
+
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
-        if self.k is None:
+        if self._solver is None:
             raise ValueError("Kernel not initialized. Call fit(X) first.")
+        x_jax = jnp.asarray(x, dtype=jnp.float64)
         if y is None:
-            return self.k(x.swapaxes(1, 2))
+            K = self._raw(x_jax, x_jax)
+            diag = np.sqrt(np.maximum(np.diag(K), 1e-12))
+            K /= diag[:, None]
+            K /= diag[None, :]
+            np.clip(K, -1, 1, out=K)
+            return K
+        y_jax = jnp.asarray(y, dtype=jnp.float64)
+        K = self._raw(x_jax, y_jax)
+        dx = np.sqrt(np.maximum(self._raw_diag(x_jax), 1e-12))
+        # Use cached training diagonal if available and sizes match
+        if hasattr(self, '_train_diag_sqrt') and len(self._train_diag_sqrt) == y.shape[0]:
+            dy = self._train_diag_sqrt
         else:
-            return self.k(x.swapaxes(1, 2), y.swapaxes(1, 2))
+            dy = np.sqrt(np.maximum(self._raw_diag(y_jax), 1e-12))
+        K /= dx[:, None]
+        K /= dy[None, :]
+        np.clip(K, -1, 1, out=K)
+        return K
 
     def diag(self, x: np.ndarray) -> np.ndarray:
-        if self.k is None:
+        """Normalized diagonal is always 1."""
+        if self._solver is None:
             raise ValueError("Kernel not initialized. Call fit(X) first.")
-        return self.k.transform_diag(x.swapaxes(1, 2))
+        return np.ones(x.shape[0])

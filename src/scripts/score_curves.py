@@ -29,7 +29,7 @@ from config.datasets import DATASETS
 from config.detectors import get_detector
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
-from data.datasets import filter_successes, load_episodes, normalize_channels
+from data.datasets import load_episodes, normalize_channels
 from envs.mujoco.termination import check_custom_termination
 from utils.paths import get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, setup_style
@@ -157,7 +157,7 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     from envs.mujoco.gen_data import _load_policy
 
     task_cfg = TASK_CONFIGS[env_name]
-    dataset_key = f"{env_name}/fail_pred"
+    dataset_key = f"{env_name}/test"
     dataset_cfg = DATASETS[dataset_key]
     env_info = ENV_INFO[env_name]
     gym_name = env_info.gym_name
@@ -165,9 +165,8 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     np.random.seed(seed)
 
     # ------- Step 1: Load data, fit scaler & detector -------
-    X, fail = load_episodes(env_name)
-    x_train = filter_successes(X, fail)
-    scaler, x_train = normalize_channels(x_train)
+    X, _ = load_episodes(env_name, dataset='train')
+    scaler, x_train = normalize_channels(X)
 
     print("Fitting Basis-CD...")
     detector = get_detector("basis", env=env_name)
@@ -377,11 +376,11 @@ def main():
             f"Unknown env: {args.env}. Available: {list(TASK_CONFIGS.keys())}"
         )
 
-    dataset_key = f"{args.env}/fail_pred"
+    dataset_key = f"{args.env}/test"
     if dataset_key not in DATASETS:
         raise ValueError(
-            f"No fail_pred dataset for {args.env}. "
-            f"Available: {[k for k in DATASETS if k.endswith('/fail_pred')]}"
+            f"No test dataset for {args.env}. "
+            f"Available: {[k for k in DATASETS if k.endswith('/test')]}"
         )
 
     run_env(args.env, args.eps, args.seed,

@@ -201,12 +201,26 @@ def _gen_data_parallel(
     }
 
 
+def _dispatch(gym_name, policy_path, n_episodes, ep_len, seeds,
+              mass_scale, friction_scale, damping_scale, n_jobs, algo):
+    """Dispatch to sequential or parallel generation."""
+    if n_jobs == 1:
+        return _gen_data_sequential(
+            gym_name, policy_path, n_episodes, ep_len,
+            seeds, mass_scale, friction_scale, damping_scale, algo,
+        )
+    return _gen_data_parallel(
+        gym_name, policy_path, n_episodes, ep_len,
+        seeds, mass_scale, friction_scale, damping_scale, n_jobs, algo,
+    )
+
+
 def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     """
     Generate trajectory data with parameter variations.
 
-    Automatically uses parallel execution for speed. Use n_jobs=1 for
-    sequential execution (useful for debugging).
+    When ``cfg.success_only`` is True, uses rejection sampling to collect
+    exactly ``cfg.n_episodes`` successful episodes.
 
     Args:
         cfg: Dataset configuration (from DATASETS)
@@ -215,50 +229,84 @@ def gen_data(cfg: DatasetConfig, n_jobs: int = -1) -> dict:
     Returns:
         dict with X, actions, fail, mass_scale, friction_scale, damping_scale, seeds
     """
-    # Get environment info
     env_info = ENV_INFO[cfg.env]
     gym_name = env_info.gym_name
     policy_path = str(get_root() / 'src/policies' / cfg.policy)
+    algo = cfg.algo
+    target = cfg.n_episodes
 
-    # Create RNG from config seed
-    rng = np.random.default_rng(cfg.seed)
-
-    # Sample parameters for each episode
-    seeds = rng.integers(0, 2**32, size=cfg.n_episodes, dtype=np.uint32)
-    mass_scale = rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=cfg.n_episodes).astype(np.float32)
-    friction_scale = rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=cfg.n_episodes).astype(np.float32)
-    damping_scale = rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=cfg.n_episodes).astype(np.float32)
-
-    logger.info(f"Generating {cfg.n_episodes} episodes for {gym_name}")
+    logger.info(f"Generating {target} episodes for {gym_name}"
+                f"{' (success-only)' if cfg.success_only else ''}")
     logger.info(f"  Mass range: [{cfg.mass_range[0]:.2f}, {cfg.mass_range[1]:.2f}]")
     logger.info(f"  Friction range: [{cfg.friction_range[0]:.2f}, {cfg.friction_range[1]:.2f}]")
     logger.info(f"  Damping range: [{cfg.damping_range[0]:.2f}, {cfg.damping_range[1]:.2f}]")
-
-    algo = cfg.algo
-
-    # Dispatch: sequential or parallel
     if n_jobs == 1:
         logger.info("Using sequential execution")
-        result = _gen_data_sequential(
-            gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
-            seeds, mass_scale, friction_scale, damping_scale, algo
+
+    rng = np.random.default_rng(cfg.seed)
+
+    def _sample_params(n):
+        return (
+            rng.integers(0, 2**32, size=n, dtype=np.uint32),
+            rng.uniform(cfg.mass_range[0], cfg.mass_range[1], size=n).astype(np.float32),
+            rng.uniform(cfg.friction_range[0], cfg.friction_range[1], size=n).astype(np.float32),
+            rng.uniform(cfg.damping_range[0], cfg.damping_range[1], size=n).astype(np.float32),
         )
-    else:
-        result = _gen_data_parallel(
-            gym_name, policy_path, cfg.n_episodes, cfg.ep_len,
-            seeds, mass_scale, friction_scale, damping_scale, n_jobs, algo
-        )
 
-    # Add parameter scales and seeds to result
-    result['mass_scale'] = mass_scale
-    result['friction_scale'] = friction_scale
-    result['damping_scale'] = damping_scale
-    result['seeds'] = seeds
+    if not cfg.success_only:
+        seeds, mass_scale, friction_scale, damping_scale = _sample_params(target)
+        result = _dispatch(gym_name, policy_path, target, cfg.ep_len,
+                           seeds, mass_scale, friction_scale, damping_scale,
+                           n_jobs, algo)
+        result['mass_scale'] = mass_scale
+        result['friction_scale'] = friction_scale
+        result['damping_scale'] = damping_scale
+        result['seeds'] = seeds
+        n_failed = (result['fail'] >= 0).sum()
+        logger.info(f"Done: {n_failed}/{target} failures "
+                    f"({100 * n_failed / target:.1f}%)")
+        return result
 
-    n_failed = (result['fail'] >= 0).sum()
-    logger.info(f"Done: {n_failed}/{cfg.n_episodes} failures ({100*n_failed/cfg.n_episodes:.1f}%)")
+    # Rejection sampling: collect only successful episodes
+    collected = []
+    n_collected = 0
+    max_iters = 20
+    batch_size = int(np.ceil(target * 1.5))
 
-    return result
+    for iteration in range(max_iters):
+        n_needed = target - n_collected
+        if n_needed <= 0:
+            break
+        n_gen = max(n_needed, batch_size // 2)
+
+        seeds, mass_scale, friction_scale, damping_scale = _sample_params(n_gen)
+        result = _dispatch(gym_name, policy_path, n_gen, cfg.ep_len,
+                           seeds, mass_scale, friction_scale, damping_scale,
+                           n_jobs, algo)
+
+        mask = result['fail'] == -1
+        n_success = mask.sum()
+        collected.append({
+            'X': result['X'][mask],
+            'actions': result['actions'][mask],
+            'fail': result['fail'][mask],
+            'mass_scale': mass_scale[mask],
+            'friction_scale': friction_scale[mask],
+            'damping_scale': damping_scale[mask],
+            'seeds': seeds[mask],
+        })
+        n_collected += n_success
+        logger.info(f"  Rejection iter {iteration + 1}: {n_success}/{n_gen} "
+                    f"successes, total {n_collected}/{target}")
+
+    if n_collected < target:
+        logger.warning(f"Only collected {n_collected}/{target} successes "
+                       f"after {max_iters} iterations")
+
+    combined = {k: np.concatenate([c[k] for c in collected])[:target]
+                for k in collected[0]}
+    logger.info(f"Done: {len(combined['X'])} success episodes collected")
+    return combined
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ def run_cross_policy_eval(
     """
     cfg = TASK_CONFIGS[env]
     win, hor = cfg.win, cfg.hor
-    train_key = f"{env}/fail_pred"
+    train_key = f"{env}/train"
 
     # Load data (trim initial transient)
     print("Loading data...")
@@ -171,8 +171,8 @@ def print_summary(results: dict[str, dict], env: str, test_key: str,
                    mixed: bool = False):
     """Print formatted results table."""
     mode = "MIXED" if mixed else "CROSS"
-    train_desc = f"{env}/fail_pred + {test_key}" if mixed else f"{env}/fail_pred (SAC)"
-    test_desc = f"{env}/fail_pred + {test_key}" if mixed else test_key
+    train_desc = f"{env}/train + {test_key}" if mixed else f"{env}/train (SAC)"
+    test_desc = f"{env}/train + {test_key}" if mixed else test_key
     print(f"\n{'='*80}")
     print(f"{mode}-POLICY RESULTS — train={train_desc}, test={test_desc}")
     print(f"{'='*80}")

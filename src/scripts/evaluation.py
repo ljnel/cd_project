@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Unified evaluation: score quality + deployment quality.
+"""Deployment evaluation with max-conformal calibration (z-score normalization).
 
-Part 1 — Score quality: pAUROC@10%FPR on IID test windows.
-Part 2 — Deployment quality: episode-level FPR, Detection Rate, Median TTD
-          using per-timestep score normalization and two-level conformal
-          calibration.
+For each detector method, fits on training data, computes per-timestep
+score normalization from norm-cal, sets a max-conformal threshold from
+thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
 
 Usage:
     python -m scripts.evaluation --env hopper
@@ -17,27 +16,24 @@ import gc
 import warnings
 
 import numpy as np
-from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import (
-    filter_successes, load_episodes, normalize_channels, split_train_test,
-)
+from data.datasets import load_train_cal_test
 from utils.paths import get_root
-from utils.windows import sample_test_windows, strided_window_view
+from utils.windows import strided_window_view
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def score_episodes(detector, episodes: np.ndarray, stride: int = 5):
+def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
+                   batch_size: int = 50):
     """Score each episode with sliding window at given stride.
 
-    Uses detector.score_episode() if available (fast path for detectors
-    that can cache per-observation embeddings), otherwise falls back to
-    strided_window_view + score_samples.
+    Batches windows across episodes to reduce Python loop overhead
+    (important for GPU kernels), while chunking to avoid OOM.
 
     Returns
     -------
@@ -45,17 +41,20 @@ def score_episodes(detector, episodes: np.ndarray, stride: int = 5):
     timesteps : ndarray of window-end positions.
     """
     win = detector.window
-    has_fast_path = hasattr(detector, 'score_episode')
-    all_scores = []
-    for ep in episodes:
-        if has_fast_path:
-            scores = detector.score_episode(ep, stride=stride)
-        else:
-            windows = strided_window_view(ep[np.newaxis], win, stride=stride)[0]
-            scores = detector.score_samples(windows)
-        all_scores.append(scores)
+    n_eps = len(episodes)
     n_win = (episodes.shape[1] - win) // stride + 1
     timesteps = np.arange(n_win) * stride + (win - 1)
+
+    all_scores = []
+    for start in range(0, n_eps, batch_size):
+        batch = episodes[start:start + batch_size]
+        windows = strided_window_view(batch, win, stride=stride)
+        n_batch = windows.shape[0]
+        flat = windows.reshape(-1, win, episodes.shape[-1])
+        scores = detector.score_samples(flat)
+        for i in range(n_batch):
+            all_scores.append(scores[i * n_win:(i + 1) * n_win])
+
     return all_scores, timesteps
 
 
@@ -97,24 +96,17 @@ def compute_deployment_metrics(
 
 # ── Per-method evaluation ────────────────────────────────────────────────────
 
-def evaluate_score_quality(detector, x_test_windows, y_true) -> float:
-    """Part 1: pAUROC@10%FPR on IID test windows."""
-    scores = detector.score_samples(x_test_windows)
-    return roc_auc_score(y_true, scores, max_fpr=0.1)
-
-
-def evaluate_deployment(
+def evaluate_method(
     detector,
     x_norm_cal: np.ndarray,
     x_thresh_cal: np.ndarray,
     X_te_succ: np.ndarray,
     X_te_fail: np.ndarray,
     fail_steps: np.ndarray,
-    alpha_ep: float,
-    alpha_cal: float,
+    alpha: float,
     stride: int,
 ) -> dict:
-    """Part 2: episode-level metrics with score normalization + two-level conformal."""
+    """Max-conformal evaluation with z-score normalization."""
 
     # Score norm-cal → per-timestep mean/std
     norm_scores, timesteps = score_episodes(detector, x_norm_cal, stride=stride)
@@ -125,12 +117,13 @@ def evaluate_deployment(
     def normalize(scores_list):
         return [(s - score_mean[:len(s)]) / score_std[:len(s)] for s in scores_list]
 
-    # Score thresh-cal → two-level conformal threshold
+    # Score thresh-cal → max-conformal threshold
     thresh_scores, _ = score_episodes(detector, x_thresh_cal, stride=stride)
     thresh_norm = normalize(thresh_scores)
     thresh_matrix = np.array(thresh_norm)
-    traj_quantiles = np.quantile(thresh_matrix, 1 - alpha_ep, axis=1)
-    threshold = float(np.quantile(traj_quantiles, 1 - alpha_cal))
+    n_cal = len(thresh_matrix)
+    q_corrected = min(np.ceil((n_cal + 1) * (1 - alpha)) / n_cal, 1.0)
+    threshold = float(np.quantile(thresh_matrix.max(axis=1), q_corrected))
 
     # Score test episodes
     succ_scores_raw, _ = score_episodes(detector, X_te_succ, stride=stride)
@@ -138,25 +131,24 @@ def evaluate_deployment(
     succ_scores = normalize(succ_scores_raw)
     fail_scores = normalize(fail_scores_raw)
 
-    # Metrics
     metrics = compute_deployment_metrics(
         succ_scores, fail_scores, threshold, timesteps, fail_steps,
     )
     metrics['threshold'] = threshold
-
-    return dict(
-        **metrics,
-        timesteps=timesteps,
-        succ_scores=succ_scores,
-        fail_scores=fail_scores,
-    )
+    metrics['threshold_raw'] = threshold * score_std + score_mean
+    metrics['timesteps'] = timesteps
+    metrics['succ_scores'] = succ_scores
+    metrics['fail_scores'] = fail_scores
+    metrics['succ_scores_raw'] = succ_scores_raw
+    metrics['fail_scores_raw'] = fail_scores_raw
+    return metrics
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
 
 def run_env(env_name: str, method_keys: list[str], seed: int,
-            alpha_ep: float, alpha_cal: float, stride: int):
-    """Run full evaluation for one environment."""
+            alpha: float, stride: int):
+    """Run evaluation for one environment."""
     print(f"\n{'#' * 60}")
     print(f"# {env_name}")
     print(f"{'#' * 60}")
@@ -164,52 +156,38 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     np.random.seed(seed)
     cfg = TASK_CONFIGS[env_name]
 
-    # ── Load data once ───────────────────────────────────────────────────
-    X, fail = load_episodes(env_name)
-    split_at = 1000
-    X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
+    # ── Load data ────────────────────────────────────────────────────
+    splits, X_te, fail_te, scaler = load_train_cal_test(
+        env_name,
+        splits={'train': 0.5, 'norm_cal': 0.25, 'thresh_cal': 0.25},
+    )
+    x_det_train = splits['train']
+    x_norm_cal = splits['norm_cal']
+    x_thresh_cal = splits['thresh_cal']
 
-    x_success = filter_successes(X_tr, fail_tr)
-    scaler, x_success = normalize_channels(x_success)
-    X_te_norm = scaler.transform(
-        X_te.reshape(-1, X_te.shape[-1])
-    ).reshape(X_te.shape)
-
-    # Split successes: 0.6 train, 0.2 norm-cal, 0.2 thresh-cal
-    n = len(x_success)
-    n_train = int(n * 0.6)
-    n_norm = int(n * 0.2)
-    x_det_train = x_success[:n_train]
-    x_norm_cal = x_success[n_train:n_train + n_norm]
-    x_thresh_cal = x_success[n_train + n_norm:]
-
-    # Test episode indices — exclude failures before first window completes
+    # Test episode indices — drop undetectable failures
+    first_scored = cfg.win - 1
     te_succ_idx = np.where(fail_te == -1)[0]
-    te_fail_idx = np.where(fail_te >= cfg.win)[0]
-    n_too_early = int(((fail_te >= 0) & (fail_te < cfg.win)).sum())
-    if n_too_early > 0:
-        print(f"  Excluded {n_too_early} failure episodes "
-              f"(fail < win={cfg.win}, undetectable)")
+    te_fail_idx = np.where(fail_te >= 0)[0]
+    detectable = fail_te[te_fail_idx] >= first_scored
+    n_removed = (~detectable).sum()
+    te_fail_idx = te_fail_idx[detectable]
+    if n_removed > 0:
+        print(f"  Removed {n_removed} undetectable failures "
+              f"(fail < t={first_scored})")
     fail_steps = fail_te[te_fail_idx]
 
-    # IID test windows for Part 1
-    x_test_windows, y_true, _ = sample_test_windows(
-        X_te_norm, fail_te, window=cfg.win, horizon=cfg.hor,
-        episode_id_offset=split_at,
-    )
+    n_train = len(x_det_train)
+    print(f"  Train: {n_train}, "
+          f"norm-cal: {len(x_norm_cal)}, thresh-cal: {len(x_thresh_cal)}")
+    print(f"  Test: {len(te_succ_idx)} success + {len(te_fail_idx)} failure episodes")
 
-    print(f"  Successes: {n} total → {n_train} train, "
-          f"{len(x_norm_cal)} norm-cal, {len(x_thresh_cal)} thresh-cal")
-    print(f"  Test: {len(te_succ_idx)} success + {len(te_fail_idx)} failure episodes, "
-          f"{len(x_test_windows)} IID windows")
-
-    # ── Per-method evaluation ────────────────────────────────────────────
+    # ── Per-method evaluation ────────────────────────────────────────
     results = {}
     save_data = {
         'env': env_name,
         'methods': method_keys,
-        'alpha_ep': alpha_ep,
-        'alpha_cal': alpha_cal,
+        'alpha': alpha,
         'stride': stride,
         'n_train': n_train,
         'n_norm_cal': len(x_norm_cal),
@@ -229,65 +207,58 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
         detector.cal_fraction = 0.0
         detector.fit(x_det_train)
 
-        # Part 1: Score quality
         try:
-            pauroc = evaluate_score_quality(detector, x_test_windows, y_true)
-            print(f"    pAUROC@10%: {pauroc:.4f}")
-        except Exception as e:
-            print(f"    pAUROC FAILED: {e}")
-            pauroc = float('nan')
-
-        # Part 2: Deployment quality
-        try:
-            deploy = evaluate_deployment(
+            metrics = evaluate_method(
                 detector,
                 x_norm_cal, x_thresh_cal,
-                X_te_norm[te_succ_idx], X_te_norm[te_fail_idx],
+                X_te[te_succ_idx], X_te[te_fail_idx],
                 fail_steps,
-                alpha_ep=alpha_ep, alpha_cal=alpha_cal, stride=stride,
+                alpha=alpha, stride=stride,
             )
-            print(f"    FPR:     {deploy['fpr']:.1f}%")
-            print(f"    Det:     {deploy['det_rate']:.1f}%")
-            print(f"    MedTTD:  {deploy['med_ttd']:.0f}")
+            print(f"    FPR:     {metrics['fpr']:.1f}%")
+            print(f"    Det:     {metrics['det_rate']:.1f}%")
+            print(f"    MedTTD:  {metrics['med_ttd']:.0f}")
         except Exception as e:
-            print(f"    Deployment FAILED: {e}")
-            deploy = None
+            print(f"    FAILED: {e}")
+            metrics = None
 
         del detector
         gc.collect()
 
-        results[method_key] = dict(pauroc=pauroc, deploy=deploy)
+        results[method_key] = metrics
 
-        # Save per-method data
-        save_data[f'pauroc_{method_key}'] = pauroc
-        if deploy is not None:
-            save_data[f'fpr_{method_key}'] = deploy['fpr']
-            save_data[f'det_rate_{method_key}'] = deploy['det_rate']
-            save_data[f'med_ttd_{method_key}'] = deploy['med_ttd']
-            save_data[f'threshold_{method_key}'] = deploy['threshold']
+        if metrics is not None:
+            save_data[f'fpr_{method_key}'] = metrics['fpr']
+            save_data[f'det_rate_{method_key}'] = metrics['det_rate']
+            save_data[f'med_ttd_{method_key}'] = metrics['med_ttd']
+            save_data[f'threshold_{method_key}'] = metrics['threshold']
+            save_data[f'threshold_raw_{method_key}'] = metrics['threshold_raw']
             if 'timesteps' not in save_data:
-                save_data['timesteps'] = deploy['timesteps']
-            for i, s in enumerate(deploy['succ_scores']):
+                save_data['timesteps'] = metrics['timesteps']
+            for i, s in enumerate(metrics['succ_scores']):
                 save_data[f'scores_success_{method_key}_{i}'] = s
-            for i, s in enumerate(deploy['fail_scores']):
+            for i, s in enumerate(metrics['fail_scores']):
                 save_data[f'scores_failure_{method_key}_{i}'] = s
+            for i, s in enumerate(metrics['succ_scores_raw']):
+                save_data[f'scores_raw_success_{method_key}_{i}'] = s
+            for i, s in enumerate(metrics['fail_scores_raw']):
+                save_data[f'scores_raw_failure_{method_key}_{i}'] = s
 
-    # ── Summary ──────────────────────────────────────────────────────────
-    print(f"\n{'=' * 70}")
-    print(f"  {'Method':<20s}  {'pAUROC':>8s}  {'FPR':>6s}  {'Det':>6s}  {'MedTTD':>7s}")
-    print(f"  {'─' * 55}")
+    # ── Summary ──────────────────────────────────────────────────────
+    print(f"\n{'=' * 55}")
+    print(f"  {'Method':<20s}  {'FPR':>6s}  {'Det':>6s}  {'MedTTD':>7s}")
+    print(f"  {'─' * 45}")
     for method_key in method_keys:
         display = get_method_display_name(method_key)
-        r = results[method_key]
-        d = r['deploy']
-        if d is not None:
-            print(f"  {display:<20s}  {r['pauroc']:>8.4f}  "
-                  f"{d['fpr']:>5.1f}%  {d['det_rate']:>5.1f}%  {d['med_ttd']:>7.0f}")
+        m = results[method_key]
+        if m is not None:
+            print(f"  {display:<20s}  "
+                  f"{m['fpr']:>5.1f}%  {m['det_rate']:>5.1f}%  {m['med_ttd']:>7.0f}")
         else:
-            print(f"  {display:<20s}  {r['pauroc']:>8.4f}  {'—':>6s}  {'—':>6s}  {'—':>7s}")
-    print(f"  {'─' * 55}")
+            print(f"  {display:<20s}  {'—':>6s}  {'—':>6s}  {'—':>7s}")
+    print(f"  {'─' * 45}")
 
-    # ── Save ─────────────────────────────────────────────────────────────
+    # ── Save ─────────────────────────────────────────────────────────
     output_dir = get_root() / "results" / "evaluation"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{env_name}_results.npz"
@@ -299,16 +270,14 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Unified evaluation: score quality + deployment quality"
+        description="Deployment evaluation with max-conformal calibration"
     )
     parser.add_argument("--env", required=True,
                         help=f"Environment name or 'all' ({', '.join(TASK_CONFIGS)})")
     parser.add_argument("--methods", nargs="+", default=None,
                         help=f"Method keys (default: {DEFAULT_METHODS})")
-    parser.add_argument("--alpha-ep", type=float, default=0.05,
-                        help="Per-episode quantile level (default: 0.05)")
-    parser.add_argument("--alpha-cal", type=float, default=0.05,
-                        help="Across-episode quantile level (default: 0.05)")
+    parser.add_argument("--alpha", type=float, default=0.1,
+                        help="Target FPR level (default: 0.1)")
     parser.add_argument("--stride", type=int, default=5,
                         help="Scoring stride (default: 5)")
     parser.add_argument("--seed", type=int, default=42)
@@ -324,9 +293,9 @@ def main():
 
     for env in envs:
         if env not in TASK_CONFIGS:
-            raise ValueError(f"Unknown env: {env}. Available: {list(TASK_CONFIGS.keys())}")
-        run_env(env, method_keys, args.seed,
-                args.alpha_ep, args.alpha_cal, args.stride)
+            raise ValueError(f"Unknown env: {env}. "
+                             f"Available: {list(TASK_CONFIGS.keys())}")
+        run_env(env, method_keys, args.seed, args.alpha, args.stride)
 
 
 if __name__ == "__main__":

@@ -4,17 +4,12 @@ Task configuration dataclasses.
 
 from dataclasses import dataclass
 
-# Index boundary between train and test episodes in the eval dataset.
-# Train = successes from [:EVAL_SPLIT], Test = all from [EVAL_SPLIT:].
-EVAL_SPLIT = 1000
-
 
 @dataclass
 class SafetyMonitorConfig:
     name: str       # environment name (for path resolution)
     win: int        # length of test windows (shorter -> harder)
     hor: int        # failure horizon (longer -> harder)
-    test_size: float = 0.3  # fraction of episodes for test
     seed: int = 42  # random seed for split
 
 

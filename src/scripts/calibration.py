@@ -18,9 +18,7 @@ import numpy as np
 
 from config.detectors import DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import (
-    filter_successes, load_episodes, normalize_channels, split_train_test,
-)
+from data.datasets import load_train_cal_test
 from utils.plotting import (
     FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, save_plot, setup_style,
 )
@@ -29,8 +27,12 @@ from utils.windows import strided_window_view
 setup_style()
 
 
-def score_episodes_by_timestep(detector, episodes: np.ndarray, stride: int = 5):
+def score_episodes_by_timestep(detector, episodes: np.ndarray, stride: int = 5,
+                               batch_size: int = 50):
     """Score each episode with sliding window.
+
+    Batches windows across episodes to reduce Python loop overhead
+    (important for GPU kernels), while chunking to avoid OOM.
 
     Returns
     -------
@@ -40,13 +42,20 @@ def score_episodes_by_timestep(detector, episodes: np.ndarray, stride: int = 5):
         Shared timestep indices (window end positions).
     """
     win = detector.window
-    all_scores = []
-    for ep in episodes:
-        windows = strided_window_view(ep[np.newaxis], win, stride=stride)[0]
-        scores = detector.score_samples(windows)
-        all_scores.append(scores)
+    n_eps = len(episodes)
     n_win = (episodes.shape[1] - win) // stride + 1
     timesteps = np.arange(n_win) * stride + (win - 1)
+
+    all_scores = []
+    for start in range(0, n_eps, batch_size):
+        batch = episodes[start:start + batch_size]
+        windows = strided_window_view(batch, win, stride=stride)
+        n_batch = windows.shape[0]
+        flat = windows.reshape(-1, win, episodes.shape[-1])
+        scores = detector.score_samples(flat)
+        for i in range(n_batch):
+            all_scores.append(scores[i * n_win:(i + 1) * n_win])
+
     return all_scores, timesteps
 
 
@@ -110,7 +119,7 @@ def main():
                         help=f"Environment ({', '.join(TASK_CONFIGS)})")
     parser.add_argument("--method", default="basis",
                         help=f"Detector method ({', '.join(DETECTOR_CONFIGS)})")
-    parser.add_argument("--quantile", type=float, default=0.95)
+    parser.add_argument("--quantile", type=float, default=0.90)
     parser.add_argument("--n-cal", type=int, default=200,
                         help="Number of calibration episodes (successes)")
     parser.add_argument("--n-plot", type=int, default=30,
@@ -121,22 +130,14 @@ def main():
     np.random.seed(args.seed)
 
     # --- Load data ---
-    X, fail = load_episodes(args.env)
     task_cfg = TASK_CONFIGS[args.env]
-    split_at = 1000
-    X_tr, fail_tr, X_te, fail_te = split_train_test(X, fail, split_at)
-
-    # Training set: successes only, normalized
-    x_success = filter_successes(X_tr, fail_tr, eps=400)
-    scaler, x_success = normalize_channels(x_success)
-
-    # Split successes: 200 train, 100 norm-cal, 100 threshold-cal
-    x_det_train = x_success[:200]
-    x_norm_cal = x_success[200:300]
-    x_cal = x_success[300:400]
-
-    # Normalize test set with same scaler
-    X_te_norm = scaler.transform(X_te.reshape(-1, X_te.shape[-1])).reshape(X_te.shape)
+    splits, X_te_norm, fail_te, scaler = load_train_cal_test(
+        args.env,
+        splits={'train': 0.5, 'norm_cal': 0.25, 'thresh_cal': 0.25},
+    )
+    x_det_train = splits['train']
+    x_norm_cal = splits['norm_cal']
+    x_cal = splits['thresh_cal']
 
     # --- Fit detector (no internal calibration needed) ---
     method_name = get_method_display_name(args.method)
@@ -268,74 +269,58 @@ def main():
                     "Max-conformal (robust)",
                     timesteps=timesteps, fail_steps=fail_steps)
 
-    # --- Plot: 3 subplots (raw, z-score, ratio) ---
+    # --- Plot: raw scores with time-varying max-conformal thresholds ---
     rng = np.random.default_rng(args.seed)
     n_plot = args.n_plot
     pick_s = rng.choice(len(all_success_scores_raw), min(n_plot, len(all_success_scores_raw)), replace=False)
     pick_f = rng.choice(len(all_failure_scores_raw), min(n_plot, len(all_failure_scores_raw)), replace=False)
     fail_te_failures = fail_te[te_failure_idx]
 
-    rows = [
-        ("Raw scores", all_success_scores_raw, all_failure_scores_raw,
-         twolevel_raw_threshold, max_conformal_threshold, "Score"),
-        ("Z-score normalized", all_success_scores_zscore, all_failure_scores_zscore,
-         twolevel_zscore_threshold, max_conformal_zscore_threshold, "Z-score"),
-        ("Ratio normalized", all_success_scores_ratio, all_failure_scores_ratio,
-         twolevel_ratio_threshold, max_conformal_ratio_threshold, "Score / median"),
-        ("Robust normalized", all_success_scores_robust, all_failure_scores_robust,
-         None, max_conformal_robust_threshold, "(s - median) / MAD"),
+    # Transform max-conformal thresholds back to original coordinates
+    threshold_curves = [
+        ("Raw", np.full_like(timesteps, max_conformal_threshold, dtype=float)),
+        ("Z-score", max_conformal_zscore_threshold * score_std + score_mean),
     ]
 
-    fig, axes = plt.subplots(4, 2, figsize=(FULL_WIDTH, 8), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(FULL_WIDTH, 2.5), sharex=True)
 
-    for row, (title, succ, fail_sc, tl_thresh, mc_thresh, ylabel) in enumerate(rows):
-        for col, yscale in enumerate(["linear", "log"]):
-            ax = axes[row, col]
-            for i in pick_s:
-                s = succ[i]
-                ax.plot(timesteps[:len(s)], s,
-                        color=SUCCESS_COLOR, alpha=0.15, linewidth=0.5)
-            for i in pick_f:
-                s = fail_sc[i]
-                ft = fail_te_failures[i]
-                t = timesteps[:len(s)]
-                mask = t <= ft
-                ax.plot(t[mask], s[mask],
-                        color=FAILURE_COLOR, alpha=0.25, linewidth=0.5)
-                if ft >= timesteps[0] and ft <= t[-1]:
-                    score_at_fail = np.interp(ft, t, s)
-                    ax.plot(ft, score_at_fail, "x", color=FAILURE_COLOR,
-                            markersize=3, markeredgewidth=1)
+    for col, yscale in enumerate(["linear", "log"]):
+        ax = axes[col]
+        for i in pick_s:
+            s = all_success_scores_raw[i]
+            ax.plot(timesteps[:len(s)], s,
+                    color=SUCCESS_COLOR, alpha=0.15, linewidth=0.5)
+        for i in pick_f:
+            s = all_failure_scores_raw[i]
+            ft = fail_te_failures[i]
+            t = timesteps[:len(s)]
+            mask = t <= ft
+            ax.plot(t[mask], s[mask],
+                    color=FAILURE_COLOR, alpha=0.25, linewidth=0.5)
+            if ft >= timesteps[0] and ft <= t[-1]:
+                score_at_fail = np.interp(ft, t, s)
+                ax.plot(ft, score_at_fail, "x", color=FAILURE_COLOR,
+                        markersize=3, markeredgewidth=1)
 
-            if tl_thresh is not None:
-                ax.axhline(tl_thresh, color="#4477AA", linestyle="-.", linewidth=1.2,
-                            label="Two-level conformal")
-            ax.axhline(mc_thresh, color="#EE6677", linestyle="--",
-                        linewidth=1.2, label="Max-conformal")
-            ax.set_yscale(yscale)
-            if col == 0:
-                ax.set_ylabel(ylabel)
-            if row == 0:
-                ax.set_title("Linear" if yscale == "linear" else "Log", fontsize=8)
-            if row == 0 and col == 1:
-                ax.legend(loc="upper left", fontsize=6)
+        colors = ["#EE6677", "#4477AA"]
+        for (label, curve), color in zip(threshold_curves, colors, strict=True):
+            ax.plot(timesteps[:len(curve)], curve,
+                    color=color, linestyle="--", linewidth=1.2, label=label)
 
-        # Row label on left edge
-        axes[row, 0].annotate(title, xy=(0, 0.5), xytext=(-0.35, 0.5),
-                              xycoords="axes fraction", textcoords="axes fraction",
-                              fontsize=7, rotation=90, va="center", ha="center")
+        ax.set_yscale(yscale)
+        ax.set_xlabel("Timestep")
+        if col == 0:
+            ax.set_ylabel("Score")
+        ax.set_title("Linear" if yscale == "linear" else "Log", fontsize=8)
+        if col == 1:
+            ax.legend(loc="upper left", fontsize=6)
 
-    axes[-1, 0].set_xlabel("Timestep")
-    axes[-1, 1].set_xlabel("Timestep")
-    for ax in axes[-1]:
-        ax.set_xlim(left=timesteps[0])
-        ticks = ax.get_xticks()
-        if ticks[0] != timesteps[0]:
-            ax.set_xticks([timesteps[0], *ticks[ticks > timesteps[0]]])
+    ax.set_xlim(left=timesteps[0])
     fig.suptitle(f"{args.env.capitalize()} — {method_name}", fontsize=10)
     fig.tight_layout()
 
-    save_plot(f"conformal_{args.method}_{args.env}", ax=axes[0, 0])
+    save_plot(f"conformal_{args.method}_{args.env}", ax=axes[0],
+              subfolder="results/calibration")
     plt.show()
     print("Done.")
 

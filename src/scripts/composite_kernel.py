@@ -41,7 +41,7 @@ def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    x, fail = load_episodes("humanoid")
+    x, fail = load_episodes("humanoid", dataset="test")
     y_fail_step = fail.copy()
     y = fail > -1
 
