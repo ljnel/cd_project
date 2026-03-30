@@ -418,8 +418,8 @@ def format_evaluation_table(
     env_display = [get_env_display_name(e) for e in envs]
 
     metrics = [
-        ('det_rate', 'EDR', '{:.1f}', False),
-        ('med_ttd', 'TTD', '{:.0f}', False),
+        ('det_rate', 'EDR (\\%)', '{:.1f}', False),
+        ('med_ttd', 'TTD (\\%)', '{:.0f}', False),
     ]
     n_met = len(metrics)
 
@@ -481,6 +481,8 @@ def format_evaluation_table(
         for env in envs:
             for mkey, _, fmt, _ in metrics:
                 v = all_results[env][m][mkey]
+                if mkey == 'med_ttd' and not np.isnan(v):
+                    v = v / 10.0
                 cell = fmt.format(v) if not np.isnan(v) else "---"
                 if m == best_per[(env, mkey)]:
                     cell = f"\\textbf{{{cell}}}"
