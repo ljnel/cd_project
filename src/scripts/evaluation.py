@@ -46,7 +46,9 @@ def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
     timesteps = np.arange(n_win) * stride + (win - 1)
 
     all_scores = []
-    for start in range(0, n_eps, batch_size):
+    n_batches = (n_eps + batch_size - 1) // batch_size
+    for batch_idx, start in enumerate(range(0, n_eps, batch_size)):
+        print(f"\r    Scoring: {start}/{n_eps} episodes", end="", flush=True)
         batch = episodes[start:start + batch_size]
         windows = strided_window_view(batch, win, stride=stride)
         n_batch = windows.shape[0]
@@ -54,6 +56,7 @@ def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
         scores = detector.score_samples(flat)
         for i in range(n_batch):
             all_scores.append(scores[i * n_win:(i + 1) * n_win])
+    print(f"\r    Scoring: {n_eps}/{n_eps} episodes")
 
     return all_scores, timesteps
 
@@ -183,20 +186,10 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     print(f"  Test: {len(te_succ_idx)} success + {len(te_fail_idx)} failure episodes")
 
     # ── Per-method evaluation ────────────────────────────────────────
-    results = {}
-    save_data = {
-        'env': env_name,
-        'methods': method_keys,
-        'alpha': alpha,
-        'stride': stride,
-        'n_train': n_train,
-        'n_norm_cal': len(x_norm_cal),
-        'n_thresh_cal': len(x_thresh_cal),
-        'n_test_success': len(te_succ_idx),
-        'n_test_failure': len(te_fail_idx),
-        'fail_steps': fail_steps,
-    }
+    output_dir = get_root() / "results" / "evaluation" / env_name
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    results = {}
     for method_key in method_keys:
         display = get_method_display_name(method_key)
         print(f"\n  {display}")
@@ -227,22 +220,38 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
 
         results[method_key] = metrics
 
+        # Save per-method results
         if metrics is not None:
-            save_data[f'fpr_{method_key}'] = metrics['fpr']
-            save_data[f'det_rate_{method_key}'] = metrics['det_rate']
-            save_data[f'med_ttd_{method_key}'] = metrics['med_ttd']
-            save_data[f'threshold_{method_key}'] = metrics['threshold']
-            save_data[f'threshold_raw_{method_key}'] = metrics['threshold_raw']
-            if 'timesteps' not in save_data:
-                save_data['timesteps'] = metrics['timesteps']
+            method_data = {
+                'env': env_name,
+                'method': method_key,
+                'alpha': alpha,
+                'stride': stride,
+                'n_train': n_train,
+                'n_norm_cal': len(x_norm_cal),
+                'n_thresh_cal': len(x_thresh_cal),
+                'n_test_success': len(te_succ_idx),
+                'n_test_failure': len(te_fail_idx),
+                'fail_steps': fail_steps,
+                'timesteps': metrics['timesteps'],
+                'fpr': metrics['fpr'],
+                'det_rate': metrics['det_rate'],
+                'med_ttd': metrics['med_ttd'],
+                'threshold': metrics['threshold'],
+                'threshold_raw': metrics['threshold_raw'],
+            }
             for i, s in enumerate(metrics['succ_scores']):
-                save_data[f'scores_success_{method_key}_{i}'] = s
+                method_data[f'scores_success_{i}'] = s
             for i, s in enumerate(metrics['fail_scores']):
-                save_data[f'scores_failure_{method_key}_{i}'] = s
+                method_data[f'scores_failure_{i}'] = s
             for i, s in enumerate(metrics['succ_scores_raw']):
-                save_data[f'scores_raw_success_{method_key}_{i}'] = s
+                method_data[f'scores_raw_success_{i}'] = s
             for i, s in enumerate(metrics['fail_scores_raw']):
-                save_data[f'scores_raw_failure_{method_key}_{i}'] = s
+                method_data[f'scores_raw_failure_{i}'] = s
+
+            path = output_dir / f"{method_key}.npz"
+            np.savez(path, **method_data)
+            print(f"    Saved to {path}")
 
     # ── Summary ──────────────────────────────────────────────────────
     print(f"\n{'=' * 55}")
@@ -257,13 +266,6 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
         else:
             print(f"  {display:<20s}  {'—':>6s}  {'—':>6s}  {'—':>7s}")
     print(f"  {'─' * 45}")
-
-    # ── Save ─────────────────────────────────────────────────────────
-    output_dir = get_root() / "results" / "evaluation"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{env_name}_results.npz"
-    np.savez(path, **save_data)
-    print(f"\n  Saved to {path}")
 
     return results
 

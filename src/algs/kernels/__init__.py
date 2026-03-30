@@ -12,14 +12,15 @@
 #   SigKernel - Signature kernel (PDE-based, via sktime)
 #   ScatteringKernel - Wavelet scattering transform + RBF
 
+from algs.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
+
 from .base import Kernel
 from .fft import GaussFFT, PolyFFT
 from .minirocket import MiniRocketKernel
 from .rbf import RBF
 from .scattering import ScatteringKernel
+from .sequential import TruncatedSigKernel
 from .signature import SigKernel
-
-from algs.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
 
 __all__ = [
     "Kernel",
@@ -27,6 +28,7 @@ __all__ = [
     "PolyFFT",
     "GaussFFT",
     "SigKernel",
+    "TruncatedSigKernel",
     "ScatteringKernel",
     "MiniRocketKernel",
     "SpatiotemporalKernel",

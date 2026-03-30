@@ -23,7 +23,7 @@ DETECTOR_CONFIGS = {
         window_frac=0.1,
         max_windows=300,
         display_name='Sig-KIC',
-        reg='adaptive',
+        reg=1e-5,
         gamma='median',
         target_steps=30,
     ),
@@ -114,7 +114,7 @@ DEFAULT_METHODS = [
     "iforest",
     # KIC variants
     "fft",
-    # "sig",  # too slow for per-timestep scoring
+    "sig",
     "basis",
     "dist",
 ]

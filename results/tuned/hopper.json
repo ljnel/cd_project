@@ -1,0 +1,21 @@
+{
+  "rec": {
+    "window_frac": 0.05,
+    "latent_dim_mult": 3.0
+  },
+  "knn": {
+    "k": 20,
+    "window_frac": 0.07
+  },
+  "iforest": {
+    "n_estimators": 50,
+    "window_frac": 0.1
+  },
+  "sig": {
+    "window_frac": 0.07
+  },
+  "basis": {
+    "window_frac": 0.05,
+    "n_basis": 3
+  }
+}
