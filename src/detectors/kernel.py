@@ -104,17 +104,12 @@ class KernDetector(AnomalyDetector):
             return X[ep_idx[:, None], window_idx, :]
 
         windows_per_episode = max_windows // n_episodes
+        total = windows_per_episode * n_episodes
 
-        # Uniformly spaced starting positions (same for all episodes)
-        starts = np.linspace(0, n_possible - 1, windows_per_episode).astype(int)
-
-        # Window indices: (windows_per_episode, window)
+        ep_idx = np.repeat(np.arange(n_episodes), windows_per_episode)
+        starts = np.random.randint(0, n_possible, size=total)
         window_idx = starts[:, None] + np.arange(self.window)
-
-        # Extract all at once: (n_episodes, windows_per_episode, window, n_features)
-        X_windows = X[:, window_idx, :]
-
-        return X_windows.reshape(-1, self.window, n_features)
+        return X[ep_idx[:, None], window_idx, :]
 
     def _fit_impl(self, X: np.ndarray):
         self.window = self._estimate_window(X)
