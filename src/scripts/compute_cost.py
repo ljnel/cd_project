@@ -6,9 +6,9 @@ Benchmarks training and prediction time for anomaly detection methods.
 Supports any environment with a fail_pred dataset.
 
 Usage:
-    python compute_cost.py --env upkie
-    python compute_cost.py --env hopper --methods fft,sig
-    python compute_cost.py --env all
+    python -m scripts.compute_cost --env upkie
+    python -m scripts.compute_cost --env hopper --methods fft sig
+    python -m scripts.compute_cost
 """
 
 import argparse
@@ -21,9 +21,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore")
 
-from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
+from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
+from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
 from utils.paths import get_root
 from utils.plotting import FULL_WIDTH, setup_style
 
@@ -78,7 +79,7 @@ def run_cost_experiment(
 
                 # Time prediction
                 start = time.perf_counter()
-                _ = model.predict(X_test)
+                _ = model.score_samples(X_test)
                 predict_time = time.perf_counter() - start
                 predict_times.append(predict_time)
 
@@ -182,7 +183,7 @@ def run_env(
     print(f"# Environment: {env_name}")
     print(f"{'#' * 80}")
 
-    # Load data with same split as fail_pred_results.py, capped at 300 train episodes
+    # Load data with same split as score_quality.py, capped at 300 train episodes
     print("\nLoading data...")
     np.random.seed(seed)
     X_train, X_test, _, _ = load_experiment(env_name, trim=True, obs_only=True)
@@ -221,29 +222,16 @@ def run_env(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Benchmark computational cost of detectors.')
-    parser.add_argument('--env', type=str, required=True,
-                        help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}")
-    parser.add_argument('--methods', type=str, default=None,
-                        help=f"Comma-separated method keys. Available: {list(DETECTOR_CONFIGS.keys())}. Default: {DEFAULT_METHODS}")
+    add_common_args(parser)
     parser.add_argument('--n-repeats', type=int, default=5, help='Number of timing repeats')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--realtime-ms', type=float, default=None,
                         help='Real-time budget in ms (draws reference line on plot)')
     args = parser.parse_args()
+    setup_logging(args)
 
-    # Parse methods
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(',')]
-        for m in method_keys:
-            if m not in DETECTOR_CONFIGS:
-                raise ValueError(f"Unknown method: {m}. Available: {list(DETECTOR_CONFIGS.keys())}")
-    else:
-        method_keys = DEFAULT_METHODS
+    envs = parse_envs(args)
+    method_keys = parse_methods(args)
 
-    # Determine environments
-    envs = list(TASK_CONFIGS.keys()) if args.env == 'all' else [args.env]
-
-    # Run experiments
     all_results = {}
     for env_name in envs:
         try:

@@ -31,6 +31,7 @@ from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_episodes, normalize_channels
 from envs.mujoco.termination import check_custom_termination
+from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, setup_style
 from utils.windows import strided_window_view
@@ -347,10 +348,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate Figure 1: Basis-CD score curves + rendered frames."
     )
-    parser.add_argument(
-        "--env", type=str, default="humanoid",
-        help=f"Environment name (default: humanoid). Available: {list(TASK_CONFIGS.keys())}",
-    )
+    add_env_arg(parser)
+    add_seed_arg(parser, default=0)
+    add_verbose_arg(parser)
     parser.add_argument(
         "--eps", type=int, default=N_EPISODES,
         help="Number of success/failure episodes to simulate (default: 5)",
@@ -363,28 +363,16 @@ def main():
         "--save-every", type=int, default=1,
         help="Save every N-th frame (default: 1 = all frames)",
     )
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    setup_logging(args)
 
-    if args.verbose:
-        import logging
-        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
-
-    if args.env not in TASK_CONFIGS:
-        raise ValueError(
-            f"Unknown env: {args.env}. Available: {list(TASK_CONFIGS.keys())}"
-        )
-
-    dataset_key = f"{args.env}/test"
-    if dataset_key not in DATASETS:
-        raise ValueError(
-            f"No test dataset for {args.env}. "
-            f"Available: {[k for k in DATASETS if k.endswith('/test')]}"
-        )
-
-    run_env(args.env, args.eps, args.seed,
-            args.frame_size, args.save_every)
+    for env_name in parse_envs(args):
+        dataset_key = f"{env_name}/test"
+        if dataset_key not in DATASETS:
+            print(f"No test dataset for {env_name}, skipping.")
+            continue
+        run_env(env_name, args.eps, args.seed,
+                args.frame_size, args.save_every)
 
 
 if __name__ == "__main__":

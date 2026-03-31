@@ -27,6 +27,7 @@ from scipy.stats import iqr as compute_iqr
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
+from utils.cli import add_common_args, parse_envs, setup_logging
 from data.datasets import load_tune_data
 from utils.paths import get_root
 
@@ -213,27 +214,17 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0,
 
 def main():
     parser = argparse.ArgumentParser(description="Tune anomaly detector hyperparameters.")
-    parser.add_argument("--env", type=str, required=True,
-                        help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}")
-    parser.add_argument("--methods", type=str, default=None,
-                        help=f"Comma-separated method keys. Default: {DEFAULT_METHODS}")
+    add_common_args(parser, seed=False)
     parser.add_argument("--seed", type=int, default=0, help="Random seed for fold split")
     parser.add_argument("--criterion", type=str, default="p95", choices=CRITERIA,
                         help="Tuning objective: 'spread' (IQR/median) or 'p95' (minimize p95(held-out)/median(train))")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable info-level logging")
     args = parser.parse_args()
+    setup_logging(args)
 
-    if args.verbose:
-        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    envs = parse_envs(args)
 
-    # Parse methods - only those with a search space by default
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(",")]
-    else:
-        method_keys = [m for m in DEFAULT_METHODS if m in SEARCH_SPACE]
-
-    # Determine environments
-    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
+    # Only tune methods that have a search space by default
+    method_keys = [m for m in args.methods if m in SEARCH_SPACE]
 
     for env_name in envs:
         try:

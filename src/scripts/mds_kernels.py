@@ -22,6 +22,7 @@ from algs.trajectory_kernels import RFFMeanKernel
 from config.detectors import DETECTOR_CONFIGS
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
+from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SUCCESS_COLOR, setup_style
 from utils.signals import low_pass
@@ -173,18 +174,17 @@ def run_env(env_name, max_points, seed):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", default="hopper",
-                        help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}")
+    add_env_arg(parser)
+    add_seed_arg(parser)
+    add_verbose_arg(parser)
     parser.add_argument("--max-points", type=int, default=400,
                         help="Max windows for MDS (for speed)")
-    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    setup_logging(args)
 
     setup_style()
 
-    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
-
-    for env_name in envs:
+    for env_name in parse_envs(args):
         try:
             run_env(env_name, args.max_points, args.seed)
         except FileNotFoundError as e:
