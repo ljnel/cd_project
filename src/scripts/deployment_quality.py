@@ -6,9 +6,9 @@ score normalization from norm-cal, sets a max-conformal threshold from
 thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
 
 Usage:
-    python -m scripts.evaluation --env hopper
-    python -m scripts.evaluation --env all
-    python -m scripts.evaluation --env hopper --methods fft basis dist
+    python -m scripts.deployment_quality --env hopper
+    python -m scripts.deployment_quality --env all
+    python -m scripts.deployment_quality --env hopper --methods fft basis dist
 """
 
 import argparse
@@ -19,9 +19,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore")
 
-from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
+from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_train_cal_test
+from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
 from utils.paths import get_root
 from utils.windows import strided_window_view
 
@@ -186,7 +187,7 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     print(f"  Test: {len(te_succ_idx)} success + {len(te_fail_idx)} failure episodes")
 
     # ── Per-method evaluation ────────────────────────────────────────
-    output_dir = get_root() / "results" / "evaluation" / env_name
+    output_dir = get_root() / "results" / "deployment_quality" / env_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results = {}
@@ -274,29 +275,18 @@ def main():
     parser = argparse.ArgumentParser(
         description="Deployment evaluation with max-conformal calibration"
     )
-    parser.add_argument("--env", required=True,
-                        help=f"Environment name or 'all' ({', '.join(TASK_CONFIGS)})")
-    parser.add_argument("--methods", nargs="+", default=None,
-                        help=f"Method keys (default: {DEFAULT_METHODS})")
+    add_common_args(parser)
     parser.add_argument("--alpha", type=float, default=0.1,
                         help="Target FPR level (default: 0.1)")
     parser.add_argument("--stride", type=int, default=5,
                         help="Scoring stride (default: 5)")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    setup_logging(args)
 
-    if args.verbose:
-        import logging
-        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
-
-    method_keys = args.methods if args.methods else DEFAULT_METHODS
-    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
+    envs = parse_envs(args)
+    method_keys = parse_methods(args)
 
     for env in envs:
-        if env not in TASK_CONFIGS:
-            raise ValueError(f"Unknown env: {env}. "
-                             f"Available: {list(TASK_CONFIGS.keys())}")
         run_env(env, method_keys, args.seed, args.alpha, args.stride)
 
 

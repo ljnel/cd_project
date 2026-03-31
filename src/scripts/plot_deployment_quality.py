@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Plot per-episode anomaly score curves from evaluation.py results.
+Plot per-episode anomaly score curves from deployment_quality.py results.
 
-Loads saved scores from results/evaluation/{env}_results.npz and plots
+Loads saved scores from results/deployment_quality/{env}/ and plots
 normalized score curves for each method, with conformal thresholds and
 failure timestep markers.
 
@@ -23,8 +23,8 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
-from config.detectors import DEFAULT_METHODS, get_method_display_name
-from config.tasks import TASK_CONFIGS
+from config.detectors import get_method_display_name
+from utils.cli import add_common_args, parse_envs, parse_methods
 from utils.paths import get_root
 from utils.plotting import (
     COL_WIDTH,
@@ -42,31 +42,31 @@ MAX_EPISODES = 20  # max episodes to plot per category (avoid clutter)
 
 
 def load_method_results(env_name: str, method: str) -> dict | None:
-    """Load per-method evaluation results."""
-    path = get_root() / "results" / "evaluation" / env_name / f"{method}.npz"
+    """Load per-method evaluation results (raw scores + time-varying threshold)."""
+    path = get_root() / "results" / "deployment_quality" / env_name / f"{method}.npz"
     if not path.exists():
         return None
     data = dict(np.load(path, allow_pickle=True))
 
     timesteps = data['timesteps']
-    threshold = float(data['threshold'])
+    threshold_raw = data['threshold_raw']  # per-timestep: threshold * std + mean
     fail_steps = data['fail_steps']
 
     succ_scores = []
     i = 0
-    while f"scores_success_{i}" in data:
-        succ_scores.append(data[f"scores_success_{i}"])
+    while f"scores_raw_success_{i}" in data:
+        succ_scores.append(data[f"scores_raw_success_{i}"])
         i += 1
 
     fail_scores = []
     i = 0
-    while f"scores_failure_{i}" in data:
-        fail_scores.append(data[f"scores_failure_{i}"])
+    while f"scores_raw_failure_{i}" in data:
+        fail_scores.append(data[f"scores_raw_failure_{i}"])
         i += 1
 
     return {
         'timesteps': timesteps,
-        'threshold': threshold,
+        'threshold': threshold_raw,
         'succ_scores': succ_scores,
         'fail_scores': fail_scores,
         'fail_steps': fail_steps,
@@ -74,9 +74,9 @@ def load_method_results(env_name: str, method: str) -> dict | None:
 
 
 def plot_method_curves(ax, method_data: dict, title: str):
-    """Plot score curves for one method on the given axes."""
+    """Plot raw score curves for one method with time-varying threshold."""
     ts = method_data['timesteps']
-    threshold = method_data['threshold']
+    threshold = method_data['threshold']  # per-timestep array
     succ_scores = method_data['succ_scores'][:MAX_EPISODES]
     fail_scores = method_data['fail_scores'][:MAX_EPISODES]
     fail_steps = method_data['fail_steps']
@@ -106,7 +106,9 @@ def plot_method_curves(ax, method_data: dict, title: str):
         ax.plot(t[-1], scores[-1], "x", color=FAILURE_COLOR,
                 markersize=4, markeredgewidth=1.0)
 
-    ax.axhline(threshold, color="gray", linestyle="--", linewidth=0.8)
+    # Time-varying threshold curve
+    ax.plot(ts[:len(threshold)], threshold[:len(ts)],
+            color="gray", linestyle="--", linewidth=0.8)
     ax.set_title(title, fontsize=8)
     ax.tick_params(labelsize=6)
 
@@ -154,8 +156,8 @@ def plot_env(env_name: str, method_keys: list[str]):
             ax.set_ylabel("Score", fontsize=7)
 
         name = f"{env_name}{suffix}"
-        save_plot(name, ext="pdf", subfolder="results/evaluation/curves")
-        save_plot(name, ext="png", subfolder="results/evaluation/curves")
+        save_plot(name, ext="pdf", subfolder="results/deployment_quality/curves")
+        save_plot(name, ext="png", subfolder="results/deployment_quality/curves")
         plt.close(fig)
 
     print(f"  Saved {env_name} score curves.")
@@ -163,20 +165,15 @@ def plot_env(env_name: str, method_keys: list[str]):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Plot score curves from evaluation results."
+        description="Plot score curves from deployment_quality results."
     )
-    parser.add_argument("--env", required=True,
-                        help=f"Environment name or 'all' ({', '.join(TASK_CONFIGS)})")
-    parser.add_argument("--methods", nargs="+", default=None,
-                        help=f"Method keys (default: {DEFAULT_METHODS})")
+    add_common_args(parser, seed=False, verbose=False)
     args = parser.parse_args()
 
-    method_keys = args.methods if args.methods else DEFAULT_METHODS
-    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
+    envs = parse_envs(args)
+    method_keys = parse_methods(args)
 
     for env in envs:
-        if env not in TASK_CONFIGS:
-            raise ValueError(f"Unknown env: {env}. Available: {list(TASK_CONFIGS.keys())}")
         try:
             plot_env(env, method_keys)
         except FileNotFoundError as e:
