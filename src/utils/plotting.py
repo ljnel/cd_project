@@ -21,7 +21,7 @@ def setup_style():
     """Configure matplotlib for publication (IEEE two-column, serif fonts)."""
     plt.rcParams.update({
         "font.family": "serif",
-        "font.serif": ["Computer Modern Roman"],
+        "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
         "text.usetex": True,
         "axes.labelsize": 10,
         "axes.titlesize": 10,

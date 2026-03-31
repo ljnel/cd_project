@@ -50,78 +50,6 @@ def compute_avg_ranks(
 # Per-experiment formatting functions
 # ---------------------------------------------------------------------------
 
-def format_latex_table(
-    results: dict[str, dict[str, tuple[float, float]]],
-    env_name: str,
-    window: int = None,
-    horizon: int = None,
-    obs_dim: int = 4,
-    train_size: int = 100,
-    test_size: int = None,
-    failure_prop: float = None
-) -> str:
-    """Format results as a LaTeX table matching the paper style."""
-    display_name = get_env_display_name(env_name)
-
-    # Build stats table header
-    stats_table = (
-        f"\\begin{{table}}[htbp]\n"
-        f"\\centering\n"
-        f"\\caption{{Training and testing data statistics for {display_name}.}}\n"
-        f"\\label{{tab:{env_name.lower()}_stats}}\n"
-        f"\\begin{{tabular}}{{@{{}}lcccccc@{{}}}}\n"
-        f"\\toprule\n"
-        f"\\textbf{{Environment}} & \\textbf{{W}} & \\textbf{{H}} & \\textbf{{Obs dim}}"
-        f" & \\textbf{{Train size}} & \\textbf{{Test size}}"
-        f" & \\textbf{{Failure prop.}} \\\\\n"
-        f"\\midrule\n"
-        f"{display_name} & {window or '?'} & {horizon or '?'} & {obs_dim}"
-        f" & {train_size} & {test_size or '?'} & {failure_prop or '?'} \\\\\n"
-        f"\\bottomrule\n"
-        f"\\end{{tabular}}\n"
-        f"\\end{{table}}\n"
-    )
-
-    # Build results table
-    results_table = (
-        f"\\begin{{table}}[htbp]\n"
-        f"\\centering\n"
-        f"\\caption{{Results for the {display_name} environment.}}\n"
-        f"\\label{{tab:{env_name.lower()}}}\n"
-        f"\\begin{{tabular}}{{@{{}}lcccc@{{}}}}\n"
-        f"\\toprule\n"
-        f"\\textbf{{Method}} & \\textbf{{TNR (\\%)}}"
-        f" & \\textbf{{TPR (\\%)}}"
-        f" & \\textbf{{TPR@5\\%FPR}}"
-        f" & \\textbf{{AUROC}} \\\\\n"
-        f"\\midrule\n"
-    )
-
-    for i, (method_name, metrics) in enumerate(results.items()):
-        if i in METHOD_GROUP_BREAKS:
-            results_table += "\\midrule\n"
-        tnr_mean, tnr_std = metrics['TNR']
-        tpr_mean, tpr_std = metrics['TPR']
-        tpr5_mean, tpr5_std = metrics['TPR@5%FPR']
-        auroc_mean, auroc_std = metrics['AUROC']
-
-        results_table += (
-            f"{method_name}"
-            f" & {tnr_mean:.2f} $\\pm$ {tnr_std:.2f}"
-            f" & {tpr_mean:.2f} $\\pm$ {tpr_std:.2f}"
-            f" & {tpr5_mean:.3f} $\\pm$ {tpr5_std:.3f}"
-            f" & {auroc_mean:.3f} $\\pm$ {auroc_std:.3f} \\\\\n"
-        )
-
-    results_table += (
-        "\\bottomrule\n"
-        "\\end{tabular}\n"
-        "\\end{table}\n"
-    )
-
-    return stats_table + "\n" + results_table
-
-
 def format_metric_latex_table(
     all_results: dict[str, dict],
     metric_key: str,
@@ -196,39 +124,6 @@ def format_metric_latex_table(
         "\\end{tabular}\n"
         "\\end{table*}\n"
     )
-    return latex
-
-
-def format_panda_table(
-    results: dict[str, dict[str, float]],
-    n_train: int | None = None,
-    n_test: int | None = None,
-    anomaly_prop: float | None = None,
-) -> str:
-    """Format panda trajectory-level results as a LaTeX table."""
-    caption = "Trajectory-level anomaly detection on the Panda dataset."
-    if n_train is not None and n_test is not None and anomaly_prop is not None:
-        caption += (f" Train: {n_train} expert trajectories, "
-                    f"Test: {n_test} trajectories "
-                    f"(anomaly proportion: {anomaly_prop:.3f}).")
-
-    latex = (
-        "\\begin{table}[htbp]\n"
-        "\\centering\n"
-        f"\\caption{{{caption}}}\n"
-        "\\label{tab:panda_results}\n"
-        "\\begin{tabular}{@{}lcccc@{}}\n"
-        "\\toprule\n"
-        "\\textbf{Method} & \\textbf{TNR (\\%)} & \\textbf{TPR (\\%)}"
-        " & \\textbf{TPR@5\\%FPR} & \\textbf{AUROC} \\\\\n"
-        "\\midrule\n"
-    )
-
-    for name, m in results.items():
-        latex += (f"{name} & {m['TNR']:.2f} & {m['TPR']:.2f} "
-                  f"& {m['TPR@5%FPR']:.3f} & {m['AUROC']:.3f} \\\\\n")
-
-    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     return latex
 
 
@@ -519,92 +414,56 @@ def generate_evaluation_tables(results_dir: Path):
 # Table generation from .npz files
 # ---------------------------------------------------------------------------
 
-def generate_fail_pred_tables(results_dir: Path):
-    """Generate all fail_pred LaTeX tables from .npz files."""
-    npz_files = sorted(results_dir.glob("*_experiment_results.npz"))
+def generate_score_quality_tables(results_dir: Path):
+    """Generate AUROC table from score_quality .npz files.
+
+    Expects files at ``results_dir/{env}.npz`` with keys like
+    ``auroc_{method_display_key}``.
+    """
+    npz_files = sorted(results_dir.glob("*.npz"))
     if not npz_files:
         return
 
+    # Build {env: {display_name: {auroc: value}}}
     all_results = {}
     for npz_file in npz_files:
-        env_name = npz_file.stem.replace("_experiment_results", "")
-        data = np.load(npz_file, allow_pickle=True)
-        results_raw = data['results'].item()
-        stats = data['stats'].item()
+        env_name = npz_file.stem
+        data = dict(np.load(npz_file, allow_pickle=True))
 
-        # Reorder results to match DEFAULT_METHODS ordering
-        default_display = [get_method_display_name(k) for k in DEFAULT_METHODS]
-        results = {m: results_raw[m] for m in default_display if m in results_raw}
-        # Append any methods not in DEFAULT_METHODS at the end
-        for m in results_raw:
-            if m not in results:
-                results[m] = results_raw[m]
+        env_results = {}
+        for key in data:
+            if not key.startswith("auroc_"):
+                continue
+            method_key = key[len("auroc_"):]
+            display = method_key.replace("_", " ")
+            env_results[display] = {'auroc': float(data[key])}
 
-        # Per-env table
-        tex = format_latex_table(
-            results, env_name,
-            window=stats.get('win'),
-            horizon=stats.get('hor'),
-            obs_dim=stats.get('obs_dim', 4),
-            train_size=stats.get('n_train_successes', stats.get('n_successes')),
-            test_size=stats.get('n_test', stats.get('eps_per_fold')),
-            failure_prop=(f"{stats['failure_prop']:.3f}"
-                          if stats.get('failure_prop') else None),
-        )
-        tex_file = results_dir / f"{env_name}_results.tex"
-        tex_file.write_text(tex)
-        print(f"  {tex_file}")
+        if env_results:
+            all_results[env_name] = {'results': env_results, 'stats': {}}
 
-        all_results[env_name] = {'results': results, 'stats': stats}
+    if not all_results:
+        return
 
-    # Combined tables: use default methods, include envs that have all of them
+    # Filter to default methods present in all envs
     default_display = [get_method_display_name(k) for k in DEFAULT_METHODS]
     default_set = set(default_display)
     eligible = {e: d for e, d in all_results.items()
                 if default_set.issubset(d['results'].keys())}
-    if len(eligible) > 1:
-        filtered = {}
-        for env, d in eligible.items():
-            filtered[env] = {
-                'results': {m: d['results'][m] for m in default_display},
-                'stats': d['stats'],
-            }
 
-        auroc_tex = format_metric_latex_table(
-            filtered, 'AUROC',
+    if eligible:
+        filtered = {
+            env: {'results': {m: d['results'][m] for m in default_display},
+                  'stats': d['stats']}
+            for env, d in eligible.items()
+        }
+        tex = format_metric_latex_table(
+            filtered, 'auroc',
             caption='AUROC scores across all environments.',
             label='auroc_all_envs',
         )
-        tex_file = results_dir / "all_envs_auroc_results.tex"
-        tex_file.write_text(auroc_tex)
+        tex_file = results_dir / "auroc.tex"
+        tex_file.write_text(tex)
         print(f"  {tex_file}")
-
-        tpr_tex = format_metric_latex_table(
-            filtered, 'TPR@5%FPR',
-            caption='TPR@5\\%FPR scores across all environments.',
-            label='tpr_all_envs',
-        )
-        tex_file = results_dir / "all_envs_tpr_results.tex"
-        tex_file.write_text(tpr_tex)
-        print(f"  {tex_file}")
-
-
-def generate_panda_tables(results_dir: Path):
-    """Generate panda LaTeX tables from .npz files."""
-    npz_file = results_dir / "panda_experiment_results.npz"
-    if not npz_file.exists():
-        return
-
-    data = np.load(npz_file, allow_pickle=True)
-    results = data['results'].item()
-    n_train = int(data['n_train']) if 'n_train' in data.files else None
-    n_test = int(data['n_test']) if 'n_test' in data.files else None
-    anomaly_prop = float(data['anomaly_prop']) if 'anomaly_prop' in data.files else None
-
-    tex = format_panda_table(results, n_train, n_test, anomaly_prop)
-    tex_file = results_dir / "panda_results.tex"
-    tex_file.write_text(tex)
-    print(f"  {tex_file}")
 
 
 def generate_compute_cost_tables(results_dir: Path):
@@ -636,14 +495,11 @@ def main():
     print("\nenv_summary:")
     generate_env_summary_table(results_dir)
 
-    print("\nfail_pred:")
-    generate_fail_pred_tables(results_dir / "fail_pred")
+    print("\nscore_quality:")
+    generate_score_quality_tables(results_dir / "score_quality")
 
-    print("\npanda:")
-    generate_panda_tables(results_dir / "panda")
-
-    print("\nevaluation:")
-    generate_evaluation_tables(results_dir / "evaluation")
+    print("\ndeployment_quality:")
+    generate_evaluation_tables(results_dir / "deployment_quality")
 
     print("\ncompute_cost:")
     generate_compute_cost_tables(results_dir / "compute_cost")
