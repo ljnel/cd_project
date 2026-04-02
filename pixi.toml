@@ -26,6 +26,8 @@ tqdm = "4.66.1.*"
 jupyterlab = ">=4.5.6,<5"
 cython = ">=3.2.4,<4"
 uv = ">=0.11.2,<0.12"
+transformers = ">=5.5.0,<6"
+huggingface_hub = ">=1.8.0,<2"
 
 [pypi-dependencies]
 stable-baselines3 = "*"
@@ -36,6 +38,8 @@ tensorboardX = "*"
 upkie = "*"
 cd_project = { path = ".", editable = true }
 sigkerax = ">=0.2.1, <0.3"
+claudette = ">=0.3.14, <0.4"
+anomalib = ">=2.3.1, <3"
 
 [tasks]
 gen_data = "python -m data.datasets --overwrite"
