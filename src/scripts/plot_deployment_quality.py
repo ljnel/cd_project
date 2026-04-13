@@ -20,11 +20,13 @@ import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_method_display_name
 from utils.cli import add_common_args, parse_envs, parse_methods
+from utils.latex import get_env_display_name
 from utils.paths import get_root
 from utils.plotting import (
     COL_WIDTH,
@@ -73,7 +75,7 @@ def load_method_results(env_name: str, method: str) -> dict | None:
     }
 
 
-def plot_method_curves(ax, method_data: dict, title: str):
+def plot_method_curves(ax, method_data: dict, title: str, legend: bool = True):
     """Plot raw score curves for one method with time-varying threshold."""
     ts = method_data['timesteps']
     threshold = method_data['threshold']  # per-timestep array
@@ -84,7 +86,7 @@ def plot_method_curves(ax, method_data: dict, title: str):
     # Plot success episodes
     for scores in succ_scores:
         n = min(len(ts), len(scores))
-        ax.plot(ts[:n], scores[:n], color=SUCCESS_COLOR, alpha=0.3, linewidth=0.5)
+        ax.plot(ts[:n], scores[:n], color=SUCCESS_COLOR, alpha=0.3, linewidth=1.0)
 
     # Plot failure episodes (truncated at failure timestep)
     for i, scores in enumerate(fail_scores):
@@ -100,17 +102,34 @@ def plot_method_curves(ax, method_data: dict, title: str):
         if len(t) == 0:
             continue
 
-        ax.plot(t, scores, color=FAILURE_COLOR, alpha=0.3, linewidth=0.5)
+        ax.plot(t, scores, color=FAILURE_COLOR, alpha=0.3, linewidth=1.0)
 
         # Mark failure timestep
-        ax.plot(t[-1], scores[-1], "x", color=FAILURE_COLOR,
-                markersize=4, markeredgewidth=1.0)
+        ax.plot(t[-1], scores[-1], "x", color="#A02020",
+                markersize=3, markeredgewidth=0.8, zorder=5)
 
     # Time-varying threshold curve
     ax.plot(ts[:len(threshold)], threshold[:len(ts)],
-            color="gray", linestyle="--", linewidth=0.8)
-    ax.set_title(title, fontsize=8)
+            color="blue", linestyle="--", linewidth=0.8, label="Threshold")
+    if title:
+        ax.set_title(title, fontsize=8)
+    if legend:
+        ax.legend(fontsize=6, loc="upper right")
     ax.tick_params(labelsize=6)
+
+def should_use_log_scale(method_data: dict, ratio_thresh: float = 50) -> bool:
+    """Use log scale when scores span many orders of magnitude.
+
+    Allows log scale even if a small fraction of values are ≤ 0.
+    """
+    all_vals = np.concatenate(method_data['succ_scores'] + method_data['fail_scores'])
+    if len(all_vals) == 0:
+        return False
+    pos = all_vals[all_vals > 0]
+    if len(pos) < 0.9 * len(all_vals):
+        return False
+    p5, p95 = np.percentile(pos, [5, 95])
+    return p5 > 0 and (p95 / p5) > ratio_thresh
 
 
 def plot_env(env_name: str, method_keys: list[str]):
@@ -128,39 +147,115 @@ def plot_env(env_name: str, method_keys: list[str]):
 
     valid_methods = list(method_data_map.keys())
 
-    for log_scale in (False, True):
-        suffix = "_log" if log_scale else ""
-        n = len(valid_methods)
-        ncols = min(n, 3)
-        nrows = (n + ncols - 1) // ncols
-        fig, axes = plt.subplots(nrows, ncols, figsize=(FULL_WIDTH, 1.8 * nrows),
-                                 squeeze=False, constrained_layout=True)
+    n = len(valid_methods)
+    ncols = min(n, 3)
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(FULL_WIDTH, 1.8 * nrows),
+                             squeeze=False, constrained_layout=True)
 
-        for i, method in enumerate(valid_methods):
-            ax = axes[i // ncols][i % ncols]
-            method_data = method_data_map[method]
-            display = get_method_display_name(method)
-            plot_method_curves(ax, method_data, display)
-            if log_scale:
+    for i, method in enumerate(valid_methods):
+        ax = axes[i // ncols][i % ncols]
+        method_data = method_data_map[method]
+        display = get_method_display_name(method) if len(valid_methods) > 1 else ""
+        plot_method_curves(ax, method_data, display)
+        if should_use_log_scale(method_data):
+            all_scores = np.concatenate(
+                method_data['succ_scores'] + method_data['fail_scores'])
+            pos = all_scores[all_scores > 0]
+            if len(pos):
                 ax.set_yscale("log")
+                ax.set_ylim(pos.min() * 0.5, pos.max() * 2)
 
-        # Hide unused subplots
-        for i in range(n, nrows * ncols):
-            axes[i // ncols][i % ncols].set_visible(False)
+    # Hide unused subplots
+    for i in range(n, nrows * ncols):
+        axes[i // ncols][i % ncols].set_visible(False)
 
-        # Shared labels
-        for ax in axes[-1]:
-            if ax.get_visible():
-                ax.set_xlabel("Timestep", fontsize=7)
-        for ax in axes[:, 0]:
-            ax.set_ylabel("Score", fontsize=7)
+    # Shared labels
+    for ax in axes[-1]:
+        if ax.get_visible():
+            ax.set_xlabel("Timestep", fontsize=7)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Score", fontsize=7)
 
-        name = f"{env_name}{suffix}"
-        save_plot(name, ext="pdf", subfolder="results/deployment_quality/curves")
-        save_plot(name, ext="png", subfolder="results/deployment_quality/curves")
-        plt.close(fig)
+    save_plot(env_name, ext="pdf", subfolder="results/deployment_quality/curves")
+    save_plot(env_name, ext="png", subfolder="results/deployment_quality/curves")
+    plt.close(fig)
 
     print(f"  Saved {env_name} score curves.")
+
+
+GRID_ENVS = ["inv_pend", "hopper", "ant", "humanoid"]
+
+
+def plot_giant_grid(envs: list[str], method_keys: list[str]):
+    """Plot all (env, method) pairs in a single grid: envs as rows, methods as cols."""
+    envs = [e for e in GRID_ENVS if e in envs]
+
+    # Pre-load all data and figure out which methods have data for at least one env
+    all_data: dict[tuple[str, str], dict] = {}
+    for env in envs:
+        for m in method_keys:
+            md = load_method_results(env, m)
+            if md is not None:
+                all_data[(env, m)] = md
+
+    # Filter to methods that have data for at least one env
+    valid_methods = [m for m in method_keys
+                     if any((env, m) in all_data for env in envs)]
+    valid_envs = [env for env in envs
+                  if any((env, m) in all_data for m in method_keys)]
+
+    if not valid_methods or not valid_envs:
+        print("No deployment scores found for any (env, method) pair.")
+        return
+
+    nrows = len(valid_envs)
+    ncols = len(valid_methods)
+    fig, axes = plt.subplots(nrows, ncols,
+                             figsize=(FULL_WIDTH, 0.85 * nrows),
+                             squeeze=False)
+    fig.subplots_adjust(hspace=0.4, wspace=0.08,
+                        left=0.06, right=0.99, top=0.93, bottom=0.08)
+
+    for r, env in enumerate(valid_envs):
+        for c, method in enumerate(valid_methods):
+            ax = axes[r][c]
+            key = (env, method)
+            if key in all_data:
+                plot_method_curves(ax, all_data[key], title="", legend=False)
+                if should_use_log_scale(all_data[key]):
+                    all_scores = np.concatenate(
+                        all_data[key]['succ_scores'] + all_data[key]['fail_scores'])
+                    pos = all_scores[all_scores > 0]
+                    if len(pos):
+                        ax.set_yscale("log")
+                        ax.set_ylim(pos.min() * 0.5, pos.max() * 2)
+            else:
+                ax.set_visible(False)
+            ax.tick_params(labelsize=4, pad=1)
+            ax.xaxis.set_major_locator(MaxNLocator(3))
+            ax.tick_params(axis='y', left=False, labelleft=False, which='both')
+
+    # Column headers (method names)
+    for c, method in enumerate(valid_methods):
+        axes[0][c].set_title(get_method_display_name(method), fontsize=6, pad=3)
+
+    # Row labels on leftmost column
+    for r, env in enumerate(valid_envs):
+        axes[r][0].set_ylabel(get_env_display_name(env), fontsize=6)
+
+    # X-axis labels on bottom row only
+    for c in range(ncols):
+        ax = axes[-1][c]
+        if ax.get_visible():
+            ax.set_xlabel("Timestep", fontsize=5)
+
+    save_plot("deployment_quality_grid", ext="pdf",
+              subfolder="results/deployment_quality/curves")
+    save_plot("deployment_quality_grid", ext="png",
+              subfolder="results/deployment_quality/curves")
+    plt.close(fig)
+    print("Saved giant deployment quality grid.")
 
 
 def main():
@@ -172,6 +267,12 @@ def main():
 
     envs = parse_envs(args)
     method_keys = parse_methods(args)
+
+    # If --env was not explicitly passed, produce a single giant grid
+    env_was_explicit = args.env != parser.get_default("env")
+    if not env_was_explicit:
+        plot_giant_grid(envs, method_keys)
+        return
 
     for env in envs:
         try:
