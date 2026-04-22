@@ -388,9 +388,11 @@ def format_evaluation_table(
     return latex
 
 
-def generate_evaluation_tables(results_dir: Path):
+def generate_evaluation_tables(results_dir: Path, env_filter: list[str] | None = None):
     """Generate evaluation LaTeX tables from .npz files."""
     all_results = _load_evaluation_results(results_dir)
+    if env_filter:
+        all_results = {e: v for e, v in all_results.items() if e in env_filter}
     if not all_results:
         return
 
@@ -488,6 +490,19 @@ def generate_compute_cost_tables(results_dir: Path):
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
+
+    from utils.cli import add_env_arg, parse_envs
+
+    parser = argparse.ArgumentParser(description="Generate LaTeX tables.")
+    add_env_arg(parser)
+    args = parser.parse_args()
+
+    env_filter = None
+    env_was_explicit = args.env != parser.get_default("env")
+    if env_was_explicit:
+        env_filter = parse_envs(args)
+
     results_dir = get_root() / "results"
 
     print("Generating LaTeX tables...")
@@ -499,7 +514,8 @@ def main():
     generate_score_quality_tables(results_dir / "score_quality")
 
     print("\ndeployment_quality:")
-    generate_evaluation_tables(results_dir / "deployment_quality")
+    generate_evaluation_tables(results_dir / "deployment_quality",
+                               env_filter=env_filter)
 
     print("\ncompute_cost:")
     generate_compute_cost_tables(results_dir / "compute_cost")

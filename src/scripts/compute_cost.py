@@ -123,22 +123,24 @@ def plot_results(
     axes[0].bar(x_pos, train_means, color='steelblue', alpha=0.8)
     axes[0].set_xticks(x_pos)
     axes[0].set_xticklabels(method_names, rotation=15, ha='right')
+    axes[0].set_title('Train')
     axes[0].set_ylabel('Time (seconds)')
     axes[0].set_yscale('log')
     axes[0].grid(True, alpha=0.3, axis='y', which='both')
 
-    # Prediction time (total for all test windows)
-    pred_means = [results[m]['predict_time_mean'] for m in method_names]
+    # Prediction time (total for all test windows), convert ms → seconds
+    pred_means = [results[m]['predict_time_mean'] / 1000 for m in method_names]
     axes[1].bar(x_pos, pred_means, color='coral', alpha=0.8)
     axes[1].set_xticks(x_pos)
     axes[1].set_xticklabels(method_names, rotation=15, ha='right')
-    axes[1].set_ylabel('Time (milliseconds)')
+    axes[1].set_title('Test')
+    axes[1].set_ylabel('Time (seconds)')
     axes[1].set_yscale('log')
     axes[1].grid(True, alpha=0.3, axis='y', which='both')
 
     # Optional real-time budget line
     if realtime_budget_ms is not None:
-        axes[1].axhline(realtime_budget_ms, color='red', linestyle='--', lw=1.5,
+        axes[1].axhline(realtime_budget_ms / 1000, color='red', linestyle='--', lw=1.5,
                         label=f'{realtime_budget_ms}ms budget')
         axes[1].legend()
 

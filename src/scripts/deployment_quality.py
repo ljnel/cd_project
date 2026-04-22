@@ -87,7 +87,7 @@ def compute_deployment_metrics(
         t = timesteps[:len(s)]
         ft = fail_steps[i]
         exceedances = t[s > threshold]
-        early = exceedances[exceedances < ft]
+        early = exceedances[exceedances <= ft]
         if len(early) > 0:
             detected += 1
             lead_times.append(ft - early[0])

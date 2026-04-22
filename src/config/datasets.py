@@ -136,12 +136,12 @@ DATASETS['half_cheetah/tune'] = DatasetConfig(
 # --- Ant ---
 DATASETS.update(_make_env_datasets(
     'ant', 'mujoco', 'ant-v5-sac-expert.zip',
-    mass_range=(0.8, 2.0), friction_range=(0.8, 1.6), damping_range=(0.8, 2.0),
+    mass_range=(0.8, 1.2), friction_range=(0.8, 1.2), damping_range=(0.8, 1.2),
 ))
 DATASETS['ant/tune'] = DatasetConfig(
     name='tune', env='ant', platform='mujoco',
-    policy='ant-v5-sac-expert.zip',
-    mass_range=(0.8, 2.0), friction_range=(0.8, 1.6), damping_range=(0.8, 2.0),
+    policy='ant-v6-sac-expert.zip',
+    mass_range=(0.8, 1.2), friction_range=(0.8, 1.2), damping_range=(0.8, 1.2),
     n_episodes=1000, seed=0,
 )
 

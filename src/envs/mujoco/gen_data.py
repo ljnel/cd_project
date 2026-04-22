@@ -55,7 +55,10 @@ def _run_episodes(
     algo: str = 'SAC',
 ) -> dict:
     """Run a batch of episodes. Used by both sequential and parallel paths."""
-    env = gym.make(gym_name)
+    gym_kwargs = {}
+    if gym_name == 'Ant-v5':
+        gym_kwargs['terminate_when_unhealthy'] = False
+    env = gym.make(gym_name, **gym_kwargs)
     policy = _load_policy(algo, policy_path, env)
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]

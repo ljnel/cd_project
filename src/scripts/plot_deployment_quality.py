@@ -189,7 +189,6 @@ GRID_ENVS = ["inv_pend", "hopper", "ant", "humanoid"]
 
 def plot_giant_grid(envs: list[str], method_keys: list[str]):
     """Plot all (env, method) pairs in a single grid: envs as rows, methods as cols."""
-    envs = [e for e in GRID_ENVS if e in envs]
 
     # Pre-load all data and figure out which methods have data for at least one env
     all_data: dict[tuple[str, str], dict] = {}
@@ -268,9 +267,14 @@ def main():
     envs = parse_envs(args)
     method_keys = parse_methods(args)
 
-    # If --env was not explicitly passed, produce a single giant grid
+    # If --env was not explicitly passed, use GRID_ENVS default order
     env_was_explicit = args.env != parser.get_default("env")
     if not env_was_explicit:
+        plot_giant_grid([e for e in GRID_ENVS if e in envs], method_keys)
+        return
+
+    # Explicit --env with multiple envs → grid with exactly those envs
+    if len(envs) > 1:
         plot_giant_grid(envs, method_keys)
         return
 
