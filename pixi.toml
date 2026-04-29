@@ -40,6 +40,7 @@ cd_project = { path = ".", editable = true }
 sigkerax = ">=0.2.1, <0.3"
 claudette = ">=0.3.14, <0.4"
 anomalib = ">=2.3.1, <3"
+flowjax = ">=19.0.0, <20"
 
 [tasks]
 gen_data = "python -m data.datasets --overwrite"

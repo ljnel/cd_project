@@ -52,8 +52,10 @@ def plot_contours(f, ax, **plot_kwargs):
     return contours
 
 
-def plot_level_set(f, alpha, ax):
+def plot_level_set(f, alpha, ax=None):
     "Plot the alpha-level set of a vectorized function on the given axes."
+    if ax is None:
+        ax = plt.gca()
 
     xlim, ylim = ax.get_xlim(), ax.get_ylim()
     x = np.linspace(*xlim, 100)  # type: ignore
