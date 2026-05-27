@@ -21,16 +21,16 @@ Usage:
 """
 
 import argparse
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
 from data.datasets import load_episodes
+from utils.paths import get_output_dir
 from utils.stats import mmd_kernel_comparison
 
-RESULTS_DIR = Path("results/composite_kernel")
+RESULTS_DIR = get_output_dir()
 
 
 def main():

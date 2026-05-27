@@ -6,6 +6,7 @@ import numpy as np
 
 from config.detectors import get_detector
 from data.datasets import load_episodes, normalize_channels
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.windows import strided_window_view
 
@@ -80,6 +81,6 @@ for col, env in enumerate(envs):
 axes[3, 0].set_title("Timestep of max z-score", fontsize=7, loc="left")
 
 fig.tight_layout()
-plt.savefig("score_nonstationarity.png", dpi=150)
+plt.savefig(get_output_dir() / "score_nonstationarity.png", dpi=150)
 plt.show()
 print("Done.")

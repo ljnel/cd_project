@@ -25,7 +25,7 @@ from data.dataset import failed, stratified_split, survived
 from data.io import load
 from data.processing import normalize_channels
 from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.windows import strided_window_view
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     print(f"  Test: {len(te_survived)} survived + {len(te_failed)} failed episodes")
 
     # ── Per-method evaluation ────────────────────────────────────────
-    output_dir = get_root() / "results" / "deployment_quality" / env_name
+    output_dir = get_output_dir(env_name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results = {}

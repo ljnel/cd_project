@@ -2,7 +2,7 @@
 """
 Plot per-episode anomaly score curves from deployment_quality.py results.
 
-Loads saved scores from results/deployment_quality/{env}/ and plots
+Loads saved scores from outputs/deployment_quality/{env}/ and plots
 normalized score curves for each method, with conformal thresholds and
 failure timestep markers.
 
@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore")
 from config.detectors import get_method_display_name
 from utils.cli import add_common_args, parse_envs, parse_methods
 from utils.latex import get_env_display_name
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import (
     COL_WIDTH,
     FAILURE_COLOR,
@@ -45,7 +45,7 @@ MAX_EPISODES = 20  # max episodes to plot per category (avoid clutter)
 
 def load_method_results(env_name: str, method: str) -> dict | None:
     """Load per-method evaluation results (raw scores + time-varying threshold)."""
-    path = get_root() / "results" / "deployment_quality" / env_name / f"{method}.npz"
+    path = get_root() / "outputs" / "deployment_quality" / env_name / f"{method}.npz"
     if not path.exists():
         return None
     data = dict(np.load(path, allow_pickle=True))
@@ -177,8 +177,9 @@ def plot_env(env_name: str, method_keys: list[str]):
     for ax in axes[:, 0]:
         ax.set_ylabel("Score", fontsize=7)
 
-    save_plot(env_name, ext="pdf", subfolder="results/deployment_quality/curves")
-    save_plot(env_name, ext="png", subfolder="results/deployment_quality/curves")
+    curves = get_output_dir("curves")
+    save_plot(curves / f"{env_name}.pdf", fig=fig)
+    save_plot(curves / f"{env_name}.png", fig=fig)
     plt.close(fig)
 
     print(f"  Saved {env_name} score curves.")
@@ -249,10 +250,9 @@ def plot_giant_grid(envs: list[str], method_keys: list[str]):
         if ax.get_visible():
             ax.set_xlabel("Timestep", fontsize=5)
 
-    save_plot("deployment_quality_grid", ext="pdf",
-              subfolder="results/deployment_quality/curves")
-    save_plot("deployment_quality_grid", ext="png",
-              subfolder="results/deployment_quality/curves")
+    curves = get_output_dir("curves")
+    save_plot(curves / "deployment_quality_grid.pdf", fig=fig)
+    save_plot(curves / "deployment_quality_grid.png", fig=fig)
     plt.close(fig)
     print("Saved giant deployment quality grid.")
 

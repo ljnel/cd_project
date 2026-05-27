@@ -20,6 +20,7 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 from data.io import load
 from data.dataset import survived
 from algs.cd_poly import CDPolynomial
+from utils.paths import get_output_dir
 
 # Config
 T_START = 50
@@ -149,6 +150,6 @@ ax.set_title('Predicting CD per-traj-max-$q_{90}$ label 5 steps ahead from insid
 ax.grid(True, alpha=0.3)
 ax.legend()
 fig.tight_layout()
-out = 'scripts/misc/ant_label_predictability.png'
+out = get_output_dir() / "ant_label_predictability.png"
 fig.savefig(out, dpi=130)
 print(f"saved {out}")

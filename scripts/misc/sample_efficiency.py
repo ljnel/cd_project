@@ -22,12 +22,11 @@ from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_n
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_train_cal_test
 from scripts.evaluation import evaluate_method, compute_deployment_metrics
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import (
     COL_WIDTH,
     FULL_WIDTH,
     setup_style,
-    save_plot,
 )
 
 TRAIN_SIZES = [50, 100, 200, 500, 1000]
@@ -141,7 +140,7 @@ def plot_sweep(env_name: str, results: dict[str, dict[str, list]]):
     ax.legend()
     ax.set_title(env_name.replace('_', ' ').title())
 
-    output_dir = get_root() / "results" / "sample_efficiency"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{env_name}.pdf"
     fig.savefig(path, bbox_inches='tight')
@@ -175,7 +174,7 @@ def main():
                             args.seed, args.alpha, args.stride)
 
         # Save raw results
-        output_dir = get_root() / "results" / "sample_efficiency"
+        output_dir = get_output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_dir / f"{env}_results.npz",

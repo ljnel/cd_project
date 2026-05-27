@@ -12,12 +12,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from utils.cli import add_env_arg, parse_envs
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import COL_WIDTH, save_plot, setup_style
 
 setup_style()
 
-RESULTS_DIR = get_root() / "results" / "score_quality"
+RESULTS_DIR = get_root() / "outputs" / "score_quality"
 
 
 def plot_roc_curves(env_name: str):
@@ -51,7 +51,7 @@ def plot_roc_curves(env_name: str):
     ax.set_ylim([0, 1.05])
     fig.tight_layout()
 
-    save_plot(f"{env_name}_roc", ax=ax, subfolder="results/score_quality", ext="pdf")
+    save_plot(get_output_dir() / f"{env_name}_roc.pdf", fig=fig)
     plt.close(fig)
     print(f"Saved ROC curve for {env_name}")
 

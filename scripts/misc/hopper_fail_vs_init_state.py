@@ -11,6 +11,8 @@ from sklearn.model_selection import cross_val_score
 from scipy.spatial.distance import pdist
 import umap
 
+from utils.paths import get_output_dir
+
 d = np.load("data/hopper/fail_pred/data.npz")
 fail_all = d["fail"]
 init_all = d["X"][:, 0, :]
@@ -41,7 +43,7 @@ for i, ax in enumerate(axes.flat):
 
 fig.suptitle("Hopper: failure time vs initial state (per dim)")
 fig.tight_layout()
-out = "scripts/misc/hopper_fail_vs_init_state.png"
+out = get_output_dir() / "hopper_fail_vs_init_state.png"
 fig.savefig(out, dpi=120)
 print(f"saved {out}")
 
@@ -55,7 +57,7 @@ ax2.set_xlabel("UMAP 1")
 ax2.set_ylabel("UMAP 2")
 ax2.set_title("Hopper init-state UMAP, colored by failure time")
 fig2.tight_layout()
-out2 = "scripts/misc/hopper_init_umap.png"
+out2 = get_output_dir() / "hopper_init_umap.png"
 fig2.savefig(out2, dpi=120)
 print(f"saved {out2}")
 
@@ -129,6 +131,6 @@ axR.legend()
 
 fig3.suptitle("Local smoothness of init-state → fail map")
 fig3.tight_layout()
-out3 = "scripts/misc/hopper_local_smoothness.png"
+out3 = get_output_dir() / "hopper_local_smoothness.png"
 fig3.savefig(out3, dpi=120)
 print(f"saved {out3}")

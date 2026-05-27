@@ -23,7 +23,7 @@ from config.detectors import DETECTOR_CONFIGS
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
 from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
 from utils.signals import low_pass
 
@@ -42,7 +42,7 @@ def get_config(method_key: str, env: str) -> dict:
     config.pop("cls", None)
     config.pop("display_name", None)
 
-    tuned_path = get_root() / "results" / "tuned" / f"{env}.json"
+    tuned_path = get_root() / "outputs" / "tune" / f"{env}.json"
     if tuned_path.exists():
         with open(tuned_path) as f:
             overrides = json.load(f).get(method_key, {})
@@ -164,8 +164,7 @@ def run_env(env_name, max_points, seed):
     axes[-1].legend(markerscale=2, frameon=False)
     fig.tight_layout()
 
-    output_dir = get_root() / "results" / "mds_kernels"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_output_dir()
     out_path = output_dir / f"{env_name}.pdf"
     fig.savefig(out_path)
     plt.close(fig)

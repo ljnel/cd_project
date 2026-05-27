@@ -13,6 +13,7 @@ from algs.cd_poly import CDPolynomial
 from algs.kern_cd import KernCD
 from algs.kernels import RBF
 from algs.kernels.base import Kernel
+from utils.paths import get_output_dir
 
 
 class Laplace(Kernel):
@@ -85,7 +86,7 @@ def main():
                f'Standard normal, rejected to [-1, 1] (n={n})')
     fig.suptitle('Support estimation: CD vs kernel-CD vs KDE')
     fig.tight_layout()
-    out = 'support_1d_compare.png'
+    out = get_output_dir() / "support_1d_compare.png"
     fig.savefig(out, dpi=150)
     print(f'saved → {out}')
     plt.show()

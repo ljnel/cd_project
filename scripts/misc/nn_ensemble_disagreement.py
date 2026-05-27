@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
+from utils.paths import get_output_dir
+
 torch.set_default_dtype(torch.float32)
 
 N_BOUNDARY = 400
@@ -92,7 +94,7 @@ def main():
 
     fig.suptitle("Ensemble disagreement of MLPs on unit-square boundary", fontsize=14)
     plt.tight_layout()
-    out = "/Users/ljn/cd_project/outputs/nn_ensemble_disagreement.png"
+    out = get_output_dir() / "nn_ensemble_disagreement.png"
     plt.savefig(out, dpi=140)
     print(f"saved {out}")
     plt.show()

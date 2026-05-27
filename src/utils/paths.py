@@ -1,8 +1,6 @@
 import inspect
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-
 
 def get_root() -> Path:
     path = Path(__file__).resolve()
@@ -11,34 +9,10 @@ def get_root() -> Path:
             return parent
     raise FileNotFoundError("Could not find cd_project root with pyproject.toml")
 
-def get_log_dir() -> str:
-    root = get_root()
-    return str(root / "outputs" / "logs")
 
-def get_ckpt_dir() -> str:
-    root = get_root()
-    return str(root / "outputs" / "checkpoints")
-
-def save_plot(
-    name: str,
-    ax=None,
-    *,
-    subfolder: str = "outputs/plots",
-    ext: str = "png",
-    dpi: int = 300,
-    bbox_inches: str | None = "tight"
-) -> Path:
-    caller_stem = Path(inspect.stack()[1].filename).stem
-    base_stem   = f"{caller_stem}_{name}"
-
-    project_root = get_root()
-
-    output_dir = project_root / subfolder
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    outfile = output_dir / f"{base_stem}.{ext}"
-
-    fig = ax.figure if ax is not None else plt.gcf()
-    fig.savefig(outfile, dpi=dpi, bbox_inches=bbox_inches)
-    print(f"Plot saved to: {outfile}")
-    return outfile
+def get_output_dir(*parts: str) -> Path:
+    """Return outputs/<calling-script>/<parts...>, creating it if needed."""
+    name = Path(inspect.stack()[1].filename).stem
+    out = get_root().joinpath("outputs", name, *parts)
+    out.mkdir(parents=True, exist_ok=True)
+    return out

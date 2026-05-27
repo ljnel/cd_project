@@ -29,7 +29,7 @@ from sklearn.preprocessing import StandardScaler
 warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import COL_WIDTH, setup_style
 
 setup_style()
@@ -219,7 +219,7 @@ def print_summary(results: dict[str, dict]):
 
 def plot_roc_curves(results: dict[str, dict]):
     """Plot and save ROC curves."""
-    output_dir = get_root() / "results" / "panda"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH))
@@ -324,7 +324,7 @@ def main():
     plot_roc_curves(results)
 
     # Save results
-    output_dir = get_root() / "results" / "panda"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Raw results

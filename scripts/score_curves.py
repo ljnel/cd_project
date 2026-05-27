@@ -32,7 +32,7 @@ from config.tasks import TASK_CONFIGS
 from data.datasets import load_episodes, normalize_channels
 from envs.mujoco.termination import check_custom_termination
 from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
 from utils.windows import strided_window_view
 
@@ -210,7 +210,7 @@ def run_env(env_name: str, n_episodes: int, seed: int,
 
     # ------- Step 3: Output dir -------
     import shutil
-    output_dir = get_root() / "results" / "fig1"
+    output_dir = get_output_dir()
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

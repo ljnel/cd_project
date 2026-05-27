@@ -23,7 +23,7 @@ from config.tasks import TASK_CONFIGS
 from data.datasets import load_episodes, load_experiment
 from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
 from utils.latex import compute_avg_ranks, get_env_display_name
-from utils.paths import get_root
+from utils.paths import get_output_dir
 
 
 def run_experiments(
@@ -137,7 +137,7 @@ def run_env(env_name: str, method_keys: list[str],
                               seed=seed, env_name=env_name)
 
     # Save results
-    output_dir = get_root() / "results" / "score_quality"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
     npz_file = output_dir / f"{env_name}.npz"
 

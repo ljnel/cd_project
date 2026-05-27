@@ -13,6 +13,7 @@ from data.io import load
 from data.dataset import survived
 from algs.cd_poly import CDPolynomial
 from envs.info import ENV_INFO
+from utils.paths import get_output_dir
 
 T_START = 200
 DEGREE = 6
@@ -143,6 +144,6 @@ fig.suptitle(
     f'Surviving-trajectory phase plots (steps $\\geq$ {T_START}, CD deg {DEGREE}, '
     f'$q_{{90}}$ per-traj max from 20% holdout)', y=0.98,
 )
-out = 'scripts/misc/survival_phase_grid.png'
+out = get_output_dir() / "survival_phase_grid.png"
 fig.savefig(out, dpi=130)
 print(f"saved {out}")

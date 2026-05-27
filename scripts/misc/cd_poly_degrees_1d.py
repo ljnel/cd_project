@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.special import eval_chebyt, eval_legendre
 
 from algs.cd_poly import CDPolynomial
+from utils.paths import get_output_dir
 
 
 def cd_poly_uniform_exact(d: int, x: np.ndarray) -> np.ndarray:
@@ -76,7 +77,7 @@ def main():
     fig.suptitle("CD polynomial / (d+1) on samples in [-1, 1]  (dashed = exact)")
     fig.tight_layout()
 
-    out = "/Users/ljn/cd_project/outputs/cd_poly_degrees_1d.png"
+    out = get_output_dir() / "cd_poly_degrees_1d.png"
     fig.savefig(out, dpi=150)
     print(f"saved {out}")
 

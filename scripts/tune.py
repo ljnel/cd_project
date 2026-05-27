@@ -6,7 +6,7 @@ Grid-searches over per-method hyperparameters. Supports two tuning criteria:
   - spread:     maximize IQR/median of scores on normal data (default)
   - p95: minimize p95(held-out) / mean(train) score ratio on normal data
 
-Saves best configs per environment to results/tuned/{env}.json, which
+Saves best configs per environment to outputs/tune/{env}.json, which
 fail_pred_results.py loads automatically.
 
 Usage:
@@ -29,7 +29,7 @@ from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
 from utils.cli import add_common_args, parse_envs, setup_logging
 from data.datasets import load_tune_data
-from utils.paths import get_root
+from utils.paths import get_output_dir
 
 logger = logging.getLogger("cd.tune")
 
@@ -195,7 +195,7 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0,
             results[method_key] = best
 
     # Save results
-    output_dir = get_root() / "results" / "tuned"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{env_name}.json"
 

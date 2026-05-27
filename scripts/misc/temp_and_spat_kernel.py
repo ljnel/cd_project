@@ -128,9 +128,9 @@ def plot_latent_heatmaps(
     n_examples=5,
 ):
     """Plot heatmaps of latent matrices (after spatial + temporal dim reduction)."""
-    from utils.paths import get_root
+    from utils.paths import get_output_dir
 
-    out_dir = get_root() / "results" / "temp_and_spat_kernel"
+    out_dir = get_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     inlier_idx = np.where(~y_true)[0]

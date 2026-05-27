@@ -13,6 +13,7 @@ from algs.reduction.tucker import Tucker13
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.windows import strided_window_view
 
@@ -119,6 +120,6 @@ axes[ax_idx].set_title(f"Tucker failure (K={K}, M={M})")
 fig.colorbar(im2, ax=axes[ax_idx], shrink=0.8)
 
 fig.tight_layout()
-fig.savefig(f"results/cov_heatmap_{env}.pdf", dpi=150)
-print(f"Saved to results/cov_heatmap_{env}.pdf")
+fig.savefig(get_output_dir() / f"cov_heatmap_{env}.pdf", dpi=150)
+print(f"Saved to {get_output_dir() / f'cov_heatmap_{env}.pdf'}")
 plt.show()

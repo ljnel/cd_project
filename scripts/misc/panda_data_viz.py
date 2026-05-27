@@ -26,7 +26,7 @@ from umap import UMAP
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 
 def _extract_coll_timesteps(offline_dataset_path):
@@ -425,7 +425,7 @@ def main():
     scaler = StandardScaler()
     scaler.fit(expert_all_raw.reshape(-1, 14))
 
-    output_dir = get_root() / "results" / "panda"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # All-seeds visualizations

@@ -35,7 +35,7 @@ from config.detectors import (
     get_method_display_name,
 )
 from scripts.panda_data_viz import load_panda_by_env_seed
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 
 def run_per_seed(
@@ -223,7 +223,7 @@ def main():
         return
 
     # --- ROC curves ---
-    output_dir = get_root() / "results" / "panda"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(6, 5))

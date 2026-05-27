@@ -4,6 +4,7 @@ from algs.cd_pcs import CDApprox
 from scipy.stats import kendalltau, rankdata, spearmanr
 
 from algs.cd_poly import CDPolynomial
+from utils.paths import get_output_dir
 from utils.plotting import save_plot
 
 
@@ -43,7 +44,7 @@ def ranks_experiment():
     plt.text(0.05 * n, 0.9 * n, f"Spearman ρ = {rho:.3f}\nKendall τ = {tau:.3f}")
 
     plt.tight_layout()
-    save_plot('ranks')
+    save_plot(get_output_dir() / "ranks.png")
 
 
 def contour_experiment():
@@ -56,7 +57,7 @@ def contour_experiment():
     p_exact.plot(plt.gca(), colors='blue')
     p_approx.plot(plt.gca(), colors='red')
     plt.tight_layout()
-    save_plot('contours')
+    save_plot(get_output_dir() / "contours.png")
 
 
 def values_experiment():
@@ -106,7 +107,7 @@ def values_experiment():
     plt.title(f"Approximations to deg {degree} CD poly on " + r"$\mathcal{N}(0, I_{10})$)")
     plt.legend(title="n_components", frameon=False)
     plt.tight_layout()
-    save_plot('radius_val')
+    save_plot(get_output_dir() / "radius_val.png")
 
 
 if __name__ == "__main__":

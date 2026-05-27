@@ -6,7 +6,7 @@ Collect all states whose episode survives for at least H more steps
 Two-NN (Facco et al., 2017) on B random subsamples of size `--size`.
 Plot d/obs_dim per env as a bar with error bars (mean +/- std over B).
 
-Outputs to results/intrinsic_dim/:
+Outputs to outputs/intrinsic_dim/:
     intrinsic_dim.pdf
     data.npz   per (env): obs_dim, total_M, ds (B,)
 
@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore")
 from data.io import load
 from envs.info import ENV_INFO
 from eval.windowing import get_id_windows
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.stats import twonn
 
@@ -151,7 +151,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     setup_style()
 
-    out_dir = get_root() / 'results' / 'intrinsic_dim'
+    out_dir = get_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = out_dir / 'data.npz'
 

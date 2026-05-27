@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,12 +19,13 @@ import numpy as np
 from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, plot_gram, setup_style
 
 setup_style()
 
 # Output directory
-OUTPUT_DIR = Path("results/kernel_matrices")
+OUTPUT_DIR = get_output_dir()
 
 
 def main():

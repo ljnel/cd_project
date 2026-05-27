@@ -1,4 +1,3 @@
-import inspect
 import logging
 from pathlib import Path
 
@@ -286,29 +285,15 @@ def plot_hists(
     return fig
 
 
-def save_plot(
-    name: str,
-    ax=None,
-    *,
-    subfolder: str = "outputs/plots",
-    ext: str = "png",
-    dpi: int = 300,
-    bbox_inches: str | None = "tight",
-) -> Path:
-    caller_stem = Path(inspect.stack()[1].filename).stem
-    base_stem = f"{caller_stem}_{name}"
-
-    project_root = Path(__file__).resolve().parents[2]
-
-    output_dir = project_root / subfolder
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    outfile = output_dir / f"{base_stem}.{ext}"
-
-    fig = ax.figure if ax is not None else plt.gcf()
-    fig.savefig(outfile, dpi=dpi, bbox_inches=bbox_inches)
-    logger.info(f"Plot saved to: {outfile}")
-    return outfile
+def save_plot(path, *, fig=None, dpi=300, bbox_inches="tight") -> Path:
+    """Save a figure to `path` (PDF if no extension given), with house settings."""
+    fig = fig or plt.gcf()
+    path = Path(path)
+    if not path.suffix:
+        path = path.with_suffix(".pdf")
+    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches)
+    logger.info(f"Plot saved to: {path}")
+    return path
 
 
 def plot_map(f, ax, **plot_kwargs):

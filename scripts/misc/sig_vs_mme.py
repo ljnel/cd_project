@@ -19,7 +19,7 @@ import numpy as np
 from scipy.stats import linregress
 from sktime.dists_kernels import SignatureKernel
 
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import COL_WIDTH, FULL_WIDTH, setup_style
 
 # Tol bright palette
@@ -129,7 +129,7 @@ def main():
     args = parser.parse_args()
 
     setup_style()
-    output_dir = get_root() / "results" / "sig_vs_mme"
+    output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
     data_path = output_dir / "data.npz"
 

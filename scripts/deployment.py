@@ -3,7 +3,7 @@
 
 For each (env, method) pair: run the full fit → znorm → max-conformal →
 score pipeline via `eval.run_experiment`, save the resulting bundle to
-`results/deployment/{env}/{method}.npz`, and print a per-env summary.
+`outputs/deployment/{env}/{method}.npz`, and print a per-env summary.
 
 Usage:
     python -m scripts.deployment --W 100 --H 80 --env hopper
@@ -27,7 +27,7 @@ from detectors.kern_cd import KernCDDetector
 from detectors.knn import KNNDetector
 from eval import run_experiment
 from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
-from utils.paths import get_root
+from utils.paths import get_output_dir
 
 
 # ── Method registry ─────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ def save_bundle(path, result):
 def run_env(env, methods, W, H, stride, alpha, seed, survival_only, dataset):
     print(f"\n{'#' * 60}\n# {env}\n{'#' * 60}")
 
-    out_dir = get_root() / 'results' / 'deployment' / env
+    out_dir = get_output_dir(env)
     rows = []
 
     for method in methods:

@@ -22,7 +22,7 @@ from data.configs import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from envs.mujoco.termination import check_custom_termination
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import FULL_WIDTH, setup_style
 
 setup_style()
@@ -461,7 +461,7 @@ def main():
         logger.error(f"No matching envs. Available: {available}")
         return
 
-    output_dir = get_root() / 'results' / 'explore_failures'
+    output_dir = get_output_dir()
 
     for key in sorted(test_keys):
         cfg = DATASETS[key]

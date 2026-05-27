@@ -25,12 +25,12 @@ from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
 from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 
 setup_style()
 
-OUTPUT_DIR = get_root() / "results" / "compute_cost"
+OUTPUT_DIR = get_output_dir()
 
 
 def run_cost_experiment(

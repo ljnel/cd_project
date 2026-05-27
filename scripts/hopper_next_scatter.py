@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
+from utils.paths import get_output_dir
+
 # Hopper-v5 obs layout (see scripts/misc/hopper_cond_2d_vs_4d.py).
 HOPPER_OBS = [
     'z', 'theta', 'thigh', 'leg', 'foot',
@@ -63,7 +65,7 @@ def main():
     fig.suptitle("Hopper safe trajectories, steps 200-800: residual $x_{t+1} - x_t$ vs $x_t$, by mass scale")
     fig.tight_layout()
 
-    out = Path('results/hopper_next_scatter.png')
+    out = get_output_dir() / "hopper_next_scatter.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120)
     print(f"saved {out}")

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from data.generation.mujoco import _dispatch
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 env_info = ENV_INFO['hopper']
 gym_name = env_info.gym_name
@@ -50,6 +50,6 @@ ax.set_title(f'Hopper failure rate vs mass scale (n={N_PER_MASS}/mass, ep_len={E
 ax.set_ylim(-0.02, 1.02)
 ax.grid(True, alpha=0.3)
 fig.tight_layout()
-out = 'scripts/misc/hopper_fail_vs_mass.png'
+out = get_output_dir() / "hopper_fail_vs_mass.png"
 fig.savefig(out, dpi=130)
 print(f"\nsaved {out}")

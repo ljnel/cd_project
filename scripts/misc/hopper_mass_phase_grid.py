@@ -4,8 +4,6 @@ For each mass in MASS_SCALES, rejection-sample N_SURVIVED survived episodes (oth
 fixed at nominal), then plot like the hopper panel of survival_phase_grid.py.
 Per-mass surviving-episode arrays are cached to scripts/misc/data/.
 """
-from pathlib import Path
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
@@ -14,7 +12,7 @@ from matplotlib.colors import Normalize
 from algs.cd_poly import CDPolynomial
 from data.generation.mujoco import _dispatch
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 MASS_SCALES = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00, 1.05]
 N_SURVIVED = 500
@@ -24,7 +22,7 @@ T_START = 200
 T_END = 800
 DEGREE = 6
 
-CACHE_DIR = Path('scripts/misc/data')
+CACHE_DIR = get_root() / "outputs" / "hopper_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -182,7 +180,7 @@ fig.suptitle(
     f'$q_{{90}}$ per-traj max from 20% holdout)',
     y=0.98,
 )
-out = 'scripts/misc/hopper_mass_phase_grid.png'
+out = get_output_dir() / "hopper_mass_phase_grid.png"
 fig.savefig(out, dpi=130)
 print(f"\nsaved {out}")
 
@@ -219,6 +217,6 @@ ax2.set_title(
 ax2.legend(loc='best', fontsize=9)
 ax2.grid(True, alpha=0.3)
 fig2.tight_layout()
-out2 = 'scripts/misc/hopper_mass_cd_overlay.png'
+out2 = get_output_dir() / "hopper_mass_cd_overlay.png"
 fig2.savefig(out2, dpi=130)
 print(f"saved {out2}")

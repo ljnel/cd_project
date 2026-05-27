@@ -4,8 +4,6 @@
   rows: (thigh, leg) joint angles  |  (thigh_dot, leg_dot) joint velocities
   cols: nominal  |  mass=0.9  |  friction=0.9
 """
-from pathlib import Path
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
@@ -13,14 +11,14 @@ from matplotlib.colors import Normalize
 
 from data.generation.mujoco import _dispatch
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 N_SURVIVED = 500
 EP_LEN = 1000
 T_START, T_END = 200, 800
 MAX_RAW = 60_000
 
-CACHE_DIR = Path('scripts/misc/data')
+CACHE_DIR = get_root() / "outputs" / "hopper_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -137,6 +135,6 @@ fig.suptitle(
     f'Hopper surviving trajectories in joint space, steps {T_START}-{T_END}',
     y=0.97,
 )
-out = 'scripts/misc/hopper_joint_phase_grid.png'
+out = get_output_dir() / "hopper_joint_phase_grid.png"
 fig.savefig(out, dpi=130)
 print(f"\nsaved {out}")

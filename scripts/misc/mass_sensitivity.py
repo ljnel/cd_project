@@ -32,7 +32,7 @@ warnings.filterwarnings("ignore")
 from data.configs import DATASETS, DatasetConfig
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import COL_WIDTH, setup_style
 
 setup_style()
@@ -56,7 +56,7 @@ BASE_SEED = 42
 BIN_WIDTH = 0.1            # Width of mass bins (centered on 1.0)
 
 # Cache directory
-CACHE_DIR = get_root() / "results" / "mass_sensitivity" / ".cache"
+CACHE_DIR = get_output_dir(".cache")
 
 
 # =============================================================================
@@ -421,7 +421,7 @@ if __name__ == "__main__":
     envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
 
     for env_name in envs:
-        OUTPUT_DIR = get_root() / "results" / "mass_sensitivity" / env_name
+        OUTPUT_DIR = get_output_dir(env_name)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         print(f"\nConfiguration:")

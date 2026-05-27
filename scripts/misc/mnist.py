@@ -21,7 +21,8 @@ from torchvision import datasets, transforms
 
 from models.mnist.ae_cd import AE_CD
 from models.mnist.contrastive_dl import make_contrastive_loader
-from utils.paths import get_root, save_plot
+from utils.paths import get_output_dir, get_root
+from utils.plotting import save_plot
 
 test_ds = datasets.MNIST(root=str(get_root() / "data"), 
                          train=False, download=True, transform=transforms.ToTensor())
@@ -66,10 +67,10 @@ if __name__ == "__main__":
 
     sns.heatmap(basic_accs, annot=True, fmt=".2f", cmap="viridis", xticklabels=range(10), yticklabels=range(10))
     plt.title('Without CD loss')
-    save_plot('std-loss')
+    save_plot(get_output_dir() / "std-loss.png")
 
     plt.figure()
     sns.heatmap(cd_accs, annot=True, fmt=".2f", cmap="viridis", xticklabels=range(10), yticklabels=range(10))
     plt.title('With CD loss')
-    save_plot('cd-loss')
+    save_plot(get_output_dir() / "cd-loss.png")
     

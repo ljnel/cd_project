@@ -19,6 +19,7 @@ import numpy as np
 from config.detectors import DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_train_cal_test
+from utils.paths import get_output_dir
 from utils.plotting import (
     FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, save_plot, setup_style,
 )
@@ -319,8 +320,7 @@ def main():
     fig.suptitle(f"{args.env.capitalize()} — {method_name}", fontsize=10)
     fig.tight_layout()
 
-    save_plot(f"conformal_{args.method}_{args.env}", ax=axes[0],
-              subfolder="results/calibration")
+    save_plot(get_output_dir() / f"conformal_{args.method}_{args.env}.png", fig=fig)
     plt.show()
     print("Done.")
 

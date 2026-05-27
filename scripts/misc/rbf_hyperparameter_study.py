@@ -20,6 +20,7 @@ import numpy as np
 
 from algs.kern_cd import KernCD
 from algs.kernels import RBF
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 
 setup_style()
@@ -56,7 +57,7 @@ BASE_SEED = 42
 LOG = True                           # Use log scale for anomaly score y-axis
 
 # Output directory
-OUTPUT_DIR = Path("results/rbf_hyperparameter_study")
+OUTPUT_DIR = get_output_dir()
 
 
 # =============================================================================

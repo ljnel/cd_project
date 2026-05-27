@@ -7,6 +7,7 @@ from algs.cd_cheb import CDPolyCheb
 from sklearn.preprocessing import MinMaxScaler
 
 from algs.cd_poly import CDPolynomial
+from utils.paths import get_output_dir
 from utils.plotting import save_plot
 
 runs = 1
@@ -62,4 +63,4 @@ if __name__ == "__main__":
     df = pd.DataFrame(df)
     sns.lineplot(df, x='degree', y='cond', hue='basis', style='scaling')
     plt.yscale('log')
-    save_plot()
+    save_plot(get_output_dir() / "cond_vs_degree.pdf")

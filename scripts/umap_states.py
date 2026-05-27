@@ -8,10 +8,10 @@ to failure `lead = fail - t`: lead = 0 is the failure observation itself
 (`X[i, fail[i]]`), lead = 1 is the last pre-failure step, etc.
 
 One PDF is produced per embedding method:
-    results/umap_states/umap.pdf
-    results/umap_states/tsne.pdf
-    results/umap_states/pacmap.pdf
-    results/umap_states/phate.pdf
+    outputs/umap_states/umap.pdf
+    outputs/umap_states/tsne.pdf
+    outputs/umap_states/pacmap.pdf
+    outputs/umap_states/phate.pdf
 
 Usage:
     pixi run python -m scripts.umap_states
@@ -37,7 +37,7 @@ from sklearn.manifold import TSNE
 from data.dataset import failed
 from data.io import load
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 
 logger = logging.getLogger("cd.scripts.umap_states")
@@ -156,7 +156,7 @@ def main():
         logger.info(f"{env}: {len(X)} unsafe-episode states (D={X.shape[1]})")
         per_env[env] = (X, lead)
 
-    out_dir = get_root() / 'results' / 'umap_states'
+    out_dir = get_output_dir()
     for method in args.methods:
         rows = []
         for env in per_env:

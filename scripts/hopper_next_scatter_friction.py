@@ -9,15 +9,13 @@ Usage:
     pixi run python -m scripts.hopper_next_scatter_friction
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
 from data.generation.mujoco import _dispatch
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 
 # Hopper-v5 obs layout (see scripts/misc/hopper_cond_2d_vs_4d.py).
 HOPPER_OBS = [
@@ -31,7 +29,7 @@ EP_LEN = 1000
 MAX_RAW = 60_000
 T_START, T_END = 200, 800
 
-CACHE_DIR = Path('scripts/misc/data')
+CACHE_DIR = get_root() / "outputs" / "hopper_cache"
 
 
 def collect_survived_friction(friction: float, n_survived: int) -> np.ndarray:
@@ -123,7 +121,7 @@ def main():
     fig.suptitle("Hopper surviving trajectories, steps 200-800: residual $x_{t+1} - x_t$ vs $x_t$, by friction scale")
     fig.tight_layout()
 
-    out = Path('results/hopper_next_scatter_friction.png')
+    out = get_output_dir() / "hopper_next_scatter_friction.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120)
     print(f"\nsaved {out}")

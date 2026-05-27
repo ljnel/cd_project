@@ -14,7 +14,7 @@ Three hypotheses (B is the lead):
     C. Local divergence — high local divergence rate on the success
        attractor widens the training distribution intrinsically.
 
-Outputs to results/failure_modes/:
+Outputs to outputs/failure_mode_diagnostics/:
     horizon.pdf           hypothesis A: violin + cumulative failure curves
     horizon_linear.pdf    same, with linear x-axis
     separability.pdf      hypothesis B: MMD z-score vs lookback delta
@@ -42,7 +42,7 @@ from sklearn.neighbors import BallTree
 warnings.filterwarnings("ignore")
 
 from envs.info import ENV_INFO
-from utils.paths import get_root
+from utils.paths import get_output_dir, get_root
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.stats import mmd_squared
 
@@ -547,7 +547,7 @@ def main():
 
     setup_style()
 
-    out_dir = get_root() / 'results' / 'failure_modes'
+    out_dir = get_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = out_dir / 'data.npz'
 
