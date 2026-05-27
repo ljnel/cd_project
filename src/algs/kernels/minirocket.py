@@ -33,7 +33,7 @@ class MiniRocketKernel(Kernel):
     def __init__(
         self,
         gamma: float | Literal["median"] = "median",
-        num_kernels: int = 1_00,
+        num_kernels: int = 10_000,
     ):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None

@@ -2,7 +2,7 @@ import numpy as np
 from scipy.linalg import solve_triangular
 from sklearn.kernel_approximation import PolynomialCountSketch
 
-from algs.poly_basis import BasisSpec, ChebyshevBasis, HermiteBasis, MonomialBasis
+from algs.bases.poly_basis import BasisSpec, ChebyshevBasis, HermiteBasis, MonomialBasis
 from utils.plotting import plot_contours
 
 

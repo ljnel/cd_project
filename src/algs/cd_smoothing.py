@@ -154,7 +154,7 @@ def gaussian_moment_numeric(gamma, p, epsilon, range_mult=5):
 def create_smooth_ball(points, degree, epsilon, analytic=True):
     import itertools
 
-    from algs.poly_basis import total_degree_index_set as get_monomial_basis
+    from algs.bases.poly_basis import total_degree_index_set as get_monomial_basis
 
     n_dim = points.shape[1]
     monomial_basis = get_monomial_basis(n_dim, degree)
@@ -181,7 +181,7 @@ def create_smooth_ball(points, degree, epsilon, analytic=True):
 
 
 def create_smooth_gauss(points, degree, epsilon, analytic=True):
-    from algs.poly_basis import total_degree_index_set as get_monomial_basis
+    from algs.bases.poly_basis import total_degree_index_set as get_monomial_basis
 
     n_dim = points.shape[1]
     monomial_basis = get_monomial_basis(n_dim, degree)

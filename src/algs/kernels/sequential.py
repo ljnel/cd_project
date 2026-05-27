@@ -213,9 +213,8 @@ class TruncatedSigKernel(Kernel):
 
 
         if symmetric:
-            # Fill lower triangle from upper
+            # Force exact symmetry; floating-point noise can desync upper/lower.
             raw = (raw + raw.T) / 2.0
-            np.fill_diagonal(raw, np.diag(raw))
 
         return raw.astype(np.float64)
 

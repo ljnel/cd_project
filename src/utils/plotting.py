@@ -12,8 +12,8 @@ logger = logging.getLogger("cd.utils.plotting")
 COL_WIDTH = 3.5
 FULL_WIDTH = 7.16
 
-# Colorblind-safe success/failure colors (Tol bright)
-SUCCESS_COLOR = "#228833"  # green
+# Colorblind-safe survival/failure colors (Tol bright)
+SURVIVAL_COLOR = "#228833"  # green
 FAILURE_COLOR = "#EE6677"  # red/pink
 
 
@@ -132,7 +132,7 @@ def plot_channels(x: np.ndarray, y: np.ndarray, max_channels: int = 9, max_batch
         ax = axes[i]
 
         for b_idx in batch_indices:
-            color = FAILURE_COLOR if y[b_idx] else SUCCESS_COLOR
+            color = FAILURE_COLOR if y[b_idx] else SURVIVAL_COLOR
             alpha = 0.6 if n_batch > 10 else 1.0  # Transparency for overlapping lines
 
             ax.plot(x[b_idx, :, ch_idx], color=color, linewidth=1, alpha=alpha)
@@ -181,7 +181,7 @@ def plot_heatmaps(
         axes = axes[:, None]
 
     for j in range(cols):
-        # Top row: label=0 (success)
+        # Top row: label=0 (survived)
         ax = axes[0, j]
         if j < len(pick_f):
             ax.imshow(x[pick_f[j]].T, aspect="auto", cmap=cmap, interpolation="nearest")
@@ -190,7 +190,7 @@ def plot_heatmaps(
         else:
             ax.axis("off")
 
-        # Bottom row: label=1 (failure)
+        # Bottom row: label=1 (failed)
         ax = axes[1, j]
         if j < len(pick_t):
             ax.imshow(x[pick_t[j]].T, aspect="auto", cmap=cmap, interpolation="nearest")
@@ -199,8 +199,8 @@ def plot_heatmaps(
         else:
             ax.axis("off")
 
-    axes[0, 0].set_title("Success (y=0)", loc="left", fontsize=10)
-    axes[1, 0].set_title("Failure (y=1)", loc="left", fontsize=10)
+    axes[0, 0].set_title("Survived (y=0)", loc="left", fontsize=10)
+    axes[1, 0].set_title("Failed (y=1)", loc="left", fontsize=10)
 
     return fig
 
@@ -216,8 +216,8 @@ def plot_hists(
     """Density comparison of sampled dimensions, split by binary label.
 
     For each selected observation dimension, overlays per-trajectory KDE plots
-    to show distributional stability. Top row = success (y=0),
-    bottom = failure (y=1).
+    to show distributional stability. Top row = survived (y=0),
+    bottom = failed (y=1).
 
     Parameters
     ----------
@@ -268,7 +268,7 @@ def plot_hists(
     for j, d in enumerate(dim_idx):
         ax = axes[0, j]
         for i in pick_succ:
-            sns.kdeplot(x[i, :, d], ax=ax, color=SUCCESS_COLOR, alpha=0.5)
+            sns.kdeplot(x[i, :, d], ax=ax, color=SURVIVAL_COLOR, alpha=0.5)
         ax.set_title(f"Dim {d}")
         if j == 0:
             ax.set_ylabel("Density")

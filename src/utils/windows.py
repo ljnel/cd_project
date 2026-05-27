@@ -20,13 +20,13 @@ def sample_test_windows(
 
     Input:
         x: (batch, steps, channels)
-        fail: array of ints with failure step (if failure occurs), else -1
+        fail: (batch,) — `steps` (= T) for survivors; otherwise first OOD index
         episode_id_offset: added to episode indices in the returned episode_ids
 
     Samples one window from every trajectory:
-    - If the trajectory is a failure, sample the window so that failure occurs
-      within horizon steps of the end of the window (if this is not possible, ignore the trajectory)
-    - If the trajectory is a success, sample any window
+    - For failed episodes, place the window so that ``fail - end ∈ [0, horizon]``
+      (window end at or just before failure). Skip if no such window fits.
+    - For surviving episodes, sample any window.
 
     Returns:
         windows: (n_valid, window, channels)
@@ -36,36 +36,37 @@ def sample_test_windows(
     assert x.shape[0] == fail.shape[0], 'x and fail are not the same length'
 
     batch, steps, channels = x.shape
+    T = steps
     x_out = np.zeros((batch, window, channels), dtype=x.dtype)
-    fail_out = np.zeros((batch,))
+    fail_out = np.full((batch,), T)
     ep_ids = np.zeros((batch,), dtype=np.int64)
 
     j = 0  # num of valid trajs found so far
     for i in range(batch):
-        if fail[i] == -1:
+        if fail[i] == T:
             max_start = steps - window
             if max_start < 0:
                 continue  # traj too short
             start = np.random.randint(0, max_start + 1)
-            f = -1
+            f = T
         else:
-            end_min = fail[i] - horizon
+            # Right-closed window (end - window, end], so start = end - window + 1.
             end_max = fail[i]
+            end_min = fail[i] - horizon
 
-            start_min = end_min - window
-            start_max = end_max - window
+            start_max = end_max - window + 1
+            start_min = end_min - window + 1
 
-            start_min = max(start_min, 0)  # don't let start_min < 0
-            # don't let start_max > steps - window
+            start_min = max(start_min, 0)
             start_max = min(start_max, steps - window)
 
-            if start_min > start_max:  # includes the case start_max < 0
+            if start_min > start_max:
                 if verbose:
                     logger.info(
                         f"Skipping traj {i} with fail {fail[i]}: No valid window found.")
                 continue
             start = np.random.randint(start_min, start_max + 1)
-            f = fail[i] - (start + window)
+            f = fail[i] - (start + window - 1)  # gap from window end to fail
 
         x_out[j] = x[i, start:start+window]
         fail_out[j] = f
@@ -74,9 +75,9 @@ def sample_test_windows(
 
     if verbose:
         logger.info(
-            f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] > -1).mean()}')
+            f'Sampled windows from {j} / {len(x)} trajectories w/ fail prop. {(fail_out[:j] < T).mean()}')
 
-    y_true = fail_out[:j] >= 0
+    y_true = fail_out[:j] < T
     return x_out[:j], y_true, ep_ids[:j]
 
 
@@ -86,16 +87,17 @@ def sample_random_windows(
     win: int,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Extract one random window per episode, avoiding failure timesteps.
+    """Extract one random window per episode, ending at or before failure.
 
-    For each episode, sample a random window of length ``win`` that ends
-    before the failure timestep (if any). Episodes where failure occurs
-    too early (fail < win) are discarded.
+    For each episode, sample a random window of length ``win`` whose end
+    satisfies ``end <= fail`` (the failure-observation window is admitted
+    per the convention; everything past it is NaN). Episodes too short
+    to fit one such window are discarded.
 
     Parameters
     ----------
     X : (n_episodes, seq_len, channels)
-    fail : (n_episodes,) — -1 for success, >=0 for failure timestep
+    fail : (n_episodes,) — `seq_len` (= T) for survivors; otherwise first OOD index
     win : window length
     rng : numpy random generator
 
@@ -104,9 +106,12 @@ def sample_random_windows(
     windows : (n_valid, win, channels)
     valid_mask : (n_episodes,) boolean mask of episodes that yielded a window
     """
-    n_episodes, seq_len, _ = X.shape
+    _, seq_len, _ = X.shape
 
-    max_start = np.where(fail < 0, seq_len - win, fail - win)
+    # Right-closed window (end - win, end]; admit end <= fail for failed and
+    # end <= seq_len - 1 for survivors. start = end - win + 1, so max_start =
+    # fail - win + 1 (failed) or seq_len - win (survivors, equivalent to fail==T).
+    max_start = np.where(fail == seq_len, seq_len - win, fail - win + 1)
     valid_mask = max_start >= 0
 
     valid_indices = np.where(valid_mask)[0]
@@ -180,7 +185,7 @@ def estimate_window_acf(x: np.ndarray, min_window: int = 10) -> int:
 
     x: (n_episodes, seq_len, n_features)
     """
-    n_episodes, seq_len, n_features = x.shape
+    _, seq_len, _ = x.shape
     x_centered = x - x.mean(axis=1, keepdims=True)
 
     n_fft = 2 * seq_len
@@ -228,3 +233,5 @@ class WindowDataset(torch.utils.data.Dataset):
         step_idx = win_idx * self.stride
         window = self.ds[ep_idx, step_idx:step_idx + self.window]
         return window
+
+

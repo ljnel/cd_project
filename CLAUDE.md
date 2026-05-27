@@ -6,23 +6,5 @@ Anomaly detection for robot trajectories using the Christoffel-Darboux polynomia
 
 - Package manager: pixi (`pixi install`, `pixi shell`)
 - Source root: `src/` (editable install via pyproject.toml)
-- Tests: `pixi run pytest src/tests/`
+- Tests: `pixi run pytest tests/`
 - Lint: `pixi run ruff check src`
-
-## Project structure
-
-- `src/algs/` — core algorithms
-- `src/detectors/` — anomaly detectors
-- `src/config/` — dataset, detector, and task configs
-- `src/data/` — unified dataset loading/generation
-- `src/envs/` — data generation (mujoco/, upkie/)
-- `src/tasks/` — experiment harnesses
-- `src/scripts/` — experiment scripts and analysis
-
-## Conventions
-
-- Imports are bare from `src/` (e.g. `from algs.kern_cd import KernCD`)
-- No star imports
-- Data format: states `(n_episodes, seq_len, state_dim)`, fail `-1` = success, `>=0` = failure timestep
-- Linting: ruff (E/F/I/UP/B/SIM), type checking: mypy (permissive)
-- Plotting: use `setup_style()` from `utils.plotting` for IEEE two-column defaults (serif fonts, LaTeX, `COL_WIDTH`/`FULL_WIDTH` figure widths, colorblind-safe `SUCCESS_COLOR`/`FAILURE_COLOR`). Use `save_plot()` for output.

@@ -1,18 +1,29 @@
-# Kernel implementations for the CD detector
+# Kernel implementations for the CD detector.
 #
 # Base class:
-#   Kernel - Abstract base class for all kernels
+#   Kernel              - Abstract base for all kernels
 #
-# Vector kernels:
-#   RBF - Radial basis function (Gaussian) kernel
+# State / vector kernels (operate on flat state vectors):
+#   RBF                 - Radial basis function (Gaussian)
 #
-# Path kernels:
-#   PolyFFT - Polynomial kernel on FFT magnitudes
-#   GaussFFT - Gaussian kernel on FFT magnitudes
-#   SigKernel - Signature kernel (PDE-based, via sktime)
-#   ScatteringKernel - Wavelet scattering transform + RBF
+# Signal kernels (operate on individual time series):
+#   PolyFFT             - Polynomial kernel on FFT magnitudes
+#   GaussFFT            - Gaussian kernel on FFT magnitudes
+#   SigKernel           - Path-signature kernel (PDE-based, via sktime)
+#   TruncatedSigKernel  - Truncated path-signature kernel
+#   ScatteringKernel    - Wavelet scattering transform + RBF
+#   MiniRocketKernel    - RBF on MiniRocket random-conv features
+#
+# Trajectory-level kernels (operate on collections of trajectories):
+#   SpatiotemporalKernel - Composed spatial * temporal kernel
+#   SumKernel            - Spatial kernel summed over all timestep pairs
+#   RFFMeanKernel        - Mean embedding via Random Fourier Features
+#
+# `temporal_kernel.py` separately defines `TemporalSumKernel` and
+# `ProductKernel` as algebra combinators on TemporalKernel objects
+# (used via the `+` and `*` operators); not re-exported here.
 
-from algs.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
+from algs.kernels.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
 
 from .base import Kernel
 from .fft import GaussFFT, PolyFFT

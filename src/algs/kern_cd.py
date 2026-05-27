@@ -37,7 +37,7 @@ class KernCD(BaseEstimator):
     def __init__(
         self,
         kernel: Kernel,
-        reg: float | Literal["adaptive", "condition"] = "adaptive",
+        reg: float | Literal["adaptive", "condition"] = 1e-5,
     ):
         self.kernel = kernel
         self.reg = reg

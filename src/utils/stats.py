@@ -86,7 +86,7 @@ def mmd_kernel_comparison(
         rbf_gamma: bandwidth for RBF kernel (default: 1/D)
         **kernel_kwargs: forwarded to humanoid_composite_kernel
     """
-    from algs.spatial_kernel import (
+    from algs.kernels.spatial_kernel import (
         fit_gammas, fit_rbf_gamma, humanoid_kernel_matrices, rbf_kernel_matrices,
     )
 
@@ -121,3 +121,28 @@ def mmd_kernel_comparison(
     print(f"\n{'mean':>6} {results['composite'].mean():>12.6f} {results['rbf'].mean():>12.6f}")
 
     return results
+
+
+def twonn(X: np.ndarray, discard_fraction: float = 0.1) -> float:
+    """Estimate intrinsic dimension via Two-NN (Facco et al., 2017).
+
+    Args:
+        X: (N, D) point cloud. For trajectory data of shape (N, T, D),
+            flatten first: `X.reshape(-1, D)`.
+        discard_fraction: top-tail fraction of mu = r2/r1 to discard before
+            the linear fit (robust to near-duplicate points).
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    nbrs = NearestNeighbors(n_neighbors=3).fit(X)
+    dists, _ = nbrs.kneighbors(X)
+    r1, r2 = dists[:, 1], dists[:, 2]
+
+    mu = np.sort(r2[r1 > 0] / r1[r1 > 0])
+    n = int(len(mu) * (1 - discard_fraction))
+    mu = mu[:n]
+
+    F = np.arange(1, n + 1) / (n + 1)
+    x = np.log(mu)
+    y = -np.log(1 - F)
+    return float(np.dot(x, y) / np.dot(x, x))
