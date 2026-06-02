@@ -155,7 +155,7 @@ class TestBasicWorkflow:
     def test_predict_shape(self, X_train, X_test):
         """predict() should return (n_samples,) array."""
         model = KernCD(RBF(gamma=1.0)).fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
         assert scores.shape == (X_test.shape[0],)
 
     def test_lam_attribute_set_after_fit(self, X_train):
@@ -171,7 +171,7 @@ class TestBasicWorkflow:
         """predict() before fit() should raise."""
         model = KernCD(RBF(gamma=1.0))
         with pytest.raises(AttributeError):
-            model.predict(X_test)
+            model.score(X_test)
 
     def test_data_stored_after_fit(self, X_train):
         """Training data should be stored after fit."""
@@ -251,7 +251,7 @@ class TestFittableKernelIntegration:
         kernel = RBF(gamma="median")
         model = KernCD(kernel, reg="adaptive")
         model.fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
         assert kernel.gamma > 0
@@ -262,7 +262,7 @@ class TestFittableKernelIntegration:
         kernel = GaussFFT(gamma="median")
         model = KernCD(kernel, reg="adaptive")
         model.fit(X_signals)
-        scores = model.predict(X_signals_test)
+        scores = model.score(X_signals_test)
 
         assert scores.shape == (X_signals_test.shape[0],)
         assert np.all(np.isfinite(scores))
@@ -279,13 +279,13 @@ class TestMathematicalProperties:
     def test_scores_finite(self, X_train, X_test):
         """Scores should be finite (no NaN or Inf)."""
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
         assert np.all(np.isfinite(scores))
 
     def test_scores_nonnegative(self, X_train, X_test):
         """Scores should be non-negative for PSD kernels."""
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
         # Allow small negative values due to numerical errors
         assert np.all(scores >= -1e-10)
 
@@ -313,8 +313,8 @@ class TestMathematicalProperties:
     def test_training_scores_lower_than_outliers(self, X_train, X_outliers):
         """Training points should generally score lower than outliers."""
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        train_scores = model.predict(X_train)
-        outlier_scores = model.predict(X_outliers)
+        train_scores = model.score(X_train)
+        outlier_scores = model.score(X_outliers)
 
         # Mean outlier score should be higher
         assert np.mean(outlier_scores) > np.mean(train_scores)
@@ -412,13 +412,13 @@ class TestUpdateVsRefit:
         model_update = KernCD(kernel=kernel, reg=0.01)
         model_update.fit(X)
         model_update.update(x_new, exact=True)
-        pred_update = model_update.predict(X_test)
+        pred_update = model_update.score(X_test)
 
         # Method 2: Refit from scratch on augmented data
         X_augmented = np.vstack([X, x_new])
         model_refit = KernCD(kernel=kernel, reg=0.01)
         model_refit.fit(X_augmented)
-        pred_refit = model_refit.predict(X_test)
+        pred_refit = model_refit.score(X_test)
 
         # With scale-invariant reg, lambda differs slightly (reg/m vs reg/(m+1))
         # so we allow some tolerance
@@ -438,13 +438,13 @@ class TestUpdateVsRefit:
         model_update = KernCD(kernel=kernel, reg=0.01)
         model_update.fit(X)
         model_update.update(x_new, exact=False)
-        pred_update = model_update.predict(X_test)
+        pred_update = model_update.score(X_test)
 
         # Method 2: Refit from scratch
         X_augmented = np.vstack([X, x_new])
         model_refit = KernCD(kernel=kernel, reg=0.01)
         model_refit.fit(X_augmented)
-        pred_refit = model_refit.predict(X_test)
+        pred_refit = model_refit.score(X_test)
 
         # Allow larger tolerance due to regularization approximation
         assert_allclose(
@@ -541,14 +541,14 @@ class TestUpdateDowndate:
         model_batch = KernCD(kernel=kernel, reg=0.01)
         model_batch.fit(X)
         model_batch.batch_update(X_new)
-        pred_batch = model_batch.predict(X_test)
+        pred_batch = model_batch.score(X_test)
 
         # Method 2: Sequential updates
         model_seq = KernCD(kernel=kernel, reg=0.01)
         model_seq.fit(X)
         for x in X_new:
             model_seq.update(x.reshape(1, -1))
-        pred_seq = model_seq.predict(X_test)
+        pred_seq = model_seq.score(X_test)
 
         assert_allclose(
             pred_batch,
@@ -600,7 +600,7 @@ class TestUpdateDowndate:
 
         model = KernCD(kernel=kernel, reg=0.01)
         model.fit(X)
-        pred_original = model.predict(X_test)
+        pred_original = model.score(X_test)
 
         # Remove last point
         x_removed = model.data[-1:].copy()
@@ -608,7 +608,7 @@ class TestUpdateDowndate:
 
         # Re-add with exact update to match original regularization
         model.update(x_removed, exact=True)
-        pred_roundtrip = model.predict(X_test)
+        pred_roundtrip = model.score(X_test)
 
         # Should be close (not exact due to regularization changes)
         assert_allclose(
@@ -710,8 +710,8 @@ class TestAnomalyDetection:
 
         model = KernCD(RBF(gamma="median"), reg="adaptive").fit(X_train)
 
-        inlier_scores = model.predict(X_inliers)
-        outlier_scores = model.predict(X_outliers)
+        inlier_scores = model.score(X_inliers)
+        outlier_scores = model.score(X_outliers)
 
         # Outliers should score higher on average
         assert np.mean(outlier_scores) > np.mean(inlier_scores)
@@ -726,8 +726,8 @@ class TestAnomalyDetection:
         # Extreme outlier
         x_extreme = np.ones((1, X_train.shape[1])) * 100
 
-        score_extreme = model.predict(x_extreme)[0]
-        train_scores = model.predict(X_train)
+        score_extreme = model.score(x_extreme)[0]
+        train_scores = model.score(X_train)
 
         # Extreme outlier should score higher than all training points
         assert score_extreme > np.max(train_scores)
@@ -747,7 +747,7 @@ class TestEdgeCases:
         X_test = rng.standard_normal((3, 3))
 
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert scores.shape == (3,)
         assert np.all(np.isfinite(scores))
@@ -758,7 +758,7 @@ class TestEdgeCases:
         X_test = rng.standard_normal((5, 3))
 
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -768,7 +768,7 @@ class TestEdgeCases:
         X_test = rng.standard_normal((5, 50))
 
         model = KernCD(RBF(gamma=0.01), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -779,7 +779,7 @@ class TestEdgeCases:
         X_test = rng.standard_normal((10, 5))
 
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -788,7 +788,7 @@ class TestEdgeCases:
         x_test = rng.standard_normal((1, X_train.shape[1]))
 
         model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(x_test)
+        scores = model.score(x_test)
 
         assert scores.shape == (1,)
 
@@ -814,7 +814,7 @@ class TestEdgeCases:
         model.update(x_new)
 
         # Should work fine with large regularization
-        pred = model.predict(X_test)
+        pred = model.score(X_test)
         assert not np.any(np.isnan(pred)), "NaN in predictions"
         assert not np.any(np.isinf(pred)), "Inf in predictions"
 
@@ -842,14 +842,14 @@ class TestNumericalStability:
         """Predictions should never contain NaN."""
         for reg in [0.001, 0.01, 0.1, "adaptive", "condition"]:
             model = KernCD(RBF(gamma=1.0), reg=reg).fit(X_train)
-            scores = model.predict(X_test)
+            scores = model.score(X_test)
             assert not np.any(np.isnan(scores)), f"NaN with reg={reg}"
 
     def test_no_inf_in_predictions(self, X_train, X_test):
         """Predictions should never contain Inf."""
         for reg in [0.001, 0.01, 0.1, "adaptive", "condition"]:
             model = KernCD(RBF(gamma=1.0), reg=reg).fit(X_train)
-            scores = model.predict(X_test)
+            scores = model.score(X_test)
             assert not np.any(np.isinf(scores)), f"Inf with reg={reg}"
 
     def test_different_data_scales(self, rng):
@@ -859,7 +859,7 @@ class TestNumericalStability:
             X_test = rng.standard_normal((10, 5)) * scale
 
             model = KernCD(RBF(gamma="median"), reg="adaptive").fit(X)
-            scores = model.predict(X_test)
+            scores = model.score(X_test)
 
             assert np.all(np.isfinite(scores)), f"Non-finite with scale={scale}"
 
@@ -943,7 +943,7 @@ class TestStress:
                 )
 
         # Final prediction should not have NaN/Inf
-        pred = model.predict(X_test)
+        pred = model.score(X_test)
         assert not np.any(np.isnan(pred)), "NaN after many updates"
         assert not np.any(np.isinf(pred)), "Inf after many updates"
 

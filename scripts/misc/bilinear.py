@@ -79,7 +79,7 @@ def run(env_name, n_basis, n_spatial, strategy, ridge, seed):
     cond = np.linalg.cond(kern_cd.K)
     print(f"KernCD: λ={kern_cd.lam_:.2e}, cond={cond:.2e}")
 
-    scores = kern_cd.predict(test_features)
+    scores = kern_cd.score(test_features)
 
     auroc = roc_auc_score(y_true, scores)
     print(f"AUROC: {auroc:.4f}")

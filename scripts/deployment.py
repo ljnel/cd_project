@@ -19,25 +19,32 @@ import numpy as np
 
 warnings.filterwarnings("ignore")
 
-from detectors.base import as_sequence
+from algs.kern_cd import KernCD
+from algs.kernels import RBF, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
+from detectors.base import as_sequence, subsample, with_seq_len
 from detectors.cd_poly import CDPolyDetector
 from detectors.conv_ae import ConvAEDetector
 from detectors.gaussian import GaussianDetector
-from detectors.kern_cd import KernCDDetector
 from detectors.knn import KNNDetector
 from eval import run_experiment
 from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_output_dir
 
-
 # ── Method registry ─────────────────────────────────────────────────────────
 
+# KernCD with a sequence kernel consumes (N, W, D) windows natively, so it only
+# needs seq_len attached; with a vector kernel (rbf) the windows are flattened.
+# Both fit-cap to 1000 windows to keep the O(m³) kernel fit tractable.
+def _kern_cd_seq(kernel, W):
+    return subsample(with_seq_len(KernCD(kernel), W))
+
+
 METHODS = {
-    'fft':        lambda W: KernCDDetector(W, kernel='fft'),
-    'sig':        lambda W: KernCDDetector(W, kernel='sig'),
-    'scatter':    lambda W: KernCDDetector(W, kernel='scatter'),
-    'minirocket': lambda W: KernCDDetector(W, kernel='minirocket'),
-    'rbf':        lambda W: KernCDDetector(W, kernel='rbf'),
+    'fft':        lambda W: _kern_cd_seq(GaussFFT(gamma='median'), W),
+    'sig':        lambda W: _kern_cd_seq(SigKernel(gamma='median'), W),
+    'scatter':    lambda W: _kern_cd_seq(ScatteringKernel(J=3, Q=2, order=1, gamma='median'), W),
+    'minirocket': lambda W: _kern_cd_seq(MiniRocketKernel(gamma='median'), W),
+    'rbf':        lambda W: subsample(as_sequence(KernCD(RBF(gamma='median')), W)),
     'conv_ae':    lambda W: ConvAEDetector(W),
     'gaussian':   lambda W: as_sequence(GaussianDetector(), W),
     'cd_poly_d2': lambda W: as_sequence(CDPolyDetector(degree=2), W),

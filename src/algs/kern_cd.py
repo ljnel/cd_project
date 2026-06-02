@@ -70,7 +70,14 @@ class KernCD(BaseEstimator):
 
         return self
 
-    def predict(self, X):
+    def score(self, X):
+        """Anomaly score per sample (higher ⇒ more anomalous).
+
+        Satisfies the `detectors.VectorDetector` protocol, so a `KernCD` with a
+        vector kernel is itself a detector; for a sequence kernel, wrap with
+        `detectors.with_seq_len`, and for a vector kernel on windows with
+        `detectors.as_sequence`.
+        """
         kxx = self.kernel.diag(X)  # (b,)
         kx = self.kernel(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)

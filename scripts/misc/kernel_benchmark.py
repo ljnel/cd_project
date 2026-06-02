@@ -105,12 +105,12 @@ if __name__ == "__main__":
             model = KernCD(RBF(gamma=0.005), reg=1e-5).fit(x_tr_trial)
             
 
-        q = np.quantile(model.predict(x_cal), q=.95)
+        q = np.quantile(model.score(x_cal), q=.95)
         print('Finished training')
-        #y_pred = model.predict(x_te_trial) > q
-        y_pred = model.predict(x_te_trial) > q
+        #y_pred = model.score(x_te_trial) > q
+        y_pred = model.score(x_te_trial) > q
 
-        #y_score = model.predict(x_te_trial)
+        #y_score = model.score(x_te_trial)
         # y_true already set from load_experiment
         #score, q = fpr_at_recall(y_true, y_score)
         #score, thresh = precision_at_recall(y_true, y_score, recall_level=0.9)

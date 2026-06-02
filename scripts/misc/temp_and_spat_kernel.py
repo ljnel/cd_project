@@ -96,7 +96,7 @@ def run(env_name, n_landmarks, n_spatial, temporal_rank, length_scale, seed, nor
 
     # --- KernCD ---
     cd = KernCD(RBF(gamma="median"), reg=1e-5).fit(tr_feat)
-    scores = cd.predict(te_feat)
+    scores = cd.score(te_feat)
     auroc_kpca = roc_auc_score(y_true, scores)
 
     # --- PCA baseline (same data) ---
@@ -110,7 +110,7 @@ def run(env_name, n_landmarks, n_spatial, temporal_rank, length_scale, seed, nor
     tr_pca_feat = temporal.transform(tr_pca).reshape(len(train_windows), -1)
     te_pca_feat = temporal.transform(te_pca).reshape(len(x_test), -1)
     cd_pca = KernCD(RBF(gamma="median"), reg=1e-5).fit(tr_pca_feat)
-    auroc_pca = roc_auc_score(y_true, cd_pca.predict(te_pca_feat))
+    auroc_pca = roc_auc_score(y_true, cd_pca.score(te_pca_feat))
 
     print(f"\nPCA  (M={n_spatial}) + RBF temporal + CD:  AUROC={auroc_pca:.4f}")
     print(f"KPCA (M={n_spatial}) + RBF temporal + CD:  AUROC={auroc_kpca:.4f}")
