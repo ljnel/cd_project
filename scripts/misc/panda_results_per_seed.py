@@ -1,28 +1,10 @@
 #!/usr/bin/env python3
-"""
-Per-Seed Panda Trajectory-Level Anomaly Detection
-
-Trains and evaluates detectors per env seed, so each detector sees only
-expert trajectories from a single start/goal configuration. This produces
-a tighter training distribution than pooling all seeds.
-
-Train: per-seed expert free trajectories (collision-free, from expert planner)
-Test:  held-out expert free (label=0) + non-expert free+coll (label=1)
-
-Aggregation: mean +/- std across seeds for TNR/TPR, pooled scores for AUROC.
-
-Usage:
-    python panda_results_per_seed.py
-    python panda_results_per_seed.py --methods fft,sig
-    python panda_results_per_seed.py --methods basis -v
-"""
-
-import argparse
 import gc
 import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
 
@@ -69,34 +51,32 @@ def run_per_seed(
     return tn * 100, tp * 100, y_test, scores
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Per-seed Panda trajectory-level anomaly detection."
-    )
-    parser.add_argument(
-        "--methods",
-        type=str,
-        default=None,
-        help=f"Comma-separated methods. Available: {list(DETECTOR_CONFIGS.keys())}",
-    )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--test-frac",
-        type=float,
-        default=0.2,
-        help="Fraction of expert trajectories held out for testing",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true")
-    args = parser.parse_args()
+def main(
+    methods: str | None = None,
+    seed: int = 42,
+    test_frac: float = 0.2,
+    verbose: bool = False,
+):
+    """Per-seed Panda trajectory-level anomaly detection.
 
-    if args.verbose:
+    Trains and evaluates detectors per env seed, so each detector sees only
+    expert trajectories from a single start/goal configuration. This produces
+    a tighter training distribution than pooling all seeds.
+
+    Args:
+        methods: Comma-separated methods. Available: see DETECTOR_CONFIGS.
+        seed: RNG seed.
+        test_frac: Fraction of expert trajectories held out for testing.
+        verbose: Enable verbose logging.
+    """
+    if verbose:
         import logging
 
         logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
     # Parse methods
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(",")]
+    if methods:
+        method_keys = [m.strip() for m in methods.split(",")]
         for m in method_keys:
             if m not in DETECTOR_CONFIGS:
                 raise ValueError(
@@ -122,7 +102,7 @@ def main():
     def normalize(X):
         return scaler.transform(X.reshape(-1, D)).reshape(X.shape)
 
-    rng = np.random.RandomState(args.seed)
+    rng = np.random.RandomState(seed)
 
     # Per-method, per-seed results
     # method_key -> {tnrs: [], tprs: [], pooled_y: [], pooled_scores: []}
@@ -137,7 +117,7 @@ def main():
 
         # Split expert into train/test
         n_expert = len(exp)
-        n_test = max(1, int(n_expert * args.test_frac))
+        n_test = max(1, int(n_expert * test_frac))
         if n_expert < 3:
             print(f"\nSeed {env_seed}: only {n_expert} expert — skipping")
             continue
@@ -163,7 +143,7 @@ def main():
             display = get_method_display_name(method_key)
             try:
                 tnr, tpr, y_true, scores = run_per_seed(
-                    method_key, X_train, X_test, y_test, seed=args.seed
+                    method_key, X_train, X_test, y_test, seed=seed
                 )
                 all_results[method_key]["tnrs"].append(tnr)
                 all_results[method_key]["tprs"].append(tpr)
@@ -259,5 +239,5 @@ def main():
     print(f"Results saved to: {npz_file}")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

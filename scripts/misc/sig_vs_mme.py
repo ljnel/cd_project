@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
-"""Signature kernel vs kernel mean embedding: empirical scaling law.
-
-Simulates pairs of 1D OU processes with varying parameters, computes
-the unnormalized signature kernel and empirical MME as a function of
-trajectory length, then fits the power-law exponent alpha in
-log(K_sig) ~ c * n^alpha and identifies how c depends on MME.
-
-Usage:
-    python sig_vs_mme.py
-    python sig_vs_mme.py --t-max 20 --n-seeds 5
-    python sig_vs_mme.py --plot-only
-"""
-
-import argparse
-
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from scipy.stats import linregress
 from sktime.dists_kernels import SignatureKernel
 
@@ -116,18 +102,31 @@ def run_experiment(params, gamma, dt, t_max, n_eval_points, n_seeds, base_seed):
     return step_indices, t_eval, log_sig_all, mme_all, mme_exact_val
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--t-max", type=float, default=10.0, help="Max continuous time")
-    parser.add_argument("--n-seeds", type=int, default=5)
-    parser.add_argument("--n-eval-points", type=int, default=20)
-    parser.add_argument("--dt", type=float, default=0.01)
-    parser.add_argument("--gamma", type=float, default=1.0, help="RBF kernel bandwidth")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--plot-only", action="store_true", help="Re-plot from cached data.npz")
-    args = parser.parse_args()
+def main(
+    t_max: float = 10.0,
+    n_seeds: int = 5,
+    n_eval_points: int = 20,
+    dt: float = 0.01,
+    gamma: float = 1.0,
+    seed: int = 42,
+    plot_only: bool = False,
+):
+    """Signature kernel vs kernel mean embedding: empirical scaling law.
 
+    Simulates pairs of 1D OU processes with varying parameters, computes the
+    unnormalized signature kernel and empirical MME as a function of trajectory
+    length, then fits the power-law exponent alpha in log(K_sig) ~ c * n^alpha
+    and identifies how c depends on MME.
+
+    Args:
+        t_max: Max continuous time.
+        n_seeds: Number of seeds per config.
+        n_eval_points: Number of evaluation points along the trajectory.
+        dt: Time step.
+        gamma: RBF kernel bandwidth.
+        seed: Base RNG seed.
+        plot_only: Re-plot from cached data.npz.
+    """
     setup_style()
     output_dir = get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -141,25 +140,25 @@ def main():
     mu2_values = [0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0]
     param_sets = [(theta, mu1, sigma, theta, mu2, sigma) for mu2 in mu2_values]
 
-    if args.plot_only:
+    if plot_only:
         data = np.load(data_path, allow_pickle=True)
         all_results = data["all_results"].item()
-        args.dt = float(data["dt"])
-        args.gamma = float(data["gamma"])
+        dt = float(data["dt"])
+        gamma = float(data["gamma"])
         print(f"Loaded cached results")
     else:
         all_results = {}
         for i, params in enumerate(param_sets):
             mu2 = params[4]
             v = sigma ** 2 / (2 * theta)
-            mme_val = exact_mme(mu1, mu2, v, v, args.gamma)
+            mme_val = exact_mme(mu1, mu2, v, v, gamma)
             print(f"\n{'='*60}")
             print(f"Config {i+1}/{len(param_sets)}: mu2={mu2}, exact MME={mme_val:.4f}")
             print(f"{'='*60}")
 
             step_indices, t_eval, log_sig_all, mme_all, mme_exact_val = run_experiment(
-                params, args.gamma, args.dt, args.t_max,
-                args.n_eval_points, args.n_seeds, args.seed,
+                params, gamma, dt, t_max,
+                n_eval_points, n_seeds, seed,
             )
             all_results[mu2] = dict(
                 step_indices=step_indices, t_eval=t_eval,
@@ -171,7 +170,7 @@ def main():
             mean_log_sig = log_sig_all.mean(axis=0)[-1]
             print(f"  log(K_sig)={mean_log_sig:.2f}, MME={mme_all.mean(axis=0)[-1]:.4f}")
 
-        np.savez(data_path, all_results=all_results, dt=args.dt, gamma=args.gamma)
+        np.savez(data_path, all_results=all_results, dt=dt, gamma=gamma)
         print(f"\nCached results to {data_path}")
 
     # === Step 1: Fit alpha from log(log(K_sig)) vs log(n) ===
@@ -362,5 +361,5 @@ def main():
     print(f"Saved to {out_path}")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

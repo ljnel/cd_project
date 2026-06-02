@@ -1,28 +1,11 @@
 #!/usr/bin/env python3
-"""Intrinsic dimension of the H-step survival manifold, per environment.
-
-Collect all states whose episode survives for at least H more steps
-(`get_id_windows` with W=1), then estimate the intrinsic dimension via
-Two-NN (Facco et al., 2017) on B random subsamples of size `--size`.
-Plot d/obs_dim per env as a bar with error bars (mean +/- std over B).
-
-Outputs to outputs/intrinsic_dim/:
-    intrinsic_dim.pdf
-    data.npz   per (env): obs_dim, total_M, ds (B,)
-
-Usage:
-    pixi run python -m scripts.intrinsic_dim
-        [--envs ant half_cheetah hopper humanoid inv_pend upkie]
-        [--H 10] [--stride 1] [--size 5000] [--B 30]
-        [--no_cache] [--seed 42]
-"""
-
-import argparse
 import logging
 import warnings
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -35,7 +18,8 @@ from utils.stats import twonn
 
 logger = logging.getLogger("cd.scripts.intrinsic_dim")
 
-ALL_ENVS = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend']
+ALL_ENVS: list[EnvName] = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend']
 MIN_SAMPLES = 500
 
 ENV_COLORS = {
@@ -44,7 +28,6 @@ ENV_COLORS = {
     'hopper':       '#0077BB',
     'humanoid':     '#009988',
     'inv_pend':     '#33BBEE',
-    'upkie':        '#AA4499',
 }
 
 
@@ -107,8 +90,10 @@ def plot(rows, H, size, B, out_path):
     obs_dims = np.array([r[2] for r in rows])
     samples = np.stack([r[3] for r in rows])  # (n_envs, B)
 
-    means = np.nanmean(samples, axis=1)
-    stds = np.nanstd(samples, axis=1)
+    # Express intrinsic dim relative to the observation dimension.
+    rel = samples / obs_dims[:, None]  # (n_envs, B)
+    means = np.nanmean(rel, axis=1)
+    stds = np.nanstd(rel, axis=1)
 
     fig, ax = plt.subplots(figsize=(FULL_WIDTH * 0.6, 3.2))
     xs = np.arange(len(envs))
@@ -121,9 +106,9 @@ def plot(rows, H, size, B, out_path):
         [f'{ENV_INFO[e].display_name}\n($d_\\mathrm{{obs}}={o}$)' for e, o in zip(envs, obs_dims)],
         fontsize=8,
     )
-    ax.set_ylabel(r'$d_\mathrm{TwoNN}$')
+    ax.set_ylabel(r'$d_\mathrm{TwoNN} / d_\mathrm{obs}$')
     ax.set_title(
-        f'Intrinsic dim of survival manifold (H={H}, {B}x subsamples of {size})',
+        f'Relative intrinsic dim of survival manifold (H={H}, {B}x subsamples of {size})',
         fontsize=10, loc='left',
     )
     ax.grid(True, axis='y', alpha=0.3)
@@ -135,19 +120,26 @@ def plot(rows, H, size, B, out_path):
     logger.info(f"Saved {out_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--envs', nargs='+', default=ALL_ENVS, choices=ALL_ENVS)
-    parser.add_argument('--H', type=int, default=10)
-    parser.add_argument('--stride', type=int, default=1)
-    parser.add_argument('--size', type=int, default=5_000,
-                        help='Subsample size per Two-NN call.')
-    parser.add_argument('--B', type=int, default=30,
-                        help='Number of bootstrap subsamples per env.')
-    parser.add_argument('--no_cache', action='store_true')
-    parser.add_argument('--seed', type=int, default=42)
-    args = parser.parse_args()
+def main(
+    envs: list[EnvName] = ALL_ENVS,
+    H: int = 10,
+    stride: int = 5,
+    size: int = 25_000,
+    B: int = 30,
+    no_cache: bool = False,
+    seed: int = 42,
+):
+    """Compute and plot per-env relative intrinsic dimension.
 
+    Args:
+        envs: Environments to include.
+        H: Survival horizon (steps a state must survive ahead).
+        stride: Windowing stride.
+        size: Subsample size per Two-NN call.
+        B: Number of bootstrap subsamples per env.
+        no_cache: Recompute even if a cached data.npz exists.
+        seed: RNG seed.
+    """
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     setup_style()
 
@@ -155,12 +147,11 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = out_dir / 'data.npz'
 
-    if cache_path.exists() and not args.no_cache:
+    if cache_path.exists() and not no_cache:
         logger.info(f"Loading cache from {cache_path}")
         rows, H, size, B = load_cache(cache_path)
     else:
-        H, size, B = args.H, args.size, args.B
-        rows = compute(args.envs, H, args.stride, size, B, args.seed)
+        rows = compute(envs, H, stride, size, B, seed)
         save_cache(rows, cache_path, H, size, B)
         logger.info(f"Wrote {cache_path}")
 
@@ -168,4 +159,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    tyro.cli(main)

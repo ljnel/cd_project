@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
-"""
-Bilinear Trajectory Encoder + KernCD evaluation.
-
-Usage:
-    python bilinear.py --env hopper
-    python bilinear.py --env upkie --n-basis 20 --n-spatial 5 --strategy time_then_space
-"""
-
-import argparse
 import warnings
+from typing import Annotated, Literal
 
 import numpy as np
+import tyro
 from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
@@ -87,32 +80,43 @@ def run(env_name, n_basis, n_spatial, strategy, ridge, seed):
     return auroc
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, required=True,
-                        help=f"Environment. Available: {list(TASK_CONFIGS.keys())}")
-    parser.add_argument("--n-basis", type=int, default=10)
-    parser.add_argument("--n-spatial", type=str, default="5",
-                        help="Spatial components: int, float (variance fraction), or 'none'")
-    parser.add_argument("--strategy", type=str, default="space_then_time",
-                        choices=list(STRATEGY_MAP.keys()))
-    parser.add_argument("--ridge", type=float, default=1e-5)
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
+def main(
+    env: Annotated[
+        str,
+        tyro.conf.arg(help=f"Environment. Available: {list(TASK_CONFIGS.keys())}"),
+    ],
+    n_basis: int = 10,
+    n_spatial: str = "5",
+    strategy: Literal["space_then_time", "time_then_space", "joint"] = "space_then_time",
+    ridge: float = 1e-5,
+    seed: int = 42,
+):
+    """Bilinear Trajectory Encoder + KernCD evaluation.
 
+    Args:
+        n_basis: Number of basis functions.
+        n_spatial: Spatial components: int, float (variance fraction), or 'none'.
+        strategy: Optimization strategy.
+        ridge: Ridge regularization for the temporal basis.
+        seed: Random seed.
+    """
     # Parse n_spatial: "none" -> None, "0.95" -> float, "5" -> int
-    if args.n_spatial.lower() == "none":
-        n_spatial = None
-    elif "." in args.n_spatial:
-        n_spatial = float(args.n_spatial)
+    if n_spatial.lower() == "none":
+        n_spatial_val = None
+    elif "." in n_spatial:
+        n_spatial_val = float(n_spatial)
     else:
-        n_spatial = int(args.n_spatial)
+        n_spatial_val = int(n_spatial)
 
     run(
-        env_name=args.env,
-        n_basis=args.n_basis,
-        n_spatial=n_spatial,
-        strategy=STRATEGY_MAP[args.strategy],
-        ridge=args.ridge,
-        seed=args.seed,
+        env_name=env,
+        n_basis=n_basis,
+        n_spatial=n_spatial_val,
+        strategy=STRATEGY_MAP[strategy],
+        ridge=ridge,
+        seed=seed,
     )
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

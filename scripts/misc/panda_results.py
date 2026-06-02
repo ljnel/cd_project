@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-"""
-Panda Trajectory-Level Anomaly Detection
-
-Trains detectors on expert planner trajectories and tests whether they can
-distinguish expert from non-expert planner trajectories. Each (64, 14)
-trajectory is a single sample — no temporal windowing or aggregation.
-
-Train: expert free trajectories (collision-free, from expert planner)
-Test:  held-out expert free (normal, label=0) + all non-expert (anomalous, label=1)
-
-Usage:
-    python panda_results.py
-    python panda_results.py --methods sig,rec,lat
-    python panda_results.py --methods basis -v
-"""
-
-import argparse
 import gc
 import os
 import warnings
@@ -23,6 +6,7 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import tyro
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
 
@@ -243,27 +227,29 @@ def plot_roc_curves(results: dict[str, dict]):
     print(f"\nROC curve saved to: {roc_file}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Panda trajectory-level anomaly detection.')
-    parser.add_argument('--methods', type=str, default=None,
-                        help=f'Comma-separated methods. '
-                        f'Available: {list(DETECTOR_CONFIGS.keys())}')
-    parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--test-frac', type=float, default=0.2,
-                        help='Fraction of expert trajectories held out for testing')
-    parser.add_argument('--no-center', action='store_true',
-                        help='Disable mean trajectory subtraction')
-    parser.add_argument('-v', '--verbose', action='store_true')
-    args = parser.parse_args()
+def main(
+    methods: str | None = None,
+    seed: int = 42,
+    test_frac: float = 0.2,
+    no_center: bool = False,
+    verbose: bool = False,
+):
+    """Panda trajectory-level anomaly detection.
 
-    if args.verbose:
+    Args:
+        methods: Comma-separated methods. Available: see DETECTOR_CONFIGS.
+        seed: RNG seed.
+        test_frac: Fraction of expert trajectories held out for testing.
+        no_center: Disable mean trajectory subtraction.
+        verbose: Enable verbose logging.
+    """
+    if verbose:
         import logging
         logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
 
     # Parse methods
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(',')]
+    if methods:
+        method_keys = [m.strip() for m in methods.split(',')]
         for m in method_keys:
             if m not in DETECTOR_CONFIGS:
                 raise ValueError(f"Unknown method: {m}. "
@@ -276,9 +262,9 @@ def main():
     expert_free, nonexpert_all = load_panda_data(data_dir)
 
     # Train/test split: hold out some expert for testing
-    rng = np.random.RandomState(args.seed)
+    rng = np.random.RandomState(seed)
     n_expert = len(expert_free)
-    n_test_expert = int(n_expert * args.test_frac)
+    n_test_expert = int(n_expert * test_frac)
     perm = rng.permutation(n_expert)
 
     X_train = expert_free[perm[n_test_expert:]]
@@ -287,7 +273,7 @@ def main():
 
     # --- Preprocessing pipeline ---
     # 1. Mean trajectory subtraction
-    if not args.no_center:
+    if not no_center:
         X_train, X_test_normal, X_nonexpert, mean_traj = subtract_mean_trajectory(
             X_train, X_test_normal, X_nonexpert)
         print(f"Mean trajectory subtracted (shape {mean_traj.shape})")
@@ -313,7 +299,7 @@ def main():
 
     # Run experiments
     results = run_experiments(method_keys, X_train, X_test, y_test,
-                              seed=args.seed)
+                              seed=seed)
 
     if not results:
         print("\nNo methods succeeded.")
@@ -337,5 +323,5 @@ def main():
     print(f"Results saved to: {npz_file}")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

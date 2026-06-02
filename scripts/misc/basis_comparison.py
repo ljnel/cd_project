@@ -1,20 +1,9 @@
 #!/usr/bin/env python3
-"""Compare explicit temporal bases for trajectory compression.
-
-For each environment, loads windowed training data and fits a
-BilinearTrajectoryEncoder with each basis type, reporting relative
-reconstruction error and compression ratio.
-
-Usage:
-    python basis_comparison.py
-    python basis_comparison.py --envs hopper humanoid
-    python basis_comparison.py --n-basis 20
-"""
-
-import argparse
 import warnings
+from typing import Literal
 
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -29,6 +18,8 @@ from algs.bases.temporal_basis import (
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
 from utils.windows import strided_window_view
+
+DEFAULT_ENVS = list(TASK_CONFIGS.keys())
 
 
 def get_bases(n_basis, n_steps):
@@ -90,25 +81,33 @@ def run_comparison(envs, n_basis, n_spatial, strategy, window=None):
         print(row)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--envs", nargs="*", default=list(TASK_CONFIGS.keys()))
-    parser.add_argument("--window", type=int, default=None,
-                        help="Window length (default: use task config)")
-    parser.add_argument("--n-basis", type=int, default=10)
-    parser.add_argument("--n-spatial", type=float, default=0.95,
-                        help="Spatial components: int or float (variance fraction)")
-    parser.add_argument("--strategy", type=str, default="space_then_time",
-                        choices=["space_then_time", "time_then_space"])
-    args = parser.parse_args()
+def main(
+    envs: list[str] = DEFAULT_ENVS,
+    window: int | None = None,
+    n_basis: int = 10,
+    n_spatial: float = 0.95,
+    strategy: Literal["space_then_time", "time_then_space"] = "space_then_time",
+):
+    """Compare explicit temporal bases for trajectory compression.
 
+    Args:
+        envs: Environments to compare.
+        window: Window length (default: use task config).
+        n_basis: Number of basis functions.
+        n_spatial: Spatial components: int or float (variance fraction).
+        strategy: Optimization strategy.
+    """
     strategy_map = {
         "space_then_time": OptStrategy.SPACE_THEN_TIME,
         "time_then_space": OptStrategy.TIME_THEN_SPACE,
     }
 
     # Parse n_spatial
-    n_spatial = int(args.n_spatial) if args.n_spatial == int(args.n_spatial) else args.n_spatial
+    n_spatial = int(n_spatial) if n_spatial == int(n_spatial) else n_spatial
 
-    run_comparison(args.envs, args.n_basis, n_spatial, strategy_map[args.strategy],
-                   window=args.window)
+    run_comparison(envs, n_basis, n_spatial, strategy_map[strategy],
+                   window=window)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
-"""Regenerate datasets in the registry, tracking per-dataset wall time.
-
-Each dataset is generated via ``data.generation.generate`` (which dispatches
-to mujoco / upkie under the hood) and written via ``data.io.save``. Failures
-are caught per-dataset so a single broken config doesn't abort the whole batch.
-
-Usage:
-    pixi run python -m scripts.regen_datasets                         # all
-    pixi run python -m scripts.regen_datasets --env hopper            # one env
-    pixi run python -m scripts.regen_datasets --keys ant/fail_pred upkie/survival_only
-"""
-
-import argparse
 import time
 import traceback
+
+import tyro
 
 from data.configs import DATASETS
 from data.generation import generate
 from data.io import save
 
 
-def _resolve_keys(args) -> list[str]:
-    if args.keys:
-        keys = list(args.keys)
-    elif args.env:
-        keys = [k for k in DATASETS if k.startswith(f"{args.env}/")]
+def _resolve_keys(keys, env) -> list[str]:
+    if keys:
+        keys = list(keys)
+    elif env:
+        keys = [k for k in DATASETS if k.startswith(f"{env}/")]
         if not keys:
-            raise SystemExit(f"No datasets in registry for env {args.env!r}")
+            raise SystemExit(f"No datasets in registry for env {env!r}")
     else:
         keys = list(DATASETS.keys())
 
@@ -36,17 +25,23 @@ def _resolve_keys(args) -> list[str]:
     return keys
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--keys', nargs='+', default=None,
-                        help='Specific dataset keys to regenerate (e.g. ant/fail_pred).')
-    parser.add_argument('--env', default=None,
-                        help='Restrict to keys under <env>/.')
-    parser.add_argument('--n_jobs', type=int, default=-1,
-                        help='Parallel workers per dataset (-1 = all cores).')
-    args = parser.parse_args()
+def main(
+    keys: list[str] | None = None,
+    env: str | None = None,
+    n_jobs: int = -1,
+):
+    """Regenerate datasets in the registry, tracking per-dataset wall time.
 
-    keys = _resolve_keys(args)
+    Each dataset is generated via ``data.generation.generate`` (which dispatches
+    to mujoco / upkie under the hood) and written via ``data.io.save``. Failures
+    are caught per-dataset so a single broken config doesn't abort the whole batch.
+
+    Args:
+        keys: Specific dataset keys to regenerate (e.g. ant/fail_pred).
+        env: Restrict to keys under <env>/.
+        n_jobs: Parallel workers per dataset (-1 = all cores).
+    """
+    keys = _resolve_keys(keys, env)
     print(f"Regenerating {len(keys)} dataset(s):")
     for k in keys:
         print(f"  - {k}  (n_episodes={DATASETS[k].n_episodes}, ep_len={DATASETS[k].ep_len})")
@@ -60,7 +55,7 @@ def main():
         print(f"[{i}/{len(keys)}] {key} ...", flush=True)
         start = time.time()
         try:
-            ds = generate(cfg, n_jobs=args.n_jobs)
+            ds = generate(cfg, n_jobs=n_jobs)
             path = save(ds, cfg.env, cfg.name, overwrite=True)
             elapsed = time.time() - start
             T = ds.X.shape[1]
@@ -91,5 +86,5 @@ def main():
         raise SystemExit(f"{n_err}/{len(records)} dataset(s) failed")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

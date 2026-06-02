@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""
-Mass Anomaly Sensitivity Experiment
-
-Generates a plot showing classification performance (% classified as anomalies)
-as the mass scale varies continuously.
-
-Uses kernel regression (Nadaraya-Watson estimator) on a single test dataset
-with uniformly sampled mass values for efficient computation.
-
-Datasets are cached to disk and reused on reruns if parameters match.
-
-Usage:
-    python mass_sensitivity.py --env upkie
-    python mass_sensitivity.py --env hopper
-    python mass_sensitivity.py --env all
-"""
-
-import argparse
 import copy
 import hashlib
 import json
@@ -25,6 +7,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
@@ -396,29 +379,24 @@ def plot_mass_sensitivity(
 # Main
 # =============================================================================
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Mass Anomaly Sensitivity Experiment")
-    parser.add_argument(
-        "--env", type=str, required=True,
-        help=f"Environment name or 'all'. Available: {list(TASK_CONFIGS.keys())}",
-    )
-    parser.add_argument(
-        "--methods", type=str, default=None,
-        help=f"Comma-separated method keys. Default: {DEFAULT_METHODS}",
-    )
-    parser.add_argument("--seed", type=int, default=BASE_SEED, help="Base random seed")
-    args = parser.parse_args()
+def main(env: str, methods: str | None = None, seed: int = BASE_SEED):
+    """Mass Anomaly Sensitivity Experiment.
 
+    Args:
+        env: Environment name or 'all'. Available: see TASK_CONFIGS.
+        methods: Comma-separated method keys. Default: DEFAULT_METHODS.
+        seed: Base random seed.
+    """
     # Parse methods
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(",")]
+    if methods:
+        method_keys = [m.strip() for m in methods.split(",")]
     else:
         method_keys = DEFAULT_METHODS
 
     display_names = [get_method_display_name(k) for k in method_keys]
 
     # Determine environments
-    envs = list(TASK_CONFIGS.keys()) if args.env == "all" else [args.env]
+    envs = list(TASK_CONFIGS.keys()) if env == "all" else [env]
 
     for env_name in envs:
         OUTPUT_DIR = get_output_dir(env_name)
@@ -437,11 +415,11 @@ if __name__ == "__main__":
             bin_centers, results = run_experiment(
                 env_name=env_name,
                 method_keys=method_keys,
-                seed=args.seed,
+                seed=seed,
             )
 
             # Plot results
-            fig = plot_mass_sensitivity(
+            plot_mass_sensitivity(
                 bin_centers,
                 results,
                 output_path=OUTPUT_DIR / "mass_sensitivity.pdf",
@@ -470,3 +448,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")
     print("=" * 70)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

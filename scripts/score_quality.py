@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
-"""Score quality: AUROC for window-level anomaly detection.
-
-Runs multiple anomaly detection methods with a deterministic train/test split
-and reports AUROC with ROC curves.
-
-Usage:
-    python -m scripts.score_quality --env upkie
-    python -m scripts.score_quality --env all
-"""
-
-import argparse
 import gc
 import warnings
+from types import SimpleNamespace
 
 import numpy as np
+import tyro
 from sklearn.metrics import roc_auc_score, roc_curve
 
 warnings.filterwarnings("ignore")
@@ -21,7 +12,7 @@ warnings.filterwarnings("ignore")
 from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_episodes, load_experiment
-from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
+from utils.cli import ALL_ENVS, parse_envs, parse_methods, setup_logging
 from utils.latex import compute_avg_ranks, get_env_display_name
 from utils.paths import get_output_dir
 
@@ -154,12 +145,21 @@ def run_env(env_name: str, method_keys: list[str],
     return results, stats
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Score quality: AUROC for window-level detection.')
-    add_common_args(parser)
-    parser.add_argument('--tr-ep', type=int, default=None,
-                        help='Max training episodes (default: all)')
-    args = parser.parse_args()
+def main(
+    env: list[str] = ALL_ENVS,
+    seed: int = 42,
+    verbose: bool = False,
+    tr_ep: int | None = None,
+):
+    """Score quality: AUROC for window-level detection.
+
+    Args:
+        env: Environment(s) to run (default: all).
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        tr_ep: Max training episodes (default: all).
+    """
+    args = SimpleNamespace(env=env, seed=seed, verbose=verbose)
     setup_logging(args)
 
     envs = parse_envs(args)
@@ -169,7 +169,7 @@ if __name__ == "__main__":
     for env_name in envs:
         try:
             results, stats = run_env(
-                env_name, method_keys, seed=args.seed, max_train_eps=args.tr_ep,
+                env_name, method_keys, seed=seed, max_train_eps=tr_ep,
             )
             all_results[env_name] = {'results': results, 'stats': stats}
         except FileNotFoundError as e:
@@ -180,3 +180,7 @@ if __name__ == "__main__":
 
     if all_results:
         print_summary(all_results)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

@@ -1,30 +1,19 @@
 #!/usr/bin/env python3
-"""
-Computational Cost Benchmarking
-
-Benchmarks training and prediction time for anomaly detection methods.
-Supports any environment with a fail_pred dataset.
-
-Usage:
-    python -m scripts.compute_cost --env upkie
-    python -m scripts.compute_cost --env hopper --methods fft sig
-    python -m scripts.compute_cost
-"""
-
-import argparse
 import gc
 import time
 import warnings
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
-from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
+from utils.cli import ALL_ENVS, parse_envs, parse_methods, setup_logging
 from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 
@@ -222,13 +211,23 @@ def run_env(
     return results
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Benchmark computational cost of detectors.')
-    add_common_args(parser)
-    parser.add_argument('--n-repeats', type=int, default=5, help='Number of timing repeats')
-    parser.add_argument('--realtime-ms', type=float, default=None,
-                        help='Real-time budget in ms (draws reference line on plot)')
-    args = parser.parse_args()
+def main(
+    env: list[str] = ALL_ENVS,
+    seed: int = 42,
+    verbose: bool = False,
+    n_repeats: int = 5,
+    realtime_ms: float | None = None,
+):
+    """Benchmark computational cost of detectors.
+
+    Args:
+        env: Environment(s) to run (default: all).
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        n_repeats: Number of timing repeats.
+        realtime_ms: Real-time budget in ms (draws reference line on plot).
+    """
+    args = SimpleNamespace(env=env, seed=seed, verbose=verbose)
     setup_logging(args)
 
     envs = parse_envs(args)
@@ -239,9 +238,9 @@ if __name__ == "__main__":
         try:
             results = run_env(
                 env_name, method_keys,
-                n_repeats=args.n_repeats,
-                seed=args.seed,
-                realtime_budget_ms=args.realtime_ms,
+                n_repeats=n_repeats,
+                seed=seed,
+                realtime_budget_ms=realtime_ms,
             )
             all_results[env_name] = results
         except FileNotFoundError as e:
@@ -253,3 +252,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("BENCHMARKING COMPLETE")
     print("=" * 80)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

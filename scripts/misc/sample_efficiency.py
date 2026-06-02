@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
-"""Training set size study: measure detection rate vs. number of training episodes.
-
-Keeps normalization and calibration sets fixed, varies only the detector
-training set size.
-
-Usage:
-    python -m scripts.sample_efficiency --env humanoid
-    python -m scripts.sample_efficiency --env humanoid ant --methods dist fft rec
-"""
-
-import argparse
 import gc
 import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -148,43 +138,48 @@ def plot_sweep(env_name: str, results: dict[str, dict[str, list]]):
     plt.close(fig)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Training set size study"
-    )
-    parser.add_argument("--env", nargs="+", required=True,
-                        help="Environment name(s) or 'all'")
-    parser.add_argument("--methods", nargs="+", default=None,
-                        help=f"Method keys (default: {DEFAULT_METHODS})")
-    parser.add_argument("--train-sizes", nargs="+", type=int,
-                        default=TRAIN_SIZES,
-                        help=f"Training set sizes to sweep (default: {TRAIN_SIZES})")
-    parser.add_argument("--alpha", type=float, default=0.1)
-    parser.add_argument("--stride", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
+def main(
+    env: list[str],
+    methods: list[str] | None = None,
+    train_sizes: list[int] = TRAIN_SIZES,
+    alpha: float = 0.1,
+    stride: int = 5,
+    seed: int = 42,
+):
+    """Training set size study: measure detection rate vs. number of training episodes.
 
-    method_keys = args.methods if args.methods else DEFAULT_METHODS
-    envs = list(TASK_CONFIGS.keys()) if 'all' in args.env else args.env
+    Keeps normalization and calibration sets fixed, varies only the detector
+    training set size.
 
-    for env in envs:
-        if env not in TASK_CONFIGS:
-            raise ValueError(f"Unknown env: {env}")
-        results = run_sweep(env, method_keys, sorted(args.train_sizes),
-                            args.seed, args.alpha, args.stride)
+    Args:
+        env: Environment name(s) or 'all'.
+        methods: Method keys (default: DEFAULT_METHODS).
+        train_sizes: Training set sizes to sweep.
+        alpha: Significance level.
+        stride: Windowing stride.
+        seed: RNG seed.
+    """
+    method_keys = methods if methods else DEFAULT_METHODS
+    envs = list(TASK_CONFIGS.keys()) if 'all' in env else env
+
+    for env_name in envs:
+        if env_name not in TASK_CONFIGS:
+            raise ValueError(f"Unknown env: {env_name}")
+        results = run_sweep(env_name, method_keys, sorted(train_sizes),
+                            seed, alpha, stride)
 
         # Save raw results
         output_dir = get_output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         np.savez(
-            output_dir / f"{env}_results.npz",
+            output_dir / f"{env_name}_results.npz",
             **{f"{k}_{metric}": np.array(v)
                for k, data in results.items()
                for metric, v in data.items()},
         )
 
-        plot_sweep(env, results)
+        plot_sweep(env_name, results)
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

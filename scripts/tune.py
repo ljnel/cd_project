@@ -1,37 +1,23 @@
 #!/usr/bin/env python3
-"""
-Hyperparameter tuning for anomaly detectors.
-
-Grid-searches over per-method hyperparameters. Supports two tuning criteria:
-  - spread:     maximize IQR/median of scores on normal data (default)
-  - p95: minimize p95(held-out) / mean(train) score ratio on normal data
-
-Saves best configs per environment to outputs/tune/{env}.json, which
-fail_pred_results.py loads automatically.
-
-Usage:
-    python tune.py --env hopper
-    python tune.py --env hopper --criterion p95
-    python tune.py --env humanoid --methods sig,scatter
-    python tune.py --env all --seed 0
-"""
-
-import argparse
 import gc
 import itertools
 import json
 import logging
+from typing import Literal
 
 import numpy as np
+import tyro
 from scipy.stats import iqr as compute_iqr
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
-from utils.cli import add_common_args, parse_envs, setup_logging
 from data.datasets import load_tune_data
 from utils.paths import get_output_dir
 
 logger = logging.getLogger("cd.tune")
+
+ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
+DEFAULT_METHOD_KEYS = ['rec', 'knn', 'iforest', 'fft', 'sig', 'basis', 'dist']
 
 # Only tune params that vary across environments.
 # Structural params (cls, kernel_type, max_windows, reg) stay fixed.
@@ -212,23 +198,39 @@ def tune_env(env_name: str, method_keys: list[str], seed: int = 0,
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Tune anomaly detector hyperparameters.")
-    add_common_args(parser, seed=False)
-    parser.add_argument("--seed", type=int, default=0, help="Random seed for fold split")
-    parser.add_argument("--criterion", type=str, default="p95", choices=CRITERIA,
-                        help="Tuning objective: 'spread' (IQR/median) or 'p95' (minimize p95(held-out)/median(train))")
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    env: list[str] = ALL_ENVS,
+    methods: list[str] = DEFAULT_METHOD_KEYS,
+    verbose: bool = False,
+    seed: int = 0,
+    criterion: Literal["spread", "p95"] = "p95",
+):
+    """Tune anomaly detector hyperparameters.
 
-    envs = parse_envs(args)
+    Grid-searches over per-method hyperparameters. Supports two tuning criteria:
+      - spread: maximize IQR/median of scores on normal data
+      - p95: minimize p95(held-out) / mean(train) score ratio on normal data
+
+    Saves best configs per environment to outputs/tune/{env}.json, which
+    fail_pred_results.py loads automatically.
+
+    Args:
+        env: Environment(s) to run (default: all).
+        methods: Detector method(s) to run.
+        verbose: Enable info-level logging.
+        seed: Random seed for fold split.
+        criterion: Tuning objective: 'spread' (IQR/median) or 'p95' (minimize
+            p95(held-out)/median(train)).
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
     # Only tune methods that have a search space by default
-    method_keys = [m for m in args.methods if m in SEARCH_SPACE]
+    method_keys = [m for m in methods if m in SEARCH_SPACE]
 
-    for env_name in envs:
+    for env_name in env:
         try:
-            tune_env(env_name, method_keys, seed=args.seed, criterion=args.criterion)
+            tune_env(env_name, method_keys, seed=seed, criterion=criterion)
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
         except Exception as e:
@@ -237,4 +239,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

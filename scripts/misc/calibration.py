@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""Time-varying conformal threshold visualization and evaluation.
-
-Fits BasisDetector on Hopper training data, then computes per-timestep
-thresholds via split conformal prediction on a held-out calibration set.
-Plots the threshold curve alongside score curves for safe and failing
-trajectories, and reports detection metrics.
-
-Usage:
-    python -m scripts.conformal_threshold
-    python -m scripts.conformal_threshold --env hopper --quantile 0.95
-"""
-
-import argparse
-
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
-from config.detectors import DETECTOR_CONFIGS, get_detector, get_method_display_name
+from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_train_cal_test
 from utils.paths import get_output_dir
@@ -114,26 +101,35 @@ def evaluate_alarms(
     return dict(fpr=fpr, det_rate=det_rate, med_lead=med_lead)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Time-varying conformal threshold plot")
-    parser.add_argument("--env", default="hopper",
-                        help=f"Environment ({', '.join(TASK_CONFIGS)})")
-    parser.add_argument("--method", default="basis",
-                        help=f"Detector method ({', '.join(DETECTOR_CONFIGS)})")
-    parser.add_argument("--quantile", type=float, default=0.90)
-    parser.add_argument("--n-cal", type=int, default=200,
-                        help="Number of calibration episodes (successes)")
-    parser.add_argument("--n-plot", type=int, default=30,
-                        help="Number of episodes to plot per class")
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
+def main(
+    env: str = "hopper",
+    method: str = "basis",
+    quantile: float = 0.90,
+    n_cal: int = 200,
+    n_plot: int = 30,
+    seed: int = 42,
+):
+    """Time-varying conformal threshold plot.
 
-    np.random.seed(args.seed)
+    Fits BasisDetector on Hopper training data, then computes per-timestep
+    thresholds via split conformal prediction on a held-out calibration set.
+    Plots the threshold curve alongside score curves for safe and failing
+    trajectories, and reports detection metrics.
+
+    Args:
+        env: Environment name.
+        method: Detector method.
+        quantile: Conformal quantile.
+        n_cal: Number of calibration episodes (successes).
+        n_plot: Number of episodes to plot per class.
+        seed: Random seed.
+    """
+    np.random.seed(seed)
 
     # --- Load data ---
-    task_cfg = TASK_CONFIGS[args.env]
+    task_cfg = TASK_CONFIGS[env]
     splits, X_te_norm, fail_te, scaler = load_train_cal_test(
-        args.env,
+        env,
         splits={'train': 0.5, 'norm_cal': 0.25, 'thresh_cal': 0.25},
     )
     x_det_train = splits['train']
@@ -141,9 +137,9 @@ def main():
     x_cal = splits['thresh_cal']
 
     # --- Fit detector (no internal calibration needed) ---
-    method_name = get_method_display_name(args.method)
+    method_name = get_method_display_name(method)
     print(f"Fitting {method_name} on {len(x_det_train)} episodes...")
-    detector = get_detector(args.method, env=args.env)
+    detector = get_detector(method, env=env)
     detector.cal_fraction = 0.0  # we do our own calibration
     detector.fit(x_det_train)
     print(f"  window={detector.window}")
@@ -187,17 +183,17 @@ def main():
     cal_matrix_raw = np.array(cal_scores_raw)
     cal_matrix_norm = np.array(cal_scores_norm)
 
-    alpha_cal = 1 - args.quantile
+    alpha_cal = 1 - quantile
     alpha_trans = alpha_cal
 
     # Raw thresholds
     # 1. Per-timestep conformal
-    threshold_curve = np.quantile(cal_matrix_raw, args.quantile, axis=0)
+    threshold_curve = np.quantile(cal_matrix_raw, quantile, axis=0)
     # 2. Two-level conformal
     cal_traj_scores = np.quantile(cal_matrix_raw, 1 - alpha_trans, axis=1)
     twolevel_raw_threshold = np.quantile(cal_traj_scores, 1 - alpha_cal)
     # 3. Pooled quantile
-    global_threshold = np.quantile(cal_matrix_raw.ravel(), args.quantile)
+    global_threshold = np.quantile(cal_matrix_raw.ravel(), quantile)
 
     # Normalized thresholds (z-score)
     # 4. Two-level conformal on z-score normalized scores
@@ -217,7 +213,7 @@ def main():
 
     # 6-9. Max-conformal: trajectory max as conformal score + finite-sample correction
     n_cal = len(cal_matrix_raw)
-    q_corrected = min(np.ceil((n_cal + 1) * args.quantile) / n_cal, 1.0)
+    q_corrected = min(np.ceil((n_cal + 1) * quantile) / n_cal, 1.0)
     max_conformal_threshold = np.quantile(cal_matrix_raw.max(axis=1), q_corrected)
     max_conformal_zscore_threshold = np.quantile(cal_matrix_norm.max(axis=1), q_corrected)
     max_conformal_ratio_threshold = np.quantile(cal_matrix_ratio.max(axis=1), q_corrected)
@@ -236,7 +232,7 @@ def main():
 
     # --- Metrics ---
     fail_steps = fail_te[te_failure_idx]
-    print(f"\nEpisode-level detection (q={args.quantile}, "
+    print(f"\nEpisode-level detection (q={quantile}, "
           f"{len(te_success_idx)} safe / {len(te_failure_idx)} fail):")
     print(f"  {'Method':<40s}  {'FPR':>5s}   {'Det':>5s}   {'MedLead':>7s}")
     evaluate_alarms(all_success_scores_raw, all_failure_scores_raw, global_threshold,
@@ -271,8 +267,7 @@ def main():
                     timesteps=timesteps, fail_steps=fail_steps)
 
     # --- Plot: raw scores with time-varying max-conformal thresholds ---
-    rng = np.random.default_rng(args.seed)
-    n_plot = args.n_plot
+    rng = np.random.default_rng(seed)
     pick_s = rng.choice(len(all_success_scores_raw), min(n_plot, len(all_success_scores_raw)), replace=False)
     pick_f = rng.choice(len(all_failure_scores_raw), min(n_plot, len(all_failure_scores_raw)), replace=False)
     fail_te_failures = fail_te[te_failure_idx]
@@ -317,13 +312,13 @@ def main():
             ax.legend(loc="upper left", fontsize=6)
 
     ax.set_xlim(left=timesteps[0])
-    fig.suptitle(f"{args.env.capitalize()} — {method_name}", fontsize=10)
+    fig.suptitle(f"{env.capitalize()} — {method_name}", fontsize=10)
     fig.tight_layout()
 
-    save_plot(get_output_dir() / f"conformal_{args.method}_{args.env}.png", fig=fig)
+    save_plot(get_output_dir() / f"conformal_{method}_{env}.png", fig=fig)
     plt.show()
     print("Done.")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

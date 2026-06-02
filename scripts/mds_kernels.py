@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""MDS visualization of kernel matrices for the four default KIC methods.
-
-Shows how well each kernel separates windows near failure from safe windows.
-"""
-
-import argparse
 import json
+import logging
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from sklearn.manifold import MDS
 
 from algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
@@ -22,10 +18,11 @@ from algs.kernels.trajectory_kernels import RFFMeanKernel
 from config.detectors import DETECTOR_CONFIGS
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_experiment
-from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_output_dir, get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
 from utils.signals import low_pass
+
+ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
 
 _BASIS_TYPES = {
     "gaussian": GaussianBasis,
@@ -171,21 +168,30 @@ def run_env(env_name, max_points, seed):
     print(f"Saved to {out_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    add_env_arg(parser)
-    add_seed_arg(parser)
-    add_verbose_arg(parser)
-    parser.add_argument("--max-points", type=int, default=400,
-                        help="Max windows for MDS (for speed)")
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    env: list[str] = ALL_ENVS,
+    seed: int = 42,
+    verbose: bool = False,
+    max_points: int = 400,
+):
+    """MDS visualization of kernel matrices for the four default KIC methods.
+
+    Shows how well each kernel separates windows near failure from safe windows.
+
+    Args:
+        env: Environment(s) to run (default: all).
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        max_points: Max windows for MDS (for speed).
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
     setup_style()
 
-    for env_name in parse_envs(args):
+    for env_name in env:
         try:
-            run_env(env_name, args.max_points, args.seed)
+            run_env(env_name, max_points, seed)
         except FileNotFoundError as e:
             print(f"\nSkipping {env_name}: {e}")
         except Exception as e:
@@ -194,4 +200,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
-"""Deployment evaluation with max-conformal calibration (z-score normalization).
-
-For each detector method, fits on training data, computes per-timestep
-score normalization from norm-cal, sets a max-conformal threshold from
-thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
-
-Usage:
-    python -m scripts.deployment_quality --env hopper
-    python -m scripts.deployment_quality --env all
-    python -m scripts.deployment_quality --env hopper --methods fft basis dist
-"""
-
-import argparse
 import gc
+import logging
 import warnings
 
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -24,9 +13,11 @@ from config.tasks import TASK_CONFIGS
 from data.dataset import failed, stratified_split, survived
 from data.io import load
 from data.processing import normalize_channels
-from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
 from utils.paths import get_output_dir
 from utils.windows import strided_window_view
+
+ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
+DEFAULT_METHODS = ['rec', 'knn', 'iforest', 'fft', 'sig', 'basis', 'dist']
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -172,7 +163,7 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     splits = stratified_split(
         ds,
         {'train': 0.4, 'norm_cal': 0.2, 'thresh_cal': 0.2, 'test': 0.2},
-        survival_only=('train', 'norm_cal', 'thresh_cal'),
+        no_fail={'train', 'norm_cal', 'thresh_cal'},
         seed=seed,
     )
     splits = normalize_channels(splits, fit_on='train')
@@ -286,24 +277,34 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Deployment evaluation with max-conformal calibration"
-    )
-    add_common_args(parser)
-    parser.add_argument("--alpha", type=float, default=0.1,
-                        help="Target FPR level (default: 0.1)")
-    parser.add_argument("--stride", type=int, default=5,
-                        help="Scoring stride (default: 5)")
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    env: list[str] = ALL_ENVS,
+    methods: list[str] = DEFAULT_METHODS,
+    seed: int = 42,
+    verbose: bool = False,
+    alpha: float = 0.1,
+    stride: int = 5,
+):
+    """Deployment evaluation with max-conformal calibration.
 
-    envs = parse_envs(args)
-    method_keys = parse_methods(args)
+    For each detector method, fits on training data, computes per-timestep
+    score normalization from norm-cal, sets a max-conformal threshold from
+    thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
 
-    for env in envs:
-        run_env(env, method_keys, args.seed, args.alpha, args.stride)
+    Args:
+        env: Environment(s) to run (default: all).
+        methods: Detector method(s) to run.
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        alpha: Target FPR level (default: 0.1).
+        stride: Scoring stride (default: 5).
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
+    for env_name in env:
+        run_env(env_name, methods, seed, alpha, stride)
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

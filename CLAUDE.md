@@ -9,6 +9,10 @@ Anomaly detection for robot trajectories using the Christoffel-Darboux polynomia
 - Tests: `pixi run pytest tests/`
 - Lint: `pixi run ruff check src`
 
+## Script convention
+
+Scripts define a `main()` whose typed signature is the CLI (parsed via `tyro.cli(main)`, not `argparse`), with the experiment and args documented in `main`'s docstring instead of a module-level one.
+
 ## Output convention
 
 Every script in `scripts/` writes its artifacts under `outputs/<script-stem>/`.

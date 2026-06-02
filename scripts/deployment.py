@@ -1,21 +1,11 @@
 #!/usr/bin/env python3
-"""Deployment evaluation built on `src/eval`.
-
-For each (env, method) pair: run the full fit → znorm → max-conformal →
-score pipeline via `eval.run_experiment`, save the resulting bundle to
-`outputs/deployment/{env}/{method}.npz`, and print a per-env summary.
-
-Usage:
-    python -m scripts.deployment --W 100 --H 80 --env hopper
-    python -m scripts.deployment --W 100 --H 80 --methods fft conv_ae
-    python -m scripts.deployment --W 100 --H 80 --no-train-on-survival-only
-"""
-
-import argparse
 import gc
+import logging
 import warnings
+from typing import Literal
 
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -26,8 +16,8 @@ from detectors.cd_poly import CDPolyDetector
 from detectors.conv_ae import ConvAEDetector
 from detectors.gaussian import GaussianDetector
 from detectors.knn import KNNDetector
+from envs.info import ENV_INFO
 from eval import run_experiment
-from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_output_dir
 
 # ── Method registry ─────────────────────────────────────────────────────────
@@ -55,6 +45,11 @@ METHODS = {
 
 ALL_METHODS = list(METHODS.keys())
 DEFAULT_METHODS = ['fft', 'sig', 'rbf', 'conv_ae']
+
+EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+Method = Literal['fft', 'sig', 'scatter', 'minirocket', 'rbf', 'conv_ae',
+                 'gaussian', 'cd_poly_d2', 'cd_poly_d3', 'cd_poly_d4', 'knn']
+ALL_ENVS: list[EnvName] = list(ENV_INFO.keys())
 
 
 # ── Saving ───────────────────────────────────────────────────────────────────
@@ -134,38 +129,43 @@ def run_env(env, methods, W, H, stride, alpha, seed, survival_only, dataset):
     return rows
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Deployment evaluation via src/eval.run_experiment",
-    )
-    add_env_arg(parser)
-    parser.add_argument('--methods', nargs='+', default=DEFAULT_METHODS,
-                        choices=ALL_METHODS,
-                        help=f"Detector method(s) (default: {DEFAULT_METHODS}). "
-                             f"Available: {ALL_METHODS}")
-    parser.add_argument('--W', type=int, required=True,
-                        help="Window length (seq_len for SequenceDetectors).")
-    parser.add_argument('--H', type=float, required=True,
-                        help="Failure-horizon margin. Use 'inf' for no margin.")
-    parser.add_argument('--stride', type=int, default=5, help="Scoring stride.")
-    parser.add_argument('--alpha', type=float, default=0.1, help="Target FPR.")
-    add_seed_arg(parser, default=0)
-    parser.add_argument('--train-on-survival-only',
-                        dest='survival_only',
-                        action=argparse.BooleanOptionalAction, default=True,
-                        help="Restrict the train split to surviving trajectories (default: True).")
-    parser.add_argument('--dataset', default='fail_pred',
-                        help="Dataset variant to load (default: fail_pred). "
-                             "Must match a per-env name in DATASETS, e.g. 'base'.")
-    add_verbose_arg(parser)
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    W: int,
+    H: float,
+    env: list[EnvName] = ALL_ENVS,
+    methods: list[Method] = DEFAULT_METHODS,
+    stride: int = 5,
+    alpha: float = 0.1,
+    seed: int = 0,
+    survival_only: bool = True,
+    dataset: str = 'fail_pred',
+    verbose: bool = False,
+):
+    """Deployment evaluation via src/eval.run_experiment.
 
-    envs = parse_envs(args)
-    for env in envs:
-        run_env(env, args.methods, args.W, args.H, args.stride, args.alpha,
-                args.seed, args.survival_only, args.dataset)
+    For each (env, method) pair, run the full fit -> znorm -> max-conformal ->
+    score pipeline via eval.run_experiment, save the resulting bundle to
+    outputs/deployment/{env}/{method}.npz, and print a per-env summary.
+
+    Args:
+        W: Window length (seq_len for SequenceDetectors).
+        H: Failure-horizon margin. Use 'inf' for no margin.
+        env: Environment(s) to run (default: all).
+        methods: Detector method(s) to run.
+        stride: Scoring stride.
+        alpha: Target FPR.
+        seed: Random seed.
+        survival_only: Restrict the train split to surviving trajectories (default: True).
+        dataset: Dataset variant to load (default: fail_pred). Must match a per-env name in DATASETS, e.g. 'base'.
+        verbose: Enable info-level logging.
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
+    for e in env:
+        run_env(e, methods, W, H, stride, alpha,
+                seed, survival_only, dataset)
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

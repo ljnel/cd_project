@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-CD sublevel-set projection demo (2D, Gaussian mixture).
-- Fits a Christoffel–Darboux polynomial from samples
-- Given a target point z0, computes the nearest point in { CD(z) <= tau }
-  using sequential half-space projections (linearized constraint).
-- Plots data, CD boundary, and solver iterates.
-
-No external project dependencies required.
-"""
-
-import argparse
 import numpy as np
 import matplotlib.pyplot as plt
+import tyro
 from itertools import product
 from scipy.linalg import solve_triangular
 
@@ -210,19 +200,35 @@ def sample_gmm_2d(n: int, means, covs, weights=None, rng=None):
 
 # =============== Main: glue it together and plot ===============
 
-def main():
-    parser = argparse.ArgumentParser(description="Nearest point in CD sublevel set via half-space SCP")
-    parser.add_argument("--degree", type=int, default=6, help="Monomial degree for CD")
-    parser.add_argument("--n", type=int, default=3000, help="Number of GMM samples")
-    parser.add_argument("--tau-mult", type=float, default=3.0, help="τ = tau_mult * mean(CD(data))")
-    parser.add_argument("--z0", type=float, nargs=2, default=[3.0, 1.0], help="Target point x y")
-    parser.add_argument("--rho", type=float, default=0.25, help="Trust-region radius per SCP iteration")
-    parser.add_argument("--max-iters", type=int, default=20, help="Max SCP iterations")
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--verbose", action="store_true", help="Print iteration log")
-    args = parser.parse_args()
+def main(
+    degree: int = 6,
+    n: int = 3000,
+    tau_mult: float = 3.0,
+    z0: tuple[float, float] = (3.0, 1.0),
+    rho: float = 0.25,
+    max_iters: int = 20,
+    seed: int = 0,
+    verbose: bool = False,
+):
+    """Nearest point in CD sublevel set via half-space SCP.
 
-    rng = np.random.default_rng(args.seed)
+    CD sublevel-set projection demo (2D, Gaussian mixture). Fits a
+    Christoffel-Darboux polynomial from samples; given a target point z0,
+    computes the nearest point in { CD(z) <= tau } using sequential half-space
+    projections (linearized constraint). Plots data, CD boundary, and solver
+    iterates.
+
+    Args:
+        degree: Monomial degree for CD.
+        n: Number of GMM samples.
+        tau_mult: tau = tau_mult * mean(CD(data)).
+        z0: Target point x y.
+        rho: Trust-region radius per SCP iteration.
+        max_iters: Max SCP iterations.
+        seed: Random seed.
+        verbose: Print iteration log.
+    """
+    rng = np.random.default_rng(seed)
 
     # Define a nontrivial 2D GMM
     means = [
@@ -237,18 +243,18 @@ def main():
     ]
     weights = [0.35, 0.45, 0.20]
 
-    X = sample_gmm_2d(args.n, means, covs, weights, rng=rng)
+    X = sample_gmm_2d(n, means, covs, weights, rng=rng)
 
     # Fit CD polynomial
-    cd = CDPolynomial2D(X, degree=args.degree, eps=1e-10, verbose=True)
-    tau = float(args.tau_mult * cd.mean)
+    cd = CDPolynomial2D(X, degree=degree, eps=1e-10, verbose=True)
+    tau = float(tau_mult * cd.mean)
 
     # Solve projection
-    z0 = np.array(args.z0, dtype=float)
+    z0 = np.array(z0, dtype=float)
     z_star, iters = nearest_in_cd_sublevel(cd, z0, tau,
-                                           max_iters=args.max_iters,
-                                           rho=args.rho,
-                                           verbose=args.verbose)
+                                           max_iters=max_iters,
+                                           rho=rho,
+                                           verbose=verbose)
 
     # ============================== Plotting ==============================
     fig, ax = plt.subplots(figsize=(7.2, 6.4))
@@ -274,7 +280,7 @@ def main():
     ax.scatter([z0[0]],[z0[1]], c='tab:red', s=60, zorder=5, label="Target $z_0$")
     ax.scatter([z_star[0]],[z_star[1]], c='tab:green', s=60, zorder=6, label=r"Projection $z^\star$")
 
-    ax.set_title(f"Nearest point in CD sublevel set (deg={args.degree}, τ={tau:.3g})")
+    ax.set_title(f"Nearest point in CD sublevel set (deg={degree}, τ={tau:.3g})")
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("$x$"); ax.set_ylabel("$y$")
     ax.legend(loc="best")
@@ -283,5 +289,5 @@ def main():
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

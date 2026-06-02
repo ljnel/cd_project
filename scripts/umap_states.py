@@ -1,31 +1,11 @@
 #!/usr/bin/env python3
-"""2-D embeddings of fail_pred states from *failing* trajectories.
-
-For each env, load `fail_pred`, keep only unsafe episodes (`fail < T`),
-flatten their real states (drop the NaN-padded post-failure tail),
-subsample, embed to 2-D and scatter-plot. Points are colored by lead time
-to failure `lead = fail - t`: lead = 0 is the failure observation itself
-(`X[i, fail[i]]`), lead = 1 is the last pre-failure step, etc.
-
-One PDF is produced per embedding method:
-    outputs/umap_states/umap.pdf
-    outputs/umap_states/tsne.pdf
-    outputs/umap_states/pacmap.pdf
-    outputs/umap_states/phate.pdf
-
-Usage:
-    pixi run python -m scripts.umap_states
-        [--envs ant half_cheetah hopper humanoid inv_pend upkie]
-        [--methods umap tsne pacmap phate]
-        [--size 10000] [--seed 42]
-"""
-
-import argparse
 import logging
 import warnings
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -42,8 +22,10 @@ from utils.plotting import FULL_WIDTH, setup_style
 
 logger = logging.getLogger("cd.scripts.umap_states")
 
-ALL_ENVS = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
-ALL_METHODS = ['umap', 'tsne', 'pacmap', 'phate']
+EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+Method = Literal['umap', 'tsne', 'pacmap', 'phate']
+ALL_ENVS: list[EnvName] = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+ALL_METHODS: list[Method] = ['umap', 'tsne', 'pacmap', 'phate']
 
 
 def flatten_failed_states(ds):
@@ -130,42 +112,59 @@ def plot(method, rows, out_path, lead_vmax):
     logger.info(f"Saved {out_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--envs', nargs='+', default=ALL_ENVS, choices=ALL_ENVS)
-    parser.add_argument('--methods', nargs='+', default=ALL_METHODS, choices=ALL_METHODS)
-    parser.add_argument('--size', type=int, default=10_000,
-                        help='Max #states subsampled per env before embedding.')
-    parser.add_argument('--lead_vmax', type=float, default=50,
-                        help='Lead value mapped to the dark end of the cmap.')
-    parser.add_argument('--seed', type=int, default=42)
-    args = parser.parse_args()
+def main(
+    envs: list[EnvName] = ALL_ENVS,
+    methods: list[Method] = ALL_METHODS,
+    size: int = 10_000,
+    lead_vmax: float = 50,
+    seed: int = 42,
+):
+    """2-D embeddings of fail_pred states from *failing* trajectories.
 
+    For each env, load `fail_pred`, keep only unsafe episodes (`fail < T`),
+    flatten their real states (drop the NaN-padded post-failure tail),
+    subsample, embed to 2-D and scatter-plot. Points are colored by lead time
+    to failure `lead = fail - t`: lead = 0 is the failure observation itself
+    (`X[i, fail[i]]`), lead = 1 is the last pre-failure step, etc.
+
+    One PDF is produced per embedding method:
+        outputs/umap_states/umap.pdf
+        outputs/umap_states/tsne.pdf
+        outputs/umap_states/pacmap.pdf
+        outputs/umap_states/phate.pdf
+
+    Args:
+        envs: Environments to embed.
+        methods: Embedding methods to run.
+        size: Max #states subsampled per env before embedding.
+        lead_vmax: Lead value mapped to the dark end of the cmap.
+        seed: RNG seed.
+    """
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     setup_style()
 
-    rng = np.random.default_rng(args.seed)
+    rng = np.random.default_rng(seed)
     per_env = {}
-    for env in args.envs:
+    for env in envs:
         ds = load(env, name='fail_pred', obs_only=True)
         X, lead = flatten_failed_states(ds)
         if len(X) == 0:
             logger.warning(f"{env}: no failing episodes, skipping")
             continue
-        X, lead = subsample(X, lead, args.size, rng)
+        X, lead = subsample(X, lead, size, rng)
         logger.info(f"{env}: {len(X)} unsafe-episode states (D={X.shape[1]})")
         per_env[env] = (X, lead)
 
     out_dir = get_output_dir()
-    for method in args.methods:
+    for method in methods:
         rows = []
         for env in per_env:
             X, lead = per_env[env]
             logger.info(f"  [{method}] embedding {env}")
-            Z = embed(method, X, args.seed)
+            Z = embed(method, X, seed)
             rows.append((env, Z, lead))
-        plot(method, rows, out_dir / f'{method}.pdf', args.lead_vmax)
+        plot(method, rows, out_dir / f'{method}.pdf', lead_vmax)
 
 
 if __name__ == '__main__':
-    main()
+    tyro.cli(main)
