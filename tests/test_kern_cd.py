@@ -4,8 +4,14 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from algs.kern_cd import KernCD
+from algs.kern_cd import KernCD, rp_cholesky
 from algs.kernels import RBF, GaussFFT
+
+# Pivot rules. rp/greedy never re-select a pivot (its residual is driven to 0),
+# so they reach full rank and reproduce the exact score; uniform samples with
+# replacement, so it can repeat pivots and truncate early.
+ALL_PIVOTS = ["rp", "greedy", "uniform"]
+EXACT_PIVOTS = ["rp", "greedy"]
 
 # =============================================================================
 # Custom Kernels for Testing (support Kernel interface)
@@ -473,12 +479,12 @@ class TestUpdateVsRefit:
 
 
 # =============================================================================
-# Update/Downdate Functionality
+# Update Functionality
 # =============================================================================
 
 
-class TestUpdateDowndate:
-    """Test online update and downdate functionality."""
+class TestUpdate:
+    """Test online update functionality."""
 
     def test_update_increases_data_size(self, X_train, rng):
         """update() should add one point to data."""
@@ -557,92 +563,6 @@ class TestUpdateDowndate:
             atol=1e-10,
             err_msg="Batch update differs from sequential updates",
         )
-
-    def test_downdate_decreases_data_size(self, X_train):
-        """downdate() should remove one point from data."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        initial_size = len(model.data)
-
-        model.downdate(0)
-
-        assert len(model.data) == initial_size - 1
-
-    def test_downdate_matrices_shrink(self, X_train):
-        """downdate() should shrink K and L matrices."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        m = len(X_train)
-
-        model.downdate(0)
-
-        assert model.K.shape == (m - 1, m - 1)
-        assert model.L.shape == (m - 1, m - 1)
-
-    def test_downdate_cholesky_validity(self, sample_data_2d, kernel):
-        """Verify Cholesky is valid after downdate."""
-        X, _, _ = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-        model.downdate(5)  # Remove middle point
-
-        K_reconstructed = model.L @ model.L.T
-        assert_allclose(
-            K_reconstructed,
-            model.K,
-            rtol=1e-10,
-            atol=1e-10,
-            err_msg="Cholesky invalid after downdate",
-        )
-
-    def test_downdate_then_update_roundtrip(self, sample_data_2d, kernel):
-        """Test removing then re-adding a point."""
-        X, _, X_test = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-        pred_original = model.score(X_test)
-
-        # Remove last point
-        x_removed = model.data[-1:].copy()
-        model.downdate(len(model.data) - 1)
-
-        # Re-add with exact update to match original regularization
-        model.update(x_removed, exact=True)
-        pred_roundtrip = model.score(X_test)
-
-        # Should be close (not exact due to regularization changes)
-        assert_allclose(
-            pred_original,
-            pred_roundtrip,
-            rtol=0.2,
-            atol=0.2,
-            err_msg="Roundtrip update/downdate diverged significantly",
-        )
-
-    def test_downdate_invalid_index_raises(self, X_train):
-        """downdate() with invalid index should raise IndexError."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-
-        with pytest.raises(IndexError):
-            model.downdate(len(X_train))  # out of bounds
-
-    def test_downdate_negative_index_raises(self, sample_data_2d, kernel):
-        """downdate() with negative index should raise IndexError."""
-        X, _, _ = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-
-        with pytest.raises(IndexError):
-            model.downdate(-1)
-
-    def test_downdate_single_point_raises(self, rng):
-        """downdate() on single-point model should raise ValueError."""
-        X = rng.standard_normal((1, 5))
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-
-        with pytest.raises(ValueError, match="only one data point"):
-            model.downdate(0)
 
 
 # =============================================================================
@@ -1001,6 +921,240 @@ class TestSklearnCompatibility:
 
         # Lambda should be different for different data
         assert lam1 != lam2
+
+
+# =============================================================================
+# Low-Rank Approximation: rp_cholesky factorization
+# =============================================================================
+
+
+class TestRPCholesky:
+    """Tests for the standalone partial pivoted Cholesky factorization."""
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_shapes_and_pivot_indices(self, X_train, pivot):
+        """F is (m, r'), pivots index into X, and r' <= requested rank."""
+        F, pivots = rp_cholesky(
+            RBF(gamma=1.0), X_train, rank=10, pivot=pivot, rng=np.random.default_rng(0)
+        )
+        assert F.shape[0] == len(X_train)
+        assert F.shape[1] == len(pivots)
+        assert F.shape[1] <= 10
+        assert np.all((pivots >= 0) & (pivots < len(X_train)))
+
+    def test_full_rank_recovers_kernel_matrix(self, X_train):
+        """At full rank, F @ F.T reconstructs K (greedy/rp reach full rank)."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        for pivot in EXACT_PIVOTS:
+            F, _ = rp_cholesky(
+                kernel, X_train, rank=len(X_train), pivot=pivot,
+                rng=np.random.default_rng(0),
+            )
+            assert_allclose(
+                F @ F.T, K, atol=1e-6,
+                err_msg=f"F @ F.T != K at full rank for pivot={pivot}",
+            )
+
+    def test_pivot_rows_are_cholesky_of_pivot_gram(self, X_train):
+        """F[pivots] is lower-triangular and equals chol(K[pivots][:, pivots])."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        F, pivots = rp_cholesky(
+            kernel, X_train, rank=15, pivot="greedy", rng=np.random.default_rng(0)
+        )
+        Lpiv = F[pivots]
+        assert_allclose(Lpiv, np.tril(Lpiv), atol=1e-10)
+        assert_allclose(Lpiv @ Lpiv.T, K[np.ix_(pivots, pivots)], atol=1e-8)
+
+    def test_greedy_residual_monotone_nonincreasing(self, X_train):
+        """Greedy is deterministic; residual trace decreases with rank to ~0."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        trace_K = np.trace(K)
+        prev = trace_K + 1.0
+        for r in [1, 3, 5, 10, 20, len(X_train)]:
+            F, _ = rp_cholesky(kernel, X_train, rank=r, pivot="greedy")
+            residual = trace_K - np.trace(F @ F.T)
+            assert residual >= -1e-9, f"negative residual {residual} at rank {r}"
+            assert residual <= prev + 1e-9, f"residual increased at rank {r}"
+            prev = residual
+        assert prev < 1e-6, f"residual not driven to ~0 at full rank: {prev}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_reproducible_with_seed(self, X_train, pivot):
+        """Same seed -> identical pivots and factor."""
+        F1, p1 = rp_cholesky(
+            RBF(gamma=1.0), X_train, 10, pivot=pivot, rng=np.random.default_rng(7)
+        )
+        F2, p2 = rp_cholesky(
+            RBF(gamma=1.0), X_train, 10, pivot=pivot, rng=np.random.default_rng(7)
+        )
+        assert np.array_equal(p1, p2)
+        assert_allclose(F1, F2)
+
+    def test_invalid_pivot_raises(self, X_train):
+        with pytest.raises(ValueError, match="Unknown pivot rule"):
+            rp_cholesky(RBF(gamma=1.0), X_train, 10, pivot="bogus")
+
+    def test_rank_deficient_kernel_truncates(self, rng):
+        """A genuinely low-rank kernel (linear, K = X Xᵀ, rank <= d) truncates
+        early but still reproduces K exactly."""
+        X = rng.standard_normal((30, 4))
+        kernel = LinearKernel(c=0.0)
+        F, pivots = rp_cholesky(kernel, X, rank=20, pivot="greedy")
+        assert len(pivots) <= 5  # numerical rank ~ d=4
+        assert_allclose(F @ F.T, kernel(X), atol=1e-6)
+
+    def test_rng_none_runs(self, X_train):
+        """rng=None uses a fresh default generator (no shared-state default-arg)."""
+        F, pivots = rp_cholesky(RBF(gamma=1.0), X_train, rank=10)
+        assert np.all(np.isfinite(F))
+        assert len(pivots) <= 10
+
+
+# =============================================================================
+# Low-Rank Approximation: KernCD low-rank path
+# =============================================================================
+
+
+class TestLowRankKernCD:
+    """Tests for KernCD's pivoted-Cholesky low-rank scoring path."""
+
+    @pytest.mark.parametrize("pivot", EXACT_PIVOTS)
+    def test_full_rank_matches_exact(self, X_train, X_test, pivot):
+        """Low-rank score at full rank reproduces the exact KernCD score.
+
+        Covers RBF (full-rank K) and polynomial/linear (genuinely low-rank K,
+        reproduced exactly at numerical rank < m)."""
+        kernels = [RBF(gamma=1.0), RBF(gamma=0.5), PolynomialKernel(degree=2, c=1.0)]
+        for kern in kernels:
+            exact = KernCD(kern, reg=0.01).fit(X_train)
+            approx = KernCD(
+                kern, reg=0.01, rank=len(X_train), pivot=pivot,
+                rng=np.random.default_rng(0),
+            ).fit(X_train)
+            assert_allclose(
+                approx.score(X_test), exact.score(X_test),
+                rtol=1e-5, atol=1e-6,
+                err_msg=f"{kern.__class__.__name__}/{pivot} != exact at full rank",
+            )
+
+    def test_low_rank_kernel_exact_below_m(self, rng):
+        """For a rank-deficient kernel, even rank < m reproduces the exact score
+        (the approximation is exact at the numerical rank)."""
+        X = rng.standard_normal((40, 5))
+        X_test = rng.standard_normal((10, 5))
+        kernel = LinearKernel(c=0.0)
+        exact = KernCD(kernel, reg=0.01).fit(X)
+        approx = KernCD(kernel, reg=0.01, rank=40, pivot="greedy").fit(X)
+        assert approx.pivots_.shape[0] <= 6  # truncated to ~d=5
+        assert_allclose(approx.score(X_test), exact.score(X_test), rtol=1e-6, atol=1e-8)
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_score_shape_and_finite(self, X_train, X_test, pivot):
+        model = KernCD(
+            RBF(gamma=1.0), reg=0.01, rank=15, pivot=pivot, rng=np.random.default_rng(1)
+        ).fit(X_train)
+        scores = model.score(X_test)
+        assert scores.shape == (len(X_test),)
+        assert np.all(np.isfinite(scores))
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_score_nonnegative(self, X_train, X_test, pivot):
+        model = KernCD(
+            RBF(gamma=1.0), reg=0.01, rank=20, pivot=pivot, rng=np.random.default_rng(2)
+        ).fit(X_train)
+        scores = model.score(X_test)
+        assert np.all(scores >= -1e-8)
+
+    @pytest.mark.parametrize("pivot,min_corr", [("rp", 0.9), ("greedy", 0.85)])
+    def test_moderate_rank_approximates_exact(self, pivot, min_corr, rng):
+        """At half rank, rp/greedy correlate strongly with the exact score on a
+        mix of inliers and outliers."""
+        X = rng.standard_normal((80, 5))
+        X_eval = np.vstack(
+            [rng.standard_normal((30, 5)), rng.standard_normal((30, 5)) + 6.0]
+        )
+        exact = KernCD(RBF(gamma="median"), reg=0.01).fit(X)
+        approx = KernCD(
+            RBF(gamma="median"), reg=0.01, rank=40, pivot=pivot,
+            rng=np.random.default_rng(3),
+        ).fit(X)
+        corr = np.corrcoef(exact.score(X_eval), approx.score(X_eval))[0, 1]
+        assert corr > min_corr, f"{pivot}: corr={corr:.4f} below {min_corr}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_higher_rank_improves_approximation(self, pivot, rng):
+        """Relative error to the exact score shrinks as rank grows."""
+        X = rng.standard_normal((80, 5))
+        X_eval = rng.standard_normal((25, 5))
+        exact_scores = KernCD(RBF(gamma=1.0), reg=0.01).fit(X).score(X_eval)
+        denom = np.mean(np.abs(exact_scores))
+
+        def rel_err(rank):
+            s = KernCD(
+                RBF(gamma=1.0), reg=0.01, rank=rank, pivot=pivot,
+                rng=np.random.default_rng(4),
+            ).fit(X).score(X_eval)
+            return np.mean(np.abs(s - exact_scores)) / denom
+
+        err_low, err_high = rel_err(5), rel_err(60)
+        assert err_high < err_low, f"{pivot}: err(60)={err_high} !< err(5)={err_low}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_anomaly_detection(self, pivot, rng):
+        """Low-rank scores still separate outliers from inliers."""
+        X_train = rng.standard_normal((100, 5))
+        X_in = rng.standard_normal((50, 5))
+        X_out = rng.standard_normal((50, 5)) + 5.0
+        model = KernCD(
+            RBF(gamma="median"), reg=0.01, rank=50, pivot=pivot,
+            rng=np.random.default_rng(5),
+        ).fit(X_train)
+        assert np.mean(model.score(X_out)) > np.mean(model.score(X_in))
+
+    def test_attributes_set_after_fit(self, X_train):
+        model = KernCD(
+            RBF(gamma=1.0), reg=0.01, rank=12, pivot="rp", rng=np.random.default_rng(0)
+        ).fit(X_train)
+        assert hasattr(model, "pivots_") and hasattr(model, "Lpiv_")
+        assert hasattr(model, "R_") and hasattr(model, "sigma2_")
+        assert model.pivots_.shape[0] <= 12
+        assert not hasattr(model, "L")  # exact-only attribute must not leak in
+        assert np.isclose(model.lam_, 0.01 / len(X_train))
+        assert np.isclose(model.sigma2_, 0.01)
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_estimator_reproducible_with_seed(self, X_train, X_test, pivot):
+        def run():
+            return KernCD(
+                RBF(gamma=1.0), reg=0.01, rank=15, pivot=pivot,
+                rng=np.random.default_rng(9),
+            ).fit(X_train).score(X_test)
+
+        assert_allclose(run(), run())
+
+    def test_string_reg_with_rank_raises(self, X_train):
+        for reg in ["adaptive", "condition"]:
+            with pytest.raises(ValueError, match="full kernel matrix"):
+                KernCD(RBF(gamma=1.0), reg=reg, rank=10).fit(X_train)
+
+    def test_invalid_pivot_via_estimator_raises(self, X_train):
+        with pytest.raises(ValueError, match="Unknown pivot rule"):
+            KernCD(RBF(gamma=1.0), reg=0.01, rank=10, pivot="nope").fit(X_train)
+
+    def test_update_raises_in_low_rank_mode(self, X_train, rng):
+        model = KernCD(RBF(gamma=1.0), reg=0.01, rank=10).fit(X_train)
+        x_new = rng.standard_normal((1, X_train.shape[1]))
+        with pytest.raises(NotImplementedError, match="exact path"):
+            model.update(x_new)
+        with pytest.raises(NotImplementedError, match="exact path"):
+            model.batch_update(rng.standard_normal((3, X_train.shape[1])))
+
+    def test_rng_none_runs(self, X_train, X_test):
+        model = KernCD(RBF(gamma=1.0), reg=0.01, rank=10, pivot="rp").fit(X_train)
+        assert np.all(np.isfinite(model.score(X_test)))
 
 
 if __name__ == "__main__":

@@ -14,19 +14,36 @@ class KernCD(BaseEstimator):
     """
     Kernelized Christoffel-Darboux polynomial for outlier detection.
 
+    The score is the regularized CD functional
+    ``(k(x,x) − kₓᵀ(K+λm·I)⁻¹kₓ)/λ`` — equivalently a GP posterior variance with
+    σ²=λm, divided by λ. By default it is computed exactly (O(m³) fit). If ``rank``
+    is set, K is replaced by a rank-``r`` partial pivoted Cholesky approximation
+    (O(m r²) fit, O(m r) score) that reproduces the exact score as ``r → m``.
+    Uniform pivoting recovers the classical Nyström method; the ``rp`` (randomly
+    pivoted) and ``greedy`` rules pivot adaptively on the residual diagonal and are
+    strictly more general.
+
     Parameters
     ----------
     kernel : Kernel
         The kernel to use for similarity computation.
-    reg : float or {"adaptive", "condition"}, default="adaptive"
+    reg : float or {"adaptive", "condition"}, default=1e-5
         Regularization strategy.
-        - If "adaptive" (default), automatically selects λ by trying increasing
-          values until the regularized kernel matrix is well-conditioned.
-        - If "condition", analytically computes λ to achieve a target
-          condition number (κ=1e6).
-        - If a float, uses scale-invariant regularization where λ = reg/m,
-          so the total regularization λm = reg stays constant regardless of
-          sample size.
+        - If a float, scale-invariant regularization where λ = reg/m, so the total
+          regularization λm = reg stays constant regardless of sample size.
+        - If "adaptive", selects λ by trying increasing values until the
+          regularized kernel matrix is well-conditioned.
+        - If "condition", analytically computes λ to achieve a target condition
+          number.
+        The string strategies need the full kernel matrix, so they are only valid
+        for the exact path (``rank=None``).
+    rank : int, optional
+        If set, use a rank-``rank`` partial pivoted Cholesky approximation of K
+        instead of the exact factorization. ``None`` (default) uses the exact path.
+    pivot : {"rp", "greedy", "uniform"}, default="rp"
+        Pivot-selection rule for the low-rank path (ignored when ``rank is None``).
+    rng : np.random.Generator, optional
+        Source of randomness for pivot selection (low-rank path only).
 
     Attributes
     ----------
@@ -38,13 +55,32 @@ class KernCD(BaseEstimator):
         self,
         kernel: Kernel,
         reg: float | Literal["adaptive", "condition"] = 1e-5,
+        rank: int | None = None,
+        pivot: Literal["rp", "greedy", "uniform"] = "rp",
+        rng: np.random.Generator | None = None,
     ):
         self.kernel = kernel
         self.reg = reg
+        self.rank = rank
+        self.pivot: Literal["rp", "greedy", "uniform"] = pivot
+        self.rng = rng
 
     def fit(self, X):
-        m = len(X)
         self.kernel.fit(X)  # allow kernel to learn hyperparameters
+        if self.rank is None:
+            self._fit_exact(X)
+        else:
+            if isinstance(self.reg, str):
+                raise ValueError(
+                    f"reg={self.reg!r} needs the full kernel matrix; the low-rank "
+                    "path (rank set) supports only a float reg."
+                )
+            self._fit_pivoted(X)
+        return self
+
+    def _fit_exact(self, X):
+        """Exact O(m³) path: regularize K and Cholesky-factor it."""
+        m = len(X)
         K = self.kernel(X)  # unregularized kernel matrix
 
         # Determine lambda based on regularization strategy
@@ -68,7 +104,27 @@ class KernCD(BaseEstimator):
         reg_str = self.reg if isinstance(self.reg, str) else f"fixed={self.reg}"
         logger.info(f"λ={self.lam_:.2e} ({reg_str}), cond={cond:.2e}, m={m}")
 
-        return self
+    def _fit_pivoted(self, X):
+        """Low-rank path: rank-r partial pivoted Cholesky approximation of K."""
+        assert self.rank is not None  # only reached when rank is set
+        assert not isinstance(self.reg, str)  # guarded in fit(); narrows reg to float
+        m = len(X)
+        F, pivots = rp_cholesky(self.kernel, X, self.rank, pivot=self.pivot, rng=self.rng)
+
+        # Scale-invariant reg, matching the exact path: λ = reg/m, so σ² = λm = reg.
+        self.lam_ = self.reg / m
+        self.sigma2_ = self.lam_ * m
+
+        r = F.shape[1]
+        self.pivots_ = X[pivots]  # landmark points
+        self.Lpiv_ = F[pivots]  # Cholesky factor of the pivot Gram K[pivots][:, pivots]
+        M = F.T @ F + self.sigma2_ * np.eye(r)  # Φᵀ Φ + σ² I
+        self.R_ = np.linalg.cholesky(M)
+
+        logger.info(
+            f"λ={self.lam_:.2e} (fixed={self.reg}), rank={r}/{self.rank}, "
+            f"pivot={self.pivot}, m={m}"
+        )
 
     def score(self, X):
         """Anomaly score per sample (higher ⇒ more anomalous).
@@ -78,10 +134,23 @@ class KernCD(BaseEstimator):
         `detectors.with_seq_len`, and for a vector kernel on windows with
         `detectors.as_sequence`.
         """
+        if self.rank is None:
+            return self._score_exact(X)
+        return self._score_pivoted(X)
+
+    def _score_exact(self, X):
         kxx = self.kernel.diag(X)  # (b,)
         kx = self.kernel(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)
-        return (kxx - np.einsum('bi,bi->b', y, y)) / self.lam_
+        return (kxx - np.einsum("bi,bi->b", y, y)) / self.lam_
+
+    def _score_pivoted(self, X):
+        kxS = self.kernel(X, self.pivots_)  # (b, r), k(x*, landmarks)
+        phi = solve_triangular(self.Lpiv_, kxS.T, lower=True)  # (r, b), Nyström features
+        v = solve_triangular(self.R_, phi, lower=True)  # (r, b)
+        var = self.sigma2_ * np.einsum("ib,ib->b", v, v)
+        var += self.kernel.diag(X) - np.einsum("ib,ib->b", phi, phi)  # diagonal correction
+        return var / self.lam_
     
     def update(self, x_new, exact=False):
         """
@@ -118,6 +187,10 @@ class KernCD(BaseEstimator):
             If the update would result in a non-positive definite matrix.
 
         """
+        if self.rank is not None:
+            raise NotImplementedError(
+                "update() is only available for the exact path (rank=None)."
+            )
         x_new = np.atleast_2d(x_new)
         if x_new.shape[0] != 1:
             raise ValueError(
@@ -217,74 +290,90 @@ class KernCD(BaseEstimator):
             self.update(x.reshape(1, -1), exact=exact)
         return self
 
-    def downdate(self, idx):
-        """
-        Remove a data point by index (rank-one downdate).
-        
-        This uses Cholesky downdating to efficiently remove a point.
-        Note: Downdating can be numerically unstable for ill-conditioned
-        matrices.
-        
-        Parameters
-        ----------
-        idx : int
-            Index of the data point to remove (0-indexed).
-            
-        Returns
-        -------
-        self : KernCD
-            The updated estimator.
-            
-        Raises
-        ------
-        ValueError
-            If the downdate would result in numerical instability.
-        """
-        m = len(self.data)
-        if idx < 0 or idx >= m:
-            raise IndexError(f"Index {idx} out of bounds for {m} data points.")
-        
-        if m <= 1:
-            raise ValueError("Cannot downdate: only one data point remaining.")
-        
-        # For downdating, we need to remove row/column idx from K and update L
-        # This is done by permuting the point to the end, then using the
-        # inverse of the border extension formula
-        
-        # Create permutation to move idx to the end
-        perm = list(range(m))
-        perm.remove(idx)
-        perm.append(idx)
-        
-        # Permute K and L
-        P = np.eye(m)[perm]  # permutation matrix
-        K_perm = P @ self.K @ P.T
-        
-        # Recompute Cholesky of permuted matrix (needed for stability)
-        np.linalg.cholesky(K_perm)
-        
-        # Now the point to remove is at position m-1
-        # Extract the reduced (m-1 × m-1) Cholesky factor
-        # L_perm = [L_reduced    0    ]
-        #          [   v.T       s    ]
-        # 
-        # where L_reduced @ L_reduced.T = K_reduced (the kernel without point idx)
-        
-        m_new = m - 1
-        
-        # The reduced kernel matrix is just the top-left (m-1 × m-1) block
-        K_new = K_perm[:m_new, :m_new]
-        
-        # Recompute Cholesky for the reduced matrix (most stable approach)
-        # Note: True Cholesky downdating exists but can be numerically unstable
-        L_new = np.linalg.cholesky(K_new)
-        
-        # Remove the data point
-        self.data = np.delete(self.data, idx, axis=0)
-        self.K = K_new
-        self.L = L_new
 
-        return self
+# =============================================================================
+# Low-rank approximation (partial pivoted Cholesky)
+# =============================================================================
+
+_PIVOT_RULES = ("rp", "greedy", "uniform")
+
+
+def rp_cholesky(
+    kernel: Kernel,
+    X: np.ndarray,
+    rank: int,
+    *,
+    pivot: Literal["rp", "greedy", "uniform"] = "rp",
+    rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Partial pivoted Cholesky factorization of the kernel matrix.
+
+    Builds a low-rank factor ``F`` (shape ``(m, r)``) with ``F @ F.T ≈ K`` by
+    selecting ``r`` pivot columns and Cholesky-completing against them. The pivot
+    rows ``F[pivots]`` are exactly the Cholesky factor of the pivot Gram
+    ``K[pivots][:, pivots]``, so ``F @ F.T`` is the Nyström approximation for that
+    landmark set — the ``pivot`` rule only decides which landmarks are chosen.
+
+    Parameters
+    ----------
+    kernel : Kernel
+        Already-fitted kernel.
+    X : np.ndarray, shape (m, d)
+        Training data.
+    rank : int
+        Target rank ``r``. Truncated early if the residual diagonal is exhausted
+        (numerical rank < r).
+    pivot : {"rp", "greedy", "uniform"}, default="rp"
+        - "rp": randomly pivoted, sampling ``s ∝ residual diagonal`` (RPCholesky).
+        - "greedy": largest residual diagonal entry (classic pivoted Cholesky).
+        - "uniform": uniform random pivot (classical Nyström).
+    rng : np.random.Generator, optional
+        Source of randomness; a fresh default generator is used if omitted.
+
+    Returns
+    -------
+    F : np.ndarray, shape (m, r')
+        Low-rank Cholesky factor, ``r' <= rank``.
+    pivots : np.ndarray, shape (r',)
+        Indices into ``X`` of the chosen pivots, in selection order.
+    """
+    if pivot not in _PIVOT_RULES:
+        raise ValueError(f"Unknown pivot rule '{pivot}'; choose from {_PIVOT_RULES}.")
+    rng = np.random.default_rng() if rng is None else rng
+
+    m = len(X)
+    rank = min(rank, m)  # at most one pivot per point
+    F = np.zeros((m, rank))
+    d = kernel.diag(X).astype(float)  # residual diagonal of K - F @ F.T
+    tol = 1e-10 * d.max()  # residual floor: stop once the numerical rank is reached
+    pivots = np.empty(rank, dtype=int)
+    # Uniform pivots are drawn without replacement (classical Nyström); rp/greedy
+    # never reselect a pivot since its residual is driven to zero.
+    perm = rng.permutation(m) if pivot == "uniform" else None
+
+    for j in range(rank):
+        if pivot == "rp":
+            s = int(rng.choice(m, p=d / d.sum()))
+        elif pivot == "greedy":
+            s = int(np.argmax(d))
+        else:  # "uniform"
+            assert perm is not None
+            s = int(perm[j])
+
+        g = kernel(X, X[s : s + 1]).ravel()  # column k(·, x_s), shape (m,)
+        if j > 0:
+            g = g - F[:, :j] @ F[s, :j]
+
+        if g[s] <= tol:  # residual exhausted: numerical rank reached
+            logger.info(f"rp_cholesky: residual exhausted at rank {j} (requested {rank}).")
+            F, pivots = F[:, :j], pivots[:j]
+            break
+
+        pivots[j] = s
+        F[:, j] = g / np.sqrt(g[s])
+        d = np.maximum(d - F[:, j] ** 2, 0.0)
+
+    return F, pivots
 
 
 # =============================================================================
