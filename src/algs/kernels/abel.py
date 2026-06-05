@@ -1,25 +1,31 @@
 from typing import Literal
 
 import numpy as np
-from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.metrics.pairwise import euclidean_distances
 
 from utils.misc import median_distance
 
 from .base import Kernel
 
 
-class RBF(Kernel):
+class Abel(Kernel):
     """
-    Radial Basis Function (Gaussian) kernel.
+    Abel (exponential) kernel: k(x, y) = exp(-gamma * ||x - y||_2).
+
+    Identical in form to the Laplace kernel but using the Euclidean (L2)
+    distance instead of the L1 distance. Note this is *not* the RBF kernel:
+    the distance enters to the first power (not squared), so like Laplace the
+    kernel is continuous but non-smooth at x = y.
 
     Parameters
     ----------
     gamma : float or {"median", "dimension"}, default="median"
-        Kernel bandwidth parameter.
-        - If "median" (default), computed from training data using the median
-          heuristic: γ = 1/(2·median²) where median is the median pairwise distance.
-        - If "dimension", computed as 1/(2d) where d is the data dimensionality.
-        - If a float, used directly.
+        Kernel bandwidth.
+        - "median": gamma = 1 / (median pairwise L2 distance).
+        - "dimension": gamma = 1 / sqrt(d) (d = feature dim). The sqrt matches
+          the L2 distance scaling (||x - y||_2 ~ sqrt(d)), analogous to
+          Laplace's 1 / d for the L1 distance.
+        - float: used directly.
     """
 
     def __init__(self, gamma: float | Literal["median", "dimension"] = "median"):
@@ -34,33 +40,20 @@ class RBF(Kernel):
             )
         return self._gamma
 
-    def fit(self, X: np.ndarray) -> "RBF":
-        """
-        Learn gamma from training data if using a heuristic.
-
-        Parameters
-        ----------
-        X : np.ndarray of shape (n_samples, n_features)
-            Training data.
-
-        Returns
-        -------
-        self : RBF
-        """
+    def fit(self, X: np.ndarray) -> "Abel":
         if isinstance(self._gamma_param, (int, float)):
             return self
 
         if self._gamma_param == "median":
-            self._gamma = 1.0 / (2.0 * median_distance(X) ** 2)
+            self._gamma = 1.0 / median_distance(X, "euclidean")
         elif self._gamma_param == "dimension":
-            self._gamma = 1.0 / (2.0 * X.shape[1])
+            self._gamma = float(1.0 / np.sqrt(X.shape[1]))
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
-
         return self
 
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
-        return rbf_kernel(x, y, gamma=self.gamma)
+        return np.exp(-self.gamma * euclidean_distances(x, y))
 
     def diag(self, x: np.ndarray) -> np.ndarray:
         return np.ones(x.shape[0])

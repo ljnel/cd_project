@@ -4,7 +4,9 @@
 #   Kernel              - Abstract base for all kernels
 #
 # State / vector kernels (operate on flat state vectors):
-#   RBF                 - Radial basis function (Gaussian)
+#   RBF                 - Radial basis function (Gaussian, squared L2 distance)
+#   Laplace             - Laplacian kernel (L1 distance)
+#   Abel                - Exponential kernel (L2 distance)
 #
 # Signal kernels (operate on individual time series):
 #   PolyFFT             - Polynomial kernel on FFT magnitudes
@@ -25,8 +27,10 @@
 
 from algs.kernels.trajectory_kernels import RFFMeanKernel, SpatiotemporalKernel, SumKernel
 
+from .abel import Abel
 from .base import Kernel
 from .fft import GaussFFT, PolyFFT
+from .laplace import Laplace
 from .minirocket import MiniRocketKernel
 from .rbf import RBF
 from .scattering import ScatteringKernel
@@ -36,6 +40,8 @@ from .signature import SigKernel
 __all__ = [
     "Kernel",
     "RBF",
+    "Laplace",
+    "Abel",
     "PolyFFT",
     "GaussFFT",
     "SigKernel",

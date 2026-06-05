@@ -1,7 +1,8 @@
 from time import perf_counter
+from typing import Literal
 
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
+from scipy.spatial.distance import pdist
 
 
 def sample_ball_unif(n_samples, rad, dim=2):
@@ -40,36 +41,22 @@ def time_call(fn, *args, warmup=2, repeat=5):
     return float(np.mean(times))
 
 
-def median_heuristic(X: np.ndarray, n_samples: int = 1000) -> float:
-    """Compute kernel bandwidth using median heuristic.
-
-    Sets gamma = 1 / (2 * median_dist^2) which is standard for RBF kernels.
-
-    Parameters
-    ----------
-    X : ndarray
-        Either a 2D array of shape (n_samples, n_features) from which pairwise
-        distances will be computed, or a 1D array of pre-computed distances.
-    n_samples : int
-        Maximum samples to use (only applies to 2D input).
-
-    Returns
-    -------
-    gamma : float
-        Kernel bandwidth parameter.
-    """
+def median_distance(
+    X: np.ndarray,
+    metric: Literal["euclidean", "cityblock"] = "euclidean",
+    *,
+    max_points: int = 3000,
+    rng: np.random.Generator | int | None = 0,
+) -> float:
     if X.ndim == 1:
-        # Pre-computed distances
-        nonzero_dists = X[X > 0]
+        dists = X  # pre-computed distances (condensed or flat)
     else:
-        # Compute pairwise distances
-        if len(X) > n_samples:
-            idx = np.random.choice(len(X), n_samples, replace=False)
+        if len(X) > max_points:
+            idx = np.random.default_rng(rng).choice(len(X), max_points, replace=False)
             X = X[idx]
-        dists = euclidean_distances(X, X)
-        nonzero_dists = dists[dists > 0]
+        dists = pdist(X, metric=metric)
 
-    if len(nonzero_dists) == 0:
-        return 1.0  # fallback for identical points
-    median_dist = np.median(nonzero_dists)
-    return 1.0 / (2.0 * median_dist ** 2)
+    nonzero = dists[dists > 0]
+    assert len(nonzero) > 0
+    return float(np.median(nonzero))
+

@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
-from utils.misc import median_heuristic
+from utils.misc import median_distance
 
 from .base import Kernel
 
@@ -129,7 +129,7 @@ class ScatteringKernel(Kernel):
             m, n, d = X.shape
             self._init_scattering(n)
             features = self._features(X)
-            self._gamma = median_heuristic(features)
+            self._gamma = 1.0 / (2.0 * median_distance(features) ** 2)
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 

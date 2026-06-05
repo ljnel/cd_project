@@ -1,25 +1,28 @@
 from typing import Literal
 
 import numpy as np
-from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.metrics.pairwise import laplacian_kernel
 
 from utils.misc import median_distance
 
 from .base import Kernel
 
 
-class RBF(Kernel):
+class Laplace(Kernel):
     """
-    Radial Basis Function (Gaussian) kernel.
+    Laplacian kernel: k(x, y) = exp(-gamma * ||x - y||_1).
+
+    Uses the L1 (Manhattan) distance, matching `sklearn.metrics.pairwise.
+    laplacian_kernel`. This is the standard "Laplace kernel" in ML / kernel
+    methods.
 
     Parameters
     ----------
     gamma : float or {"median", "dimension"}, default="median"
-        Kernel bandwidth parameter.
-        - If "median" (default), computed from training data using the median
-          heuristic: γ = 1/(2·median²) where median is the median pairwise distance.
-        - If "dimension", computed as 1/(2d) where d is the data dimensionality.
-        - If a float, used directly.
+        Kernel bandwidth.
+        - "median": gamma = 1 / (median pairwise L1 distance).
+        - "dimension": gamma = 1 / d (d = feature dim).
+        - float: used directly.
     """
 
     def __init__(self, gamma: float | Literal["median", "dimension"] = "median"):
@@ -34,33 +37,20 @@ class RBF(Kernel):
             )
         return self._gamma
 
-    def fit(self, X: np.ndarray) -> "RBF":
-        """
-        Learn gamma from training data if using a heuristic.
-
-        Parameters
-        ----------
-        X : np.ndarray of shape (n_samples, n_features)
-            Training data.
-
-        Returns
-        -------
-        self : RBF
-        """
+    def fit(self, X: np.ndarray) -> "Laplace":
         if isinstance(self._gamma_param, (int, float)):
             return self
 
         if self._gamma_param == "median":
-            self._gamma = 1.0 / (2.0 * median_distance(X) ** 2)
+            self._gamma = 1.0 / median_distance(X, "cityblock")
         elif self._gamma_param == "dimension":
-            self._gamma = 1.0 / (2.0 * X.shape[1])
+            self._gamma = 1.0 / X.shape[1]
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
-
         return self
 
     def __call__(self, x: np.ndarray, y=None) -> np.ndarray:
-        return rbf_kernel(x, y, gamma=self.gamma)
+        return laplacian_kernel(x, y, gamma=self.gamma)
 
     def diag(self, x: np.ndarray) -> np.ndarray:
         return np.ones(x.shape[0])

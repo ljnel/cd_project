@@ -318,11 +318,11 @@ class TestGammaHeuristics:
         assert np.isclose(kernel.gamma, expected_gamma)
 
     def test_rbf_median_heuristic_identical_points(self):
-        """Median heuristic should return fallback for identical points."""
-        X = np.ones((10, 5))  # all identical
+        """Median heuristic raises on identical points (zero-variance input)."""
+        X = np.ones((10, 5))  # all identical -> no nonzero pairwise distances
         kernel = RBF(gamma="median")
-        kernel.fit(X)
-        assert kernel.gamma == 1.0  # fallback value
+        with pytest.raises(AssertionError):
+            kernel.fit(X)
 
     def test_gaussfft_median_heuristic_positive(self, X_3d):
         """GaussFFT median heuristic should give positive gamma."""
