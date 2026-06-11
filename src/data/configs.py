@@ -175,7 +175,7 @@ DATASETS['half_cheetah/base'] = DatasetConfig(
 DATASETS['ant/base'] = DatasetConfig(
     name='base', env='ant', platform='mujoco',
     policy='ant-v5-sac-expert.zip',
-    n_episodes=1000,
+    n_episodes=2000,
 )
 DATASETS['humanoid/base'] = DatasetConfig(
     name='base', env='humanoid', platform='mujoco',

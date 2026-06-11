@@ -1,0 +1,2 @@
+- use dataclasses consistently for model configs
+- remove NaN padding of failed episodes

@@ -6,10 +6,11 @@ import numpy as np
 import tyro
 
 from algs.kern_cd import KernCD
-from algs.kernels import RBF, Laplace
+from algs.kernels import RBF, Abel
 from data.dataset import Dataset, failed, stratified_split, survived
 from data.io import load
 from data.processing import normalize_channels
+from detectors.cd_poly import CDPolyDetector
 from detectors.knn import KNNDetector
 from eval.calibration import max_conformal_threshold
 from eval.metrics import detection_metrics
@@ -27,8 +28,9 @@ SIZES = {'train': 0.4, 'cal': 0.3, 'test': 0.3}
 NO_FAIL = {'train', 'cal'}  # one-class: train/cal are survivors only
 
 # Models in display order, with plot colors.
-MODELS = ('1-NN', 'KernCD-RBF', 'KernCD-Lap')
-COLORS = {'1-NN': '#4477AA', 'KernCD-RBF': '#EE6677', 'KernCD-Lap': '#228833'}
+MODELS = ('1-NN', 'KernCD-RBF', 'KernCD-Abel', 'PolyCD')
+COLORS = {'1-NN': '#4477AA', 'KernCD-RBF': '#EE6677',
+          'KernCD-Abel': '#228833', 'PolyCD': '#AA3377'}
 
 
 class _Chunked:
@@ -50,11 +52,19 @@ class _Chunked:
         return out
 
 
-def build_detectors(reg: float, k: int) -> dict:
+def build_detectors(lam: float, k: int, poly_degree: int, poly_basis: str,
+                    poly_eps: float, rank: int | None, pivot: str,
+                    seed: int) -> dict:
+    # Low-rank kernel approximation (RPCholesky/Nyström) when `rank` is set, so
+    # KernCD can be fit on m ≫ 2000 without the exact O(m³) Cholesky.
+    kc = dict(lam=lam, rank=rank, pivot=pivot,
+              rng=np.random.default_rng(seed) if rank else None)
     return {
         '1-NN':       KNNDetector(k=k),
-        'KernCD-RBF': _Chunked(KernCD(RBF(gamma='median'), reg=reg)),
-        'KernCD-Lap': _Chunked(KernCD(Laplace(gamma='median'), reg=reg)),
+        'KernCD-RBF': _Chunked(KernCD(RBF(gamma='median'), **kc)),
+        'KernCD-Abel': _Chunked(KernCD(Abel(gamma='median'), **kc)),
+        'PolyCD':     _Chunked(CDPolyDetector(degree=poly_degree, basis=poly_basis,
+                                              method='chol', eps=poly_eps)),
     }
 
 
@@ -109,7 +119,12 @@ def main(
     alpha: float = 0.1,
     n_fit: int = 2000,
     k: int = 1,
-    reg: float = 1e-5,
+    lam: float = 1e-7,
+    poly_degree: int = 3,
+    poly_basis: str = 'cheb',
+    poly_eps: float = 1e-2,
+    rank: int | None = None,
+    pivot: Literal['rp', 'greedy', 'uniform'] = 'rp',
     n_mc: int = 1_000_000,
     pad: float = 0.25,
     volume_method: Literal['uniform', 'is', 'both'] = 'both',
@@ -128,7 +143,13 @@ def main(
         alpha: Target FPR.
         n_fit: Train states fit per detector.
         k: k for the k-NN detector.
-        reg: KernCD regularization.
+        lam: KernCD λ regularization (ridge λm on the kernel matrix).
+        poly_degree: PolyCD polynomial degree.
+        poly_basis: PolyCD basis ('cheb', 'mon', 'herm').
+        poly_eps: PolyCD moment-matrix regularization (Cholesky method).
+        rank: KernCD low-rank approximation rank (None = exact O(m^3) path).
+            Set this to fit KernCD on n_fit >> 2000 datapoints.
+        pivot: Low-rank pivot rule ('rp', 'greedy', 'uniform').
         n_mc: MC samples for volume.
         pad: Bounding-box padding as a fraction of each dim's range.
         volume_method: Volume estimator(s): uniform rejection, KDE-mixture
@@ -164,7 +185,8 @@ def main(
     if 'is' in methods:
         print(f"\nIS proposal: KDE bandwidth h={h:.3g}, eps={is_eps}")
 
-    detectors = build_detectors(reg, k)
+    detectors = build_detectors(lam, k, poly_degree, poly_basis, poly_eps,
+                                rank, pivot, seed)
     ends = np.arange(splits['test'].X[:, ::stride].shape[1]) * stride
 
     results, leads, det_rates = {}, {}, {}

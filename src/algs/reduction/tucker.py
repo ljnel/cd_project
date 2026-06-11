@@ -135,7 +135,7 @@ class Tucker13(BaseEstimator, TransformerMixin):
         prev_obj = np.inf
         self.objective_history_ = []
 
-        for it in range(self.max_iter):
+        for it in range(self.max_iter):  # noqa: B007  (used as n_iter_ after loop)
             # Encode: C_n = V^T Y_n U / (1 + α)
             XU = Xc @ U                     # (N, T, M)
             C = (V.T @ XU) * shrink          # (N, K, M)

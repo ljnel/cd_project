@@ -31,14 +31,15 @@ from utils.paths import get_root
 
 logger = logging.getLogger("cd.envs.mujoco.gen_data")
 
+# policies
+from stable_baselines3 import SAC
+from sb3_contrib import TQC
+
 
 def _load_policy(algo: str, policy_path: str, env):
-    """Load an RL policy by algorithm name."""
     if algo == 'SAC':
-        from stable_baselines3 import SAC
         return SAC.load(policy_path, env=env)
     elif algo == 'TQC':
-        from sb3_contrib import TQC
         return TQC.load(policy_path, env=env)
     else:
         raise ValueError(f"Unknown algo: {algo}. Supported: SAC, TQC")

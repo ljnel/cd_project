@@ -21,10 +21,10 @@ action was chosen from the failure state).
 
 `fail[i]` is the **first OOD index**. Two cases:
 
-- **Unsafe** (left the safe set): `fail[i] ∈ [0, T)`. `X[i, fail[i]]` typically
+- **Failed** (left the safe set): `fail[i] ∈ [0, T)`. `X[i, fail[i]]` typically
   holds the real failure observation.
-- **Safe** (censored — never left the safe set within `[0, T)`): `fail[i] = T`.
-  The whole `X[i]` is real ID data; no NaN.
+- **Survived** (censored — never left the safe set within `[0, T)`):
+  `fail[i] = T`. The whole `X[i]` is real ID data; no NaN.
 
 Failures are absorbing: once `fail[i]` is reached, the system stays out of the
 safe set. The convention does not support transient anomalies or recovery.
@@ -52,7 +52,7 @@ sample and the failure index.
 |  0  | `fail - 1`             | none                   |
 |  k  | `fail - 1 - k`         | `{fail - k, …, fail - 1}` |
 
-For safe episodes (`fail = T`), the largest admitted `end` is `T - 1 - H`.
+For survived episodes (`fail = T`), the largest admitted `end` is `T - 1 - H`.
 
 ## Detection metrics
 
@@ -62,24 +62,24 @@ For safe episodes (`fail = T`), the largest admitted `end` is `T - 1 - H`.
   it does not count as a detection.
 - `lead = fail - alarm_time`. The smallest possible lead for a true detection
   is `1`.
-- FPR is computed over safe episodes only.
+- FPR is computed over survived episodes only.
 
 ## Scoring
 
 `score_trajectories` skips any window containing `NaN`. Consequences:
 
-- For unsafe episodes, windows with `end ≤ fail` are scored (the
+- For failed episodes, windows with `end ≤ fail` are scored (the
   failure-observation window is included; everything past it is NaN-skipped).
-- For safe episodes, all windows are scored.
+- For survived episodes, all windows are scored.
 - The output is ragged: a variable-length score sequence per episode.
 
 ## Dataset helpers
 
 With `T = ds.X.shape[1]`:
 
-- `safe(ds)` ↔ `ds[ds.fail == T]`
-- `unsafe(ds)` ↔ `ds[ds.fail < T]`
-- `prop_unsafe(ds)` ↔ `(ds.fail < T).mean()`
+- `survived(ds)` ↔ `ds[ds.fail == T]`
+- `failed(ds)` ↔ `ds[ds.fail < T]`
+- `prop_failed(ds)` ↔ `(ds.fail < T).mean()`
 
 No per-episode length array is needed; the codebase assumes fixed-length
 episodes.

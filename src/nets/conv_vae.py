@@ -129,10 +129,7 @@ def train_vae(model, dl, opt, epochs, device, basis=None, alpha=0.0,
         n = 0
 
         for batch in dl:
-            if isinstance(batch, (list, tuple)):
-                x = batch[0].to(device)
-            else:
-                x = batch.to(device)
+            x = batch[0].to(device) if isinstance(batch, (list, tuple)) else batch.to(device)
             opt.zero_grad()
 
             xhat, mu, logvar = model(x)

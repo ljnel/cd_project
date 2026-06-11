@@ -2,23 +2,25 @@ import logging
 from typing import Literal
 
 import numpy as np
+from scipy.linalg import solve_triangular
+from sklearn.base import BaseEstimator
 
 from .kernels import Kernel
 
 logger = logging.getLogger("cd.algs.kern_cd")
-from scipy.linalg import solve_triangular
-from sklearn.base import BaseEstimator
 
 
 class KernCD(BaseEstimator):
     """
-    Kernelized Christoffel-Darboux polynomial for outlier detection.
+    Kernelized support estimator for outlier detection.
 
-    The score is the regularized CD functional
-    ``(k(x,x) − kₓᵀ(K+λm·I)⁻¹kₓ)/λ`` — equivalently a GP posterior variance with
-    σ²=λm, divided by λ. By default it is computed exactly (O(m³) fit). If ``rank``
-    is set, K is replaced by a rank-``r`` partial pivoted Cholesky approximation
-    (O(m r²) fit, O(m r) score) that reproduces the exact score as ``r → m``.
+    The score is the regularized squared distance to the support
+    ``k(x,x) − kₓᵀ(K+λm·I)⁻¹kₓ`` (Rudi et al.) — equivalently a GP posterior
+    variance with σ²=λm. (Dividing by λ would instead give the kernelized
+    Christoffel-Darboux / Lasserre-Pauwels density score.) By default it is
+    computed exactly (O(m³) fit). If ``rank`` is set, K is replaced by a
+    rank-``r`` partial pivoted Cholesky approximation (O(m r²) fit, O(m r) score)
+    that reproduces the exact score as ``r → m``.
     Uniform pivoting recovers the classical Nyström method; the ``rp`` (randomly
     pivoted) and ``greedy`` rules pivot adaptively on the residual diagonal and are
     strictly more general.
@@ -27,10 +29,13 @@ class KernCD(BaseEstimator):
     ----------
     kernel : Kernel
         The kernel to use for similarity computation.
-    reg : float or {"adaptive", "condition"}, default=1e-5
-        Regularization strategy.
-        - If a float, scale-invariant regularization where λ = reg/m, so the total
-          regularization λm = reg stays constant regardless of sample size.
+    lam : float or {"adaptive", "condition"}, default=1e-5
+        The regularization λ — the ridge added to the averaged moment matrix
+        M = (1/m)·Σ φ(xᵢ)φ(xᵢ)ᵀ (equivalently a GP observation noise σ² = λm,
+        as the matrix actually factored is K + λm·I).
+        - If a float, λ is used directly. Because M concentrates to an
+          m-independent limit, holding λ fixed keeps the conditioning and the
+          score scale stable as m grows.
         - If "adaptive", selects λ by trying increasing values until the
           regularized kernel matrix is well-conditioned.
         - If "condition", analytically computes λ to achieve a target condition
@@ -54,13 +59,13 @@ class KernCD(BaseEstimator):
     def __init__(
         self,
         kernel: Kernel,
-        reg: float | Literal["adaptive", "condition"] = 1e-5,
+        lam: float | Literal["adaptive", "condition"] = 1e-7,
         rank: int | None = None,
         pivot: Literal["rp", "greedy", "uniform"] = "rp",
         rng: np.random.Generator | None = None,
     ):
         self.kernel = kernel
-        self.reg = reg
+        self.lam = lam
         self.rank = rank
         self.pivot: Literal["rp", "greedy", "uniform"] = pivot
         self.rng = rng
@@ -70,10 +75,10 @@ class KernCD(BaseEstimator):
         if self.rank is None:
             self._fit_exact(X)
         else:
-            if isinstance(self.reg, str):
+            if isinstance(self.lam, str):
                 raise ValueError(
-                    f"reg={self.reg!r} needs the full kernel matrix; the low-rank "
-                    "path (rank set) supports only a float reg."
+                    f"lam={self.lam!r} needs the full kernel matrix; the low-rank "
+                    "path (rank set) supports only a float lam."
                 )
             self._fit_pivoted(X)
         return self
@@ -83,16 +88,15 @@ class KernCD(BaseEstimator):
         m = len(X)
         K = self.kernel(X)  # unregularized kernel matrix
 
-        # Determine lambda based on regularization strategy
-        if isinstance(self.reg, (int, float)):
-            # Scale-invariant: λm = reg (constant), so λ = reg/m
-            self.lam_ = self.reg / m
-        elif self.reg == "adaptive":
+        # Resolve λ from the input strategy
+        if isinstance(self.lam, (int, float)):
+            self.lam_ = float(self.lam)  # used directly; the ridge on K is λm
+        elif self.lam == "adaptive":
             self.lam_ = _lambda_adaptive(K)
-        elif self.reg == "condition":
+        elif self.lam == "condition":
             self.lam_ = _lambda_condition_number(K)
         else:
-            raise ValueError(f"Unknown regularization strategy: '{self.reg}'")
+            raise ValueError(f"Unknown lam strategy: {self.lam!r}")
 
         # Regularize and compute Cholesky
         self.K = K + self.lam_ * m * np.eye(m)
@@ -101,28 +105,29 @@ class KernCD(BaseEstimator):
 
         # Diagnostic info
         cond = np.linalg.cond(self.K)
-        reg_str = self.reg if isinstance(self.reg, str) else f"fixed={self.reg}"
-        logger.info(f"λ={self.lam_:.2e} ({reg_str}), cond={cond:.2e}, m={m}")
+        lam_str = self.lam if isinstance(self.lam, str) else f"fixed={self.lam}"
+        logger.info(f"λ={self.lam_:.2e} ({lam_str}), cond={cond:.2e}, m={m}")
 
     def _fit_pivoted(self, X):
         """Low-rank path: rank-r partial pivoted Cholesky approximation of K."""
         assert self.rank is not None  # only reached when rank is set
-        assert not isinstance(self.reg, str)  # guarded in fit(); narrows reg to float
+        assert not isinstance(self.lam, str)  # guarded in fit(); narrows lam to float
         m = len(X)
-        F, pivots = rp_cholesky(self.kernel, X, self.rank, pivot=self.pivot, rng=self.rng)
+        F, S = rp_cholesky(self.kernel, X, self.rank, pivot=self.pivot, rng=self.rng)
 
-        # Scale-invariant reg, matching the exact path: λ = reg/m, so σ² = λm = reg.
-        self.lam_ = self.reg / m
+        # Float λ used directly, matching the exact path: σ² = λm.
+        self.lam_ = float(self.lam)
         self.sigma2_ = self.lam_ * m
 
         r = F.shape[1]
-        self.pivots_ = X[pivots]  # landmark points
-        self.Lpiv_ = F[pivots]  # Cholesky factor of the pivot Gram K[pivots][:, pivots]
-        M = F.T @ F + self.sigma2_ * np.eye(r)  # Φᵀ Φ + σ² I
+        self.S_ = X[S]  # landmark points
+        self.Lpiv_ = F[S]  # Cholesky factor of the pivot Gram K[S, S]
+        assert self.Lpiv_.shape == (r, r)
+        M = F.T @ F / r + self.lam_ * np.eye(r)  # Φᵀ Φ / r + lambda I
         self.R_ = np.linalg.cholesky(M)
 
         logger.info(
-            f"λ={self.lam_:.2e} (fixed={self.reg}), rank={r}/{self.rank}, "
+            f"λ={self.lam_:.2e} (fixed={self.lam}), rank={r}/{self.rank}, "
             f"pivot={self.pivot}, m={m}"
         )
 
@@ -142,15 +147,15 @@ class KernCD(BaseEstimator):
         kxx = self.kernel.diag(X)  # (b,)
         kx = self.kernel(X, self.data)  # (b, m)
         y = solve_triangular(self.L, kx.T, lower=True).T  # (b, m)
-        return (kxx - np.einsum("bi,bi->b", y, y)) / self.lam_
+        return kxx - np.einsum("bi,bi->b", y, y)
 
     def _score_pivoted(self, X):
-        kxS = self.kernel(X, self.pivots_)  # (b, r), k(x*, landmarks)
+        kxS = self.kernel(X, self.S_)  # (b, r), k(x*, landmarks)
         phi = solve_triangular(self.Lpiv_, kxS.T, lower=True)  # (r, b), Nyström features
         v = solve_triangular(self.R_, phi, lower=True)  # (r, b)
-        var = self.sigma2_ * np.einsum("ib,ib->b", v, v)
-        var += self.kernel.diag(X) - np.einsum("ib,ib->b", phi, phi)  # diagonal correction
-        return var / self.lam_
+        var = self.lam_ * np.einsum("ib,ib->b", v, v)
+        corr = self.kernel.diag(X) - np.einsum("ib,ib->b", phi, phi)  # diagonal correction
+        return var + corr
     
     def update(self, x_new, exact=False):
         """
@@ -252,7 +257,7 @@ class KernCD(BaseEstimator):
             L_new[m, :m] = v
             L_new[m, m] = s
             
-            # Update the regularized kernel matrix K_reg
+            # Update the stored regularized kernel matrix
             # Note: existing diagonal keeps λm regularization (not λ(m+1))
             K_new = np.zeros((m_new, m_new))
             K_new[:m, :m] = self.K
@@ -310,8 +315,8 @@ def rp_cholesky(
 
     Builds a low-rank factor ``F`` (shape ``(m, r)``) with ``F @ F.T ≈ K`` by
     selecting ``r`` pivot columns and Cholesky-completing against them. The pivot
-    rows ``F[pivots]`` are exactly the Cholesky factor of the pivot Gram
-    ``K[pivots][:, pivots]``, so ``F @ F.T`` is the Nyström approximation for that
+    rows ``F[S]`` are exactly the Cholesky factor of the pivot Gram
+    ``K[S, S]``, so ``F @ F.T`` is the Nyström approximation for that
     landmark set — the ``pivot`` rule only decides which landmarks are chosen.
 
     Parameters
@@ -334,7 +339,7 @@ def rp_cholesky(
     -------
     F : np.ndarray, shape (m, r')
         Low-rank Cholesky factor, ``r' <= rank``.
-    pivots : np.ndarray, shape (r',)
+    S : np.ndarray, shape (r',)
         Indices into ``X`` of the chosen pivots, in selection order.
     """
     if pivot not in _PIVOT_RULES:
@@ -349,16 +354,18 @@ def rp_cholesky(
     pivots = np.empty(rank, dtype=int)
     # Uniform pivots are drawn without replacement (classical Nyström); rp/greedy
     # never reselect a pivot since its residual is driven to zero.
-    perm = rng.permutation(m) if pivot == "uniform" else None
+
+    if pivot == "rp":
+        get_pivot = lambda m, d, j: int(rng.choice(m, p=d/d.sum()))
+    elif pivot == "greedy":
+        get_pivot = lambda m, d, j: int(np.argmax(d))
+    else:
+        perm = rng.permutation(m)
+        get_pivot = lambda m, d, j: int(perm[j])
+
 
     for j in range(rank):
-        if pivot == "rp":
-            s = int(rng.choice(m, p=d / d.sum()))
-        elif pivot == "greedy":
-            s = int(np.argmax(d))
-        else:  # "uniform"
-            assert perm is not None
-            s = int(perm[j])
+        s = get_pivot(m, d, j)
 
         g = kernel(X, X[s : s + 1]).ravel()  # column k(·, x_s), shape (m,)
         if j > 0:
@@ -410,10 +417,10 @@ def _lambda_adaptive(K: np.ndarray, kappa_target: float = 1e3) -> float:
 
     for log_lam in range(-14, 0):
         lam = 10.0 ** log_lam
-        K_reg = K + lam * m * np.eye(m)
+        K_lam = K + lam * m * np.eye(m)
         try:
-            np.linalg.cholesky(K_reg)
-            cond = np.linalg.cond(K_reg)
+            np.linalg.cholesky(K_lam)
+            cond = np.linalg.cond(K_lam)
             if cond < kappa_target:
                 return lam
         except np.linalg.LinAlgError:

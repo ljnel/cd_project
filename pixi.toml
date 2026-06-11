@@ -31,6 +31,7 @@ huggingface_hub = ">=1.8.0,<2"
 python-annoy = "*"
 plotly = ">=6.6.0,<7"
 tyro = ">=1.0.13,<2"
+jaxtyping = ">=0.3.7,<0.4"
 
 [pypi-dependencies]
 stable-baselines3 = "*"

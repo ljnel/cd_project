@@ -86,7 +86,7 @@ def humanoid_composite_kernel(
     # Velocities: RBF
     k_vel = np.exp(-gamma_v * ((v1 - v2) ** 2).sum(axis=-1, keepdims=True))
 
-    if additive:
+    if additive:  # noqa: SIM108  (ternary would exceed line length / hurt readability)
         k_total = 0.25 * (k_height + k_rot + k_joints + k_vel)
     else:
         k_total = k_height * k_rot * k_joints * k_vel

@@ -87,7 +87,10 @@ def mmd_kernel_comparison(
         **kernel_kwargs: forwarded to humanoid_composite_kernel
     """
     from algs.kernels.spatial_kernel import (
-        fit_gammas, fit_rbf_gamma, humanoid_kernel_matrices, rbf_kernel_matrices,
+        fit_gammas,
+        fit_rbf_gamma,
+        humanoid_kernel_matrices,
+        rbf_kernel_matrices,
     )
 
     y = np.asarray(y, dtype=int)

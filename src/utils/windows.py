@@ -197,10 +197,7 @@ def estimate_window_acf(x: np.ndarray, min_window: int = 10) -> int:
     mean_acf = acf_full.mean(axis=(0, 2))
 
     zero_crossings = np.where(mean_acf[1:] <= 0)[0]
-    if len(zero_crossings) > 0:
-        window = int(zero_crossings[0]) + 1
-    else:
-        window = seq_len // 2
+    window = int(zero_crossings[0]) + 1 if len(zero_crossings) > 0 else seq_len // 2
 
     window = max(min_window, window)
     logger.debug(f"ACF window estimate: {window}")

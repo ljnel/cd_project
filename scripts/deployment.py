@@ -10,7 +10,7 @@ import tyro
 warnings.filterwarnings("ignore")
 
 from algs.kern_cd import KernCD
-from algs.kernels import RBF, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
+from algs.kernels import RBF, Abel, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
 from detectors.base import as_sequence, subsample, with_seq_len
 from detectors.cd_poly import CDPolyDetector
 from detectors.conv_ae import ConvAEDetector
@@ -35,6 +35,7 @@ METHODS = {
     'scatter':    lambda W: _kern_cd_seq(ScatteringKernel(J=3, Q=2, order=1, gamma='median'), W),
     'minirocket': lambda W: _kern_cd_seq(MiniRocketKernel(gamma='median'), W),
     'rbf':        lambda W: subsample(as_sequence(KernCD(RBF(gamma='median')), W)),
+    'abel':       lambda W: subsample(as_sequence(KernCD(Abel(gamma='median')), W)),
     'conv_ae':    lambda W: ConvAEDetector(W),
     'gaussian':   lambda W: as_sequence(GaussianDetector(), W),
     'cd_poly_d2': lambda W: as_sequence(CDPolyDetector(degree=2), W),
@@ -47,7 +48,7 @@ ALL_METHODS = list(METHODS.keys())
 DEFAULT_METHODS = ['fft', 'sig', 'rbf', 'conv_ae']
 
 EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
-Method = Literal['fft', 'sig', 'scatter', 'minirocket', 'rbf', 'conv_ae',
+Method = Literal['fft', 'sig', 'scatter', 'minirocket', 'rbf', 'abel', 'conv_ae',
                  'gaussian', 'cd_poly_d2', 'cd_poly_d3', 'cd_poly_d4', 'knn']
 ALL_ENVS: list[EnvName] = list(ENV_INFO.keys())
 

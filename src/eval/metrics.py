@@ -17,6 +17,8 @@ def detection_metrics(z: np.ndarray, ends: np.ndarray,
     Detection requires `alarm_time < fail` strictly (an alarm at `end == fail`
     is reacting to the failure observation, not predicting it). Undetectable
     failures (`fail <= ends[0]`) are dropped from `det_rate`.
+
+    `leads` holds the per-detected-failure lead time `fail - first_early_alarm`.
     """
     survival_mask = fail == T
     failed_ep = np.where(fail < T)[0]
@@ -31,6 +33,7 @@ def detection_metrics(z: np.ndarray, ends: np.ndarray,
         if len(early):
             lead.append(fail[i] - early[0])
 
+    leads = np.array(lead, dtype=float)
     det_rate = len(lead) / len(failed_ep) * 100 if len(failed_ep) else float('nan')
     med_ttd = float(np.median(lead)) if lead else float('nan')
-    return {'fpr': fpr, 'det_rate': det_rate, 'med_ttd': med_ttd}
+    return {'fpr': fpr, 'det_rate': det_rate, 'med_ttd': med_ttd, 'leads': leads}
