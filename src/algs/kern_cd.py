@@ -306,18 +306,28 @@ _PIVOT_RULES = ("rp", "greedy", "uniform")
 def rp_cholesky(
     kernel: Kernel,
     X: np.ndarray,
-    rank: int,
+    rank: int | None = None,
     *,
+    eps: float | None = None,
     pivot: Literal["rp", "greedy", "uniform"] = "rp",
     rng: np.random.Generator | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Partial pivoted Cholesky factorization of the kernel matrix.
 
     Builds a low-rank factor ``F`` (shape ``(m, r)``) with ``F @ F.T ≈ K`` by
-    selecting ``r`` pivot columns and Cholesky-completing against them. The pivot
+    selecting pivot columns and Cholesky-completing against them. The pivot
     rows ``F[S]`` are exactly the Cholesky factor of the pivot Gram
     ``K[S, S]``, so ``F @ F.T`` is the Nyström approximation for that
     landmark set — the ``pivot`` rule only decides which landmarks are chosen.
+
+    Stopping criterion. Provide ``rank`` (a fixed number of pivots), ``eps`` (an
+    accuracy target on the residual diagonal), or both; at least one is required.
+    With both, whichever triggers first stops the factorization, so ``rank`` acts
+    as a cap on the ``eps`` target. ``eps`` is only supported for ``pivot="greedy"``,
+    whose pivot is the argmax of the residual diagonal: the factorization then runs
+    until ``max diag(K − F Fᵀ) ≤ eps`` (every unselected point is approximated to
+    within ``eps``). The residual diagonal is not monotone for the random pivot
+    rules, so an ``eps`` target is not well defined there.
 
     Parameters
     ----------
@@ -325,9 +335,14 @@ def rp_cholesky(
         Already-fitted kernel.
     X : np.ndarray, shape (m, d)
         Training data.
-    rank : int
-        Target rank ``r``. Truncated early if the residual diagonal is exhausted
-        (numerical rank < r).
+    rank : int, optional
+        Target rank ``r`` (capped at ``m``). Truncated early if the residual
+        diagonal is exhausted (numerical rank < r) or, with ``eps`` set, once the
+        accuracy target is met. Required unless ``eps`` is given.
+    eps : float, optional
+        Residual-diagonal accuracy target (``pivot="greedy"`` only). Stop once the
+        largest residual diagonal entry is ``<= eps``. Required unless ``rank`` is
+        given.
     pivot : {"rp", "greedy", "uniform"}, default="rp"
         - "rp": randomly pivoted, sampling ``s ∝ residual diagonal`` (RPCholesky).
         - "greedy": largest residual diagonal entry (classic pivoted Cholesky).
@@ -338,49 +353,64 @@ def rp_cholesky(
     Returns
     -------
     F : np.ndarray, shape (m, r')
-        Low-rank Cholesky factor, ``r' <= rank``.
+        Low-rank Cholesky factor, ``r' <= rank`` (or ``<= m`` if only ``eps`` set).
     S : np.ndarray, shape (r',)
         Indices into ``X`` of the chosen pivots, in selection order.
     """
     if pivot not in _PIVOT_RULES:
         raise ValueError(f"Unknown pivot rule '{pivot}'; choose from {_PIVOT_RULES}.")
+    if rank is None and eps is None:
+        raise ValueError("Specify a stopping criterion: `rank`, `eps`, or both.")
+    if eps is not None and pivot != "greedy":
+        raise ValueError(
+            f"eps stopping is only supported for pivot='greedy', not {pivot!r}; "
+            "the residual diagonal is not monotone for the random pivot rules."
+        )
     rng = np.random.default_rng() if rng is None else rng
 
     m = len(X)
-    rank = min(rank, m)  # at most one pivot per point
-    F = np.zeros((m, rank))
+    max_rank = m if rank is None else min(rank, m)  # at most one pivot per point
     d = kernel.diag(X).astype(float)  # residual diagonal of K - F @ F.T
     tol = 1e-10 * d.max()  # residual floor: stop once the numerical rank is reached
-    pivots = np.empty(rank, dtype=int)
+
+    # Capacity grows geometrically on the eps-only path, where the final rank is
+    # unknown ahead of time; on the rank path it is preallocated exactly.
+    F = np.zeros((m, max_rank if rank is not None else min(m, 64)))
+    pivots: list[int] = []
     # Uniform pivots are drawn without replacement (classical Nyström); rp/greedy
     # never reselect a pivot since its residual is driven to zero.
 
     if pivot == "rp":
-        get_pivot = lambda m, d, j: int(rng.choice(m, p=d/d.sum()))
+        get_pivot = lambda d, j: int(rng.choice(m, p=d/d.sum()))
     elif pivot == "greedy":
-        get_pivot = lambda m, d, j: int(np.argmax(d))
+        get_pivot = lambda d, j: int(np.argmax(d))
     else:
         perm = rng.permutation(m)
-        get_pivot = lambda m, d, j: int(perm[j])
+        get_pivot = lambda d, j: int(perm[j])
 
+    for j in range(max_rank):
+        if eps is not None and d.max() <= eps:  # accuracy target met
+            logger.info(f"rp_cholesky: residual diagonal <= eps={eps:.2e} at rank {j}.")
+            break
 
-    for j in range(rank):
-        s = get_pivot(m, d, j)
+        s = get_pivot(d, j)
 
         g = kernel(X, X[s : s + 1]).ravel()  # column k(·, x_s), shape (m,)
         if j > 0:
             g = g - F[:, :j] @ F[s, :j]
 
         if g[s] <= tol:  # residual exhausted: numerical rank reached
-            logger.info(f"rp_cholesky: residual exhausted at rank {j} (requested {rank}).")
-            F, pivots = F[:, :j], pivots[:j]
+            logger.info(f"rp_cholesky: residual exhausted at rank {j}.")
             break
 
-        pivots[j] = s
+        if j >= F.shape[1]:  # eps path overran the initial capacity: double it
+            F = np.hstack([F, np.zeros_like(F)])
+
+        pivots.append(s)
         F[:, j] = g / np.sqrt(g[s])
         d = np.maximum(d - F[:, j] ** 2, 0.0)
 
-    return F, pivots
+    return F[:, : len(pivots)], np.array(pivots, dtype=int)
 
 
 # =============================================================================
