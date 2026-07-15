@@ -5,17 +5,20 @@ from typing import Literal
 
 import numpy as np
 import tyro
+from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 
 from algs.kern_cd import KernCD
-from algs.kernels import RBF, Abel
+from algs.kernels import RBF, Abel, Polynomial
 from data.dataset import Dataset, failed, stratified_split, survived
 from data.io import load
 from data.processing import normalize_channels
 from detectors.base import subsample
 from detectors.cd_poly import CDPolyDetector
 from detectors.knn import KNNDetector
+from envs.info import ENV_INFO
+from envs.mujoco import check_custom_termination
 from eval.calibration import max_conformal_threshold
 from eval.scoring import score_states
 from eval.survival import detection_lead_times
@@ -39,17 +42,41 @@ NO_FAIL = {'train', 'norm', 'cal'}
 # uniform subsample of N_SUB states to keep the O(m^3) fit tractable; the
 # low-rank variant (rank-LR_RANK RPCholesky/Nyström, 'rp' pivot) instead fits on
 # the *full* train-state set. 1-NN and PolyCD fit on the full set too.
-MODELS = ('1-NN', 'KernCD-RBF', 'KernCD-Abel', 'KernCD-Abel-rp', 'KernCD-Abel-greedy', 'PolyCD')
-Method = Literal['1-NN', 'KernCD-RBF', 'KernCD-Abel', 'KernCD-Abel-rp',
-                 'KernCD-Abel-greedy', 'PolyCD']
-DEFAULT_METHODS = [m for m in MODELS if m != 'KernCD-Abel-rp']
+MODELS = ('Oracle', '1-NN', 'KernCD-RBF', 'KernCD-Abel', 'KernCD-Abel-rp', 'KernCD-Abel-greedy', 'KernCD-Poly', 'PolyCD')
+Method = Literal['Oracle', '1-NN', 'KernCD-RBF', 'KernCD-Abel', 'KernCD-Abel-rp',
+                 'KernCD-Abel-greedy', 'KernCD-Poly', 'PolyCD']
+DEFAULT_METHODS = [m for m in MODELS if m not in ('Oracle', 'KernCD-Abel-rp')]
 N_SUB = 2000      # exact-KernCD fit subsample size
 LR_RANK = 1024    # low-rank KernCD approximation rank
 
 
+class OracleDetector:
+    """Sanity-check oracle: binary score = 1 iff the state satisfies the env's
+    failure condition (the actual `check_custom_termination`).
+
+    Inputs arrive z-scored by the pipeline, so they are un-normalized first.
+    Within a failed episode the only states that can score 1 start at the
+    failure index (the first OOD step), so this must detect 100% of failures
+    *exactly at lead 0* — never earlier — and raise no false positives on
+    survivors (whose states never satisfy the condition). A plumbing check.
+    """
+    def __init__(self, gym_name: str, scaler: StandardScaler):
+        self.gym_name = gym_name
+        self.mean, self.scale = scaler.mean_, scaler.scale_
+
+    def fit(self, X):
+        return self
+
+    def score(self, X):
+        raw = np.asarray(X) * self.scale + self.mean
+        return np.array([float(check_custom_termination(self.gym_name, r)) for r in raw])
+
+
 def build_detectors(lam: float, poly_degree: int, poly_basis: str,
-                    poly_eps: float, seed: int) -> dict:
+                    poly_eps: float, seed: int, *,
+                    gym_name: str, scaler: StandardScaler) -> dict:
     return {
+        'Oracle':      OracleDetector(gym_name, scaler),
         '1-NN':        KNNDetector(k=1),
         'KernCD-RBF':  subsample(KernCD(RBF(gamma='median'), lam=lam), n=N_SUB, seed=seed),
         'KernCD-Abel': subsample(KernCD(Abel(gamma='median'), lam=lam), n=N_SUB, seed=seed),
@@ -57,6 +84,8 @@ def build_detectors(lam: float, poly_degree: int, poly_basis: str,
                                  pivot='rp', rng=np.random.default_rng(seed)),
         'KernCD-Abel-greedy': KernCD(Abel(gamma='median'), lam=lam, rank=LR_RANK,
                                      pivot='greedy', rng=np.random.default_rng(seed)),
+        'KernCD-Poly': subsample(KernCD(Polynomial(degree=poly_degree, gamma='dimension'),
+                                        lam=lam), n=N_SUB, seed=seed),
         'PolyCD':      CDPolyDetector(degree=poly_degree, basis=poly_basis,
                                       method='chol', eps=poly_eps),
     }
@@ -104,8 +133,11 @@ def run_method(detector, splits, *, stride: int, alpha: float, H: int) -> dict:
     emp_fpr = float(np.mean(surv_max[np.isfinite(surv_max)] > threshold))
 
     # Detection curve: lead times on the failed test episodes (full length).
+    # Score past the failure too (mask_post_fail=False) so an alarm that only
+    # fires after the failure registers as an after-the-fact (negative-lead)
+    # detection rather than a miss; calibration above stays masked/causal.
     test_fail = failed(splits['test'])
-    s_fail = score_states(detector, test_fail, stride)
+    s_fail = score_states(detector, test_fail, stride, mask_post_fail=False)
     score_times = np.arange(s_fail.shape[1]) * stride
     leads = detection_lead_times(s_fail, score_times, test_fail.fail, threshold)
 
@@ -202,6 +234,9 @@ def main(
     splits = stratified_split(ds, SIZES, no_fail=NO_FAIL, seed=seed)
     if n_train is not None:
         splits['train'] = splits['train'][:n_train]
+    # Capture raw-channel stats before z-scoring, so the Oracle method can
+    # invert the normalization and apply the failure condition on raw obs.
+    raw_scaler = StandardScaler().fit(splits['train'].X.reshape(-1, ds.X.shape[-1]))
     splits = normalize_channels(splits, fit_on='train')
     for name in NO_FAIL:
         splits[name] = drop_last(splits[name], H)
@@ -211,7 +246,8 @@ def main(
         print(f"  {name:<6s} n={len(s):>4d}  surv={len(survived(s)):>4d}  "
               f"fail={len(failed(s)):>4d}")
 
-    detectors = build_detectors(lam, poly_degree, poly_basis, poly_eps, seed)
+    detectors = build_detectors(lam, poly_degree, poly_basis, poly_eps, seed,
+                                gym_name=ENV_INFO[env].gym_name, scaler=raw_scaler)
 
     results = {}
     for name in methods:
