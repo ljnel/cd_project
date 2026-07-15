@@ -7,6 +7,7 @@
 #   RBF                 - Radial basis function (Gaussian, squared L2 distance)
 #   Laplace             - Laplacian kernel (L1 distance)
 #   Abel                - Exponential kernel (L2 distance)
+#   Polynomial          - Inhomogeneous polynomial kernel (non-stationary)
 #
 # Signal kernels (operate on individual time series):
 #   PolyFFT             - Polynomial kernel on FFT magnitudes
@@ -32,6 +33,7 @@ from .base import Kernel
 from .fft import GaussFFT, PolyFFT
 from .laplace import Laplace
 from .minirocket import MiniRocketKernel
+from .polynomial import Polynomial
 from .rbf import RBF
 from .scattering import ScatteringKernel
 from .sequential import TruncatedSigKernel
@@ -42,6 +44,7 @@ __all__ = [
     "RBF",
     "Laplace",
     "Abel",
+    "Polynomial",
     "PolyFFT",
     "GaussFFT",
     "SigKernel",
