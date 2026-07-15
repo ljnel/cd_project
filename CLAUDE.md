@@ -11,7 +11,8 @@ Anomaly detection for robot trajectories using the Christoffel-Darboux polynomia
 
 ## Script convention
 
-Scripts define a `main()` whose typed signature is the CLI (parsed via `tyro.cli(main)`, not `argparse`), with the experiment and args documented in `main`'s docstring instead of a module-level one.
+- Scripts define a `main()` whose typed signature is the CLI (parsed via `tyro.cli(main)`, not `argparse`), with the experiment and args documented in `main`'s docstring instead of a module-level one.
+- Whenever you are asked to create a script that produces a plot, use Mac's "open" tool to show it to me.
 
 ## Output convention
 
