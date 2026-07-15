@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import laplacian_kernel
 
-from utils.misc import median_distance
+from utils.misc import median_distance, median_nn_distance
 
 from .base import Kernel
 
@@ -18,14 +18,16 @@ class Laplace(Kernel):
 
     Parameters
     ----------
-    gamma : float or {"median", "dimension"}, default="median"
+    gamma : float or {"median", "median_nn", "dimension"}, default="median"
         Kernel bandwidth.
         - "median": gamma = 1 / (median pairwise L1 distance).
+        - "median_nn"/"median_5nn": gamma = 1 / (median distance to the 1st/5th
+          nearest neighbour, L1).
         - "dimension": gamma = 1 / d (d = feature dim).
         - float: used directly.
     """
 
-    def __init__(self, gamma: float | Literal["median", "dimension"] = "median"):
+    def __init__(self, gamma: float | Literal["median", "median_nn", "median_5nn", "dimension"] = "median"):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
 
@@ -43,6 +45,10 @@ class Laplace(Kernel):
 
         if self._gamma_param == "median":
             self._gamma = 1.0 / median_distance(X, "cityblock")
+        elif self._gamma_param == "median_nn":
+            self._gamma = 1.0 / median_nn_distance(X, "cityblock", k=1)
+        elif self._gamma_param == "median_5nn":
+            self._gamma = 1.0 / median_nn_distance(X, "cityblock", k=5)
         elif self._gamma_param == "dimension":
             self._gamma = 1.0 / X.shape[1]
         else:

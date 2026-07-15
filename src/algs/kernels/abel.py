@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 
-from utils.misc import median_distance
+from utils.misc import median_distance, median_nn_distance
 
 from .base import Kernel
 
@@ -19,16 +19,19 @@ class Abel(Kernel):
 
     Parameters
     ----------
-    gamma : float or {"median", "dimension"}, default="median"
+    gamma : float or {"median", "median_nn", "dimension"}, default="median"
         Kernel bandwidth.
         - "median": gamma = 1 / (median pairwise L2 distance).
+        - "median_nn"/"median_5nn": gamma = 1 / (median distance to the 1st/5th
+          nearest neighbour) — a local scale instead of the global median
+          pairwise distance.
         - "dimension": gamma = 1 / sqrt(d) (d = feature dim). The sqrt matches
           the L2 distance scaling (||x - y||_2 ~ sqrt(d)), analogous to
           Laplace's 1 / d for the L1 distance.
         - float: used directly.
     """
 
-    def __init__(self, gamma: float | Literal["median", "dimension"] = "median"):
+    def __init__(self, gamma: float | Literal["median", "median_nn", "median_5nn", "dimension"] = "median"):
         self._gamma_param = gamma
         self._gamma: float | None = gamma if isinstance(gamma, (int, float)) else None
 
@@ -46,6 +49,10 @@ class Abel(Kernel):
 
         if self._gamma_param == "median":
             self._gamma = 1.0 / median_distance(X, "euclidean")
+        elif self._gamma_param == "median_nn":
+            self._gamma = 1.0 / median_nn_distance(X, "euclidean", k=1)
+        elif self._gamma_param == "median_5nn":
+            self._gamma = 1.0 / median_nn_distance(X, "euclidean", k=5)
         elif self._gamma_param == "dimension":
             self._gamma = float(1.0 / np.sqrt(X.shape[1]))
         else:
