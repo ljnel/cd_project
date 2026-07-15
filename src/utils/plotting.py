@@ -330,8 +330,10 @@ def plot_detection_curves(leads_by_label, *, ax=None, lead_max=None, min_lead=0,
     plural = f"{event_name.capitalize()}s"
     ax.set_xlabel(f"Lead time before {event_name} (steps)")
     ax.set_ylabel(f"{plural} caught ({pct})" if as_percent else f"Fraction of {event_name}s caught")
-    if as_percent:
-        ax.set_ylim(0, 100)
+    # Pad the y-limits so a curve plateauing at 0% or 100% isn't hidden under
+    # the axis spines (e.g. a perfect detector sitting on the top edge).
+    top, pad = (100, 3) if as_percent else (1.0, 0.03)
+    ax.set_ylim(-pad, top + pad)
     ax.invert_xaxis()
     ax.legend(loc="upper left", fontsize="small")
     return ax
