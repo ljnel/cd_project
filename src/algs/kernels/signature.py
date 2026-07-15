@@ -15,7 +15,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 
-from utils.misc import median_heuristic
+from utils.misc import median_distance
 
 from .base import Kernel
 from .sequential import TruncatedSigKernel
@@ -118,7 +118,7 @@ class SigKernel(Kernel):
             for t in range(n):
                 dists = euclidean_distances(X[:, t, :])
                 all_dists.append(dists[np.triu_indices(m, k=1)])
-            self._gamma = median_heuristic(np.concatenate(all_dists))
+            self._gamma = 1.0 / (2.0 * median_distance(np.concatenate(all_dists)) ** 2)
             self._init_kernel()
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")

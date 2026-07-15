@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
-"""
-Score Curves + Rendered Frames for Figure 1.
-
-Trains Basis-CD on fold-0 training successes from the stored dataset, then
-samples fresh episodes with random parameters from the dataset config's domain
-randomization ranges to produce:
-  - Per-timestep anomaly score curves (SVG)
-  - High-res rendered frames (PNGs) for every timestep
-
-Usage:
-    python -m scripts.score_curves --env humanoid --eps 5
-    python -m scripts.score_curves --env humanoid --eps 2 --save-every 5
-"""
-
-import argparse
+import logging
 import warnings
 
 import matplotlib
 import numpy as np
+import tyro
 from PIL import Image
 
 matplotlib.use("Agg")
@@ -31,7 +18,6 @@ from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
 from data.datasets import load_episodes, normalize_channels
 from envs.mujoco.termination import check_custom_termination
-from utils.cli import add_env_arg, add_seed_arg, add_verbose_arg, parse_envs, setup_logging
 from utils.paths import get_output_dir, get_root
 from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
 from utils.windows import strided_window_view
@@ -39,6 +25,8 @@ from utils.windows import strided_window_view
 setup_style()
 
 N_EPISODES = 10
+
+ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
 
 # Per-env camera settings (distance, elevation, azimuth)
 CAMERA_SETTINGS = {
@@ -344,36 +332,39 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     print(f"Saved metadata to {meta_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate Figure 1: Basis-CD score curves + rendered frames."
-    )
-    add_env_arg(parser)
-    add_seed_arg(parser, default=0)
-    add_verbose_arg(parser)
-    parser.add_argument(
-        "--eps", type=int, default=N_EPISODES,
-        help="Number of success/failure episodes to simulate (default: 5)",
-    )
-    parser.add_argument(
-        "--frame-size", type=int, default=480,
-        help="Render resolution in pixels (default: 480)",
-    )
-    parser.add_argument(
-        "--save-every", type=int, default=1,
-        help="Save every N-th frame (default: 1 = all frames)",
-    )
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    env: list[str] = ALL_ENVS,
+    seed: int = 0,
+    verbose: bool = False,
+    eps: int = N_EPISODES,
+    frame_size: int = 480,
+    save_every: int = 1,
+):
+    """Generate Figure 1: Basis-CD score curves + rendered frames.
 
-    for env_name in parse_envs(args):
+    Trains Basis-CD on fold-0 training successes from the stored dataset, then
+    samples fresh episodes with random parameters from the dataset config's
+    domain randomization ranges to produce per-timestep anomaly score curves
+    (SVG) and high-res rendered frames (PNGs) for every timestep.
+
+    Args:
+        env: Environment(s) to run (default: all).
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        eps: Number of success/failure episodes to simulate (default: 5).
+        frame_size: Render resolution in pixels (default: 480).
+        save_every: Save every N-th frame (default: 1 = all frames).
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
+    for env_name in env:
         dataset_key = f"{env_name}/test"
         if dataset_key not in DATASETS:
             print(f"No test dataset for {env_name}, skipping.")
             continue
-        run_env(env_name, args.eps, args.seed,
-                args.frame_size, args.save_every)
+        run_env(env_name, eps, seed, frame_size, save_every)
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

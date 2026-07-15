@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 
-from utils.misc import median_heuristic
+from utils.misc import median_distance
 
 from .base import Kernel
 
@@ -121,7 +121,7 @@ class GaussFFT(Kernel):
             m, n, d = X.shape
             X_mag = np.abs(np.fft.fft(X, axis=1))
             X_flat = X_mag.reshape(m, -1) / n  # normalize by n
-            self._gamma = median_heuristic(X_flat)
+            self._gamma = 1.0 / (2.0 * median_distance(X_flat) ** 2)
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 

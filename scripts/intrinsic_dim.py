@@ -1,131 +1,134 @@
 #!/usr/bin/env python3
-"""Intrinsic dimension of the H-step survival manifold, per environment.
-
-Collect all states whose episode survives for at least H more steps
-(`get_id_windows` with W=1), then estimate the intrinsic dimension via
-Two-NN (Facco et al., 2017) on B random subsamples of size `--size`.
-Plot d/obs_dim per env as a bar with error bars (mean +/- std over B).
-
-Outputs to outputs/intrinsic_dim/:
-    intrinsic_dim.pdf
-    data.npz   per (env): obs_dim, total_M, ds (B,)
-
-Usage:
-    pixi run python -m scripts.intrinsic_dim
-        [--envs ant half_cheetah hopper humanoid inv_pend upkie]
-        [--H 10] [--stride 1] [--size 5000] [--B 30]
-        [--no_cache] [--seed 42]
-"""
-
-import argparse
 import logging
 import warnings
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
+from data.dataset import survived
 from data.io import load
 from envs.info import ENV_INFO
-from eval.windowing import get_id_windows
 from utils.paths import get_output_dir
 from utils.plotting import FULL_WIDTH, setup_style
 from utils.stats import twonn
 
 logger = logging.getLogger("cd.scripts.intrinsic_dim")
 
-ALL_ENVS = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
-MIN_SAMPLES = 500
+EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend']
+ALL_ENVS: list[EnvName] = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend']
 
-ENV_COLORS = {
-    'ant':          '#CC3311',
-    'half_cheetah': '#EE7733',
-    'hopper':       '#0077BB',
-    'humanoid':     '#009988',
-    'inv_pend':     '#33BBEE',
-    'upkie':        '#AA4499',
+# Step-subsets compared per env. Each subset gets one color, shared
+# across envs. `label` is a format string over `lo`/`hi`.
+CATEGORIES = [
+    ('surv_window', 'Survived, steps {lo}–{hi}'),
+    ('all',         'All dataset steps'),
+]
+CAT_COLORS = {
+    'surv_window': '#0077BB',  # blue
+    'all':         '#009988',  # teal
 }
 
 
-def survival_states(ds, H: int, stride: int) -> np.ndarray:
-    """Flat (M, D) bag of states >= H steps from failure."""
-    win = get_id_windows(ds, W=1, stride=stride, H=H)
-    return win.reshape(-1, win.shape[-1])
+def category_states(ds, cat: str, lo: int, hi: int, stride: int) -> np.ndarray:
+    """Flat (M, D) bag of states for one category, subsampled by `stride`.
+
+    - surv_window: survivors, timesteps [lo, hi)
+    - surv_all:    survivors, all timesteps
+    - all:         every episode, all timesteps (post-failure NaN steps dropped)
+    """
+    if cat == 'surv_window':
+        X = survived(ds).X[:, lo:hi]
+    elif cat == 'surv_all':
+        X = survived(ds).X
+    elif cat == 'all':
+        X = ds.X
+    else:
+        raise ValueError(f"unknown category {cat!r}")
+    flat = X[:, ::stride].reshape(-1, X.shape[-1])
+    return flat[~np.isnan(flat).any(axis=1)]
 
 
-def bootstrap_twonn(X, size: int, B: int, rng) -> np.ndarray:
-    """Two-NN on B random subsamples of size `size` (without replacement)."""
-    size = min(size, len(X))
-    out = np.empty(B)
-    for b in range(B):
-        idx = rng.choice(len(X), size=size, replace=False)
-        out[b] = twonn(X[idx])
-    return out
-
-
-def compute(envs, H, stride, size, B, seed):
+def compute(envs, lo, hi, stride, size, seed):
     rng = np.random.default_rng(seed)
-    rows = []  # (env, total_M, obs_dim, ds: (B,))
+    rows = []  # (env, obs_dim, Ms: (n_cat,), ds: (n_cat,))
+    n_cat = len(CATEGORIES)
     for env in envs:
         ds = load(env, obs_only=True)
         obs_dim = ds.X.shape[-1]
-        X = survival_states(ds, H=H, stride=stride)
-        M = len(X)
-        if M < MIN_SAMPLES:
-            logger.warning(f"{env}: only {M} samples at H={H}, skipping")
-            rows.append((env, M, obs_dim, np.full(B, np.nan)))
-            continue
-        d_samples = bootstrap_twonn(X, size=size, B=B, rng=rng)
-        logger.info(
-            f"{env}: M={M}, d={d_samples.mean():.2f}+/-{d_samples.std():.2f}, "
-            f"d/obs_dim={d_samples.mean() / obs_dim:.3f}"
-        )
-        rows.append((env, M, obs_dim, d_samples))
+        Ms = np.empty(n_cat, dtype=int)
+        d_cat = np.empty(n_cat)
+        for j, (cat, _) in enumerate(CATEGORIES):
+            X = category_states(ds, cat, lo, hi, stride)
+            Ms[j] = M = len(X)
+            if M < size:
+                logger.warning(
+                    f"{env}/{cat}: only {M} < {size} samples, using all {M}"
+                )
+            n = min(size, M)
+            idx = rng.choice(M, size=n, replace=False)
+            d_cat[j] = twonn(X[idx])
+            logger.info(
+                f"{env:13s} {cat:11s} M={M:7d} n={n:6d}  "
+                f"d={d_cat[j]:5.2f}  d/obs_dim={d_cat[j] / obs_dim:.3f}"
+            )
+        rows.append((env, obs_dim, Ms, d_cat))
     return rows
 
 
-def save_cache(rows, path, H, size, B):
+def save_cache(rows, path, lo, hi, stride, size):
     envs = np.array([r[0] for r in rows])
-    Ms = np.array([r[1] for r in rows], dtype=int)
-    obs_dims = np.array([r[2] for r in rows], dtype=int)
-    ds = np.stack([r[3] for r in rows])  # (n_envs, B)
-    np.savez(path, envs=envs, Ms=Ms, obs_dims=obs_dims, ds=ds,
-             H=H, size=size, B=B)
+    obs_dims = np.array([r[1] for r in rows], dtype=int)
+    Ms = np.stack([r[2] for r in rows])              # (n_envs, n_cat)
+    ds = np.stack([r[3] for r in rows])              # (n_envs, n_cat)
+    cats = np.array([c for c, _ in CATEGORIES])
+    np.savez(path, envs=envs, obs_dims=obs_dims, Ms=Ms, ds=ds, cats=cats,
+             lo=lo, hi=hi, stride=stride, size=size)
 
 
 def load_cache(path):
     z = np.load(path, allow_pickle=False)
-    rows = [(e, int(M), int(o), d) for e, M, o, d
-            in zip(z['envs'], z['Ms'], z['obs_dims'], z['ds'])]
-    return rows, int(z['H']), int(z['size']), int(z['B'])
+    if 'cats' not in z.files or z['ds'].ndim != 2:
+        raise KeyError("stale cache format")
+    rows = [(e, int(o), M, d) for e, o, M, d
+            in zip(z['envs'], z['obs_dims'], z['Ms'], z['ds'])]
+    return rows, int(z['lo']), int(z['hi']), int(z['stride']), int(z['size'])
 
 
-def plot(rows, H, size, B, out_path):
-    rows = sorted(rows, key=lambda r: r[2])  # sort by obs_dim
+def plot(rows, lo, hi, stride, size, out_path):
+    rows = sorted(rows, key=lambda r: r[1])  # sort by obs_dim
     envs = [r[0] for r in rows]
-    obs_dims = np.array([r[2] for r in rows])
-    samples = np.stack([r[3] for r in rows])  # (n_envs, B)
+    obs_dims = np.array([r[1] for r in rows])
+    samples = np.stack([r[3] for r in rows])  # (n_envs, n_cat)
 
-    means = np.nanmean(samples, axis=1)
-    stds = np.nanstd(samples, axis=1)
+    # Express intrinsic dim relative to the observation dimension.
+    rel = samples / obs_dims[:, None]          # (n_envs, n_cat)
 
-    fig, ax = plt.subplots(figsize=(FULL_WIDTH * 0.6, 3.2))
+    n_cat = len(CATEGORIES)
     xs = np.arange(len(envs))
-    colors = [ENV_COLORS.get(e, 'k') for e in envs]
-    ax.bar(xs, means, yerr=stds, color=colors, capsize=4,
-           edgecolor='black', linewidth=0.5)
+    width = 0.8 / n_cat
+
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH * 0.9, 3.2))
+    for j, (cat, label) in enumerate(CATEGORIES):
+        off = (j - (n_cat - 1) / 2) * width
+        ax.bar(xs + off, rel[:, j], width,
+               color=CAT_COLORS[cat], edgecolor='black',
+               linewidth=0.5, label=label.format(lo=lo, hi=hi))
 
     ax.set_xticks(xs)
     ax.set_xticklabels(
         [f'{ENV_INFO[e].display_name}\n($d_\\mathrm{{obs}}={o}$)' for e, o in zip(envs, obs_dims)],
         fontsize=8,
     )
-    ax.set_ylabel(r'$d_\mathrm{TwoNN}$')
+    ax.set_ylabel(r'$d_\mathrm{TwoNN} / d_\mathrm{obs}$')
     ax.set_title(
-        f'Intrinsic dim of survival manifold (H={H}, {B}x subsamples of {size})',
+        f'Relative intrinsic dim by step subset (Two-NN on {size} steps, stride {stride})',
         fontsize=10, loc='left',
     )
+    ax.legend(fontsize=8, framealpha=0.9)
     ax.grid(True, axis='y', alpha=0.3)
 
     plt.tight_layout()
@@ -135,19 +138,39 @@ def plot(rows, H, size, B, out_path):
     logger.info(f"Saved {out_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--envs', nargs='+', default=ALL_ENVS, choices=ALL_ENVS)
-    parser.add_argument('--H', type=int, default=10)
-    parser.add_argument('--stride', type=int, default=1)
-    parser.add_argument('--size', type=int, default=5_000,
-                        help='Subsample size per Two-NN call.')
-    parser.add_argument('--B', type=int, default=30,
-                        help='Number of bootstrap subsamples per env.')
-    parser.add_argument('--no_cache', action='store_true')
-    parser.add_argument('--seed', type=int, default=42)
-    args = parser.parse_args()
+def report_counts(rows, stride):
+    """Log the step-pool size feeding each (env, category) estimate."""
+    logger.info(f"\nSteps used per subset (every {stride}th step, NaN dropped):")
+    header = f"{'env':13s} " + " ".join(f"{c:>11s}" for c, _ in CATEGORIES)
+    logger.info(header)
+    for row in sorted(rows, key=lambda r: r[1]):
+        env, Ms = row[0], row[2]
+        logger.info(f"{env:13s} " + " ".join(f"{m:11d}" for m in Ms))
 
+
+def main(
+    envs: list[EnvName] = ALL_ENVS,
+    lo: int = 200,
+    hi: int = 800,
+    stride: int = 5,
+    size: int = 25_000,
+    no_cache: bool = False,
+    seed: int = 42,
+):
+    """Compare per-env relative intrinsic dim across three step subsets.
+
+    For each env three bars: survivors' steps [lo, hi), survivors' full
+    trajectories, and every step in the dataset.
+
+    Args:
+        envs: Environments to include.
+        lo: Start timestep (inclusive) of the survived-window subset.
+        hi: End timestep (exclusive) of the survived-window subset.
+        stride: Step subsampling stride (decorrelates consecutive states).
+        size: Number of steps subsampled per Two-NN call (same for all bars).
+        no_cache: Recompute even if a cached data.npz exists.
+        seed: RNG seed.
+    """
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     setup_style()
 
@@ -155,17 +178,21 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = out_dir / 'data.npz'
 
-    if cache_path.exists() and not args.no_cache:
-        logger.info(f"Loading cache from {cache_path}")
-        rows, H, size, B = load_cache(cache_path)
-    else:
-        H, size, B = args.H, args.size, args.B
-        rows = compute(args.envs, H, args.stride, size, B, args.seed)
-        save_cache(rows, cache_path, H, size, B)
+    rows = None
+    if cache_path.exists() and not no_cache:
+        try:
+            rows, lo, hi, stride, size = load_cache(cache_path)
+            logger.info(f"Loaded cache from {cache_path}")
+        except KeyError:
+            logger.info("Cache format mismatch; recomputing")
+    if rows is None:
+        rows = compute(envs, lo, hi, stride, size, seed)
+        save_cache(rows, cache_path, lo, hi, stride, size)
         logger.info(f"Wrote {cache_path}")
 
-    plot(rows, H, size, B, out_dir / 'intrinsic_dim.pdf')
+    report_counts(rows, stride)
+    plot(rows, lo, hi, stride, size, out_dir / 'intrinsic_dim.pdf')
 
 
 if __name__ == '__main__':
-    main()
+    tyro.cli(main)

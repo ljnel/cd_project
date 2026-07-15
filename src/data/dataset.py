@@ -6,6 +6,8 @@ the episode survived (right-censored — no OOD within `[0, T)`); any value
 in `[0, T)` is the first OOD index.
 """
 
+from collections.abc import Set as AbstractSet
+
 import numpy as np
 
 
@@ -73,11 +75,23 @@ def prop_failed(ds):
     return (ds.fail < ds.X.shape[1]).mean()
 
 
-def stratified_split(ds, sizes, survival_only=(), seed=0):
-    """Split ds by `sizes`; failed episodes only flow into splits not in `survival_only`."""
+def stratified_split(ds, sizes, no_fail: AbstractSet[str] = frozenset(), seed=0) -> dict[str, Dataset]:
+    """Split survivors and failures independently, then merge per split.
+
+    Survivors (`fail == T`) are partitioned across all splits by `sizes`.
+    Failures (`fail < T`) are partitioned only across splits not in `no_fail`,
+    with those fractions renormalized to sum to 1, so `no_fail` splits end up
+    survivors-only. Each split is the concatenation of its two parts; the
+    strata use seeds `seed` and `seed + 1` to decorrelate them.
+
+    sizes:   {name: fraction}, fractions sum to 1.
+    no_fail: split names that receive no failed episodes (e.g. {'train'} for a
+             one-class detector that fits on nominal data only).
+    """
+    assert no_fail <= sizes.keys(), f"unknown splits in no_fail: {no_fail - sizes.keys()}"
     ss = survived(ds).split(sizes, seed=seed)
 
-    failed_sizes = {k: v for k, v in sizes.items() if k not in survival_only}
+    failed_sizes = {k: v for k, v in sizes.items() if k not in no_fail}
     total = sum(failed_sizes.values())
     if total > 0 and len(failed(ds)) > 0:
         failed_sizes = {k: v / total for k, v in failed_sizes.items()}
@@ -85,11 +99,11 @@ def stratified_split(ds, sizes, survival_only=(), seed=0):
     else:
         fs = {}
 
-    def cat(a, b):
-        if a is None:
-            return b
+    def cat(a: Dataset, b: Dataset | None) -> Dataset:
         if b is None:
             return a
         return Dataset(**{k: np.concatenate([a._a[k], b._a[k]]) for k in a._a})
 
-    return {k: cat(ss.get(k), fs.get(k)) for k in sizes}
+    # ss has every key in `sizes` (survivors are split across all of them);
+    # only fs may omit `no_fail` splits, so the survivor side is never None.
+    return {k: cat(ss[k], fs.get(k)) for k in sizes}

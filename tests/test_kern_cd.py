@@ -4,8 +4,14 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from algs.kern_cd import KernCD
+from algs.kern_cd import KernCD, rp_cholesky
 from algs.kernels import RBF, GaussFFT
+
+# Pivot rules. rp/greedy never re-select a pivot (its residual is driven to 0),
+# so they reach full rank and reproduce the exact score; uniform samples with
+# replacement, so it can repeat pivots and truncate early.
+ALL_PIVOTS = ["rp", "greedy", "uniform"]
+EXACT_PIVOTS = ["rp", "greedy"]
 
 # =============================================================================
 # Custom Kernels for Testing (support Kernel interface)
@@ -155,7 +161,7 @@ class TestBasicWorkflow:
     def test_predict_shape(self, X_train, X_test):
         """predict() should return (n_samples,) array."""
         model = KernCD(RBF(gamma=1.0)).fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
         assert scores.shape == (X_test.shape[0],)
 
     def test_lam_attribute_set_after_fit(self, X_train):
@@ -171,7 +177,7 @@ class TestBasicWorkflow:
         """predict() before fit() should raise."""
         model = KernCD(RBF(gamma=1.0))
         with pytest.raises(AttributeError):
-            model.predict(X_test)
+            model.score(X_test)
 
     def test_data_stored_after_fit(self, X_train):
         """Training data should be stored after fit."""
@@ -188,39 +194,37 @@ class TestBasicWorkflow:
 class TestRegularizationStrategies:
     """Test different regularization strategies."""
 
-    def test_scale_invariant_lambda(self, X_train):
-        """Scale-invariant reg should give lam_ = reg / m."""
-        reg = 0.05
-        model = KernCD(RBF(gamma=1.0), reg=reg)
+    def test_float_lambda_used_directly(self, X_train):
+        """A float lam is used directly as lam_ (the ridge λm scales with m)."""
+        lam = 0.05
+        model = KernCD(RBF(gamma=1.0), lam=lam)
         model.fit(X_train)
-        expected_lam = reg / len(X_train)
-        assert np.isclose(model.lam_, expected_lam)
+        assert np.isclose(model.lam_, lam)
 
-    def test_scale_invariant_different_sizes(self, rng):
-        """Scale-invariant should give same total regularization for different m."""
-        reg = 0.01
+    def test_float_lambda_independent_of_size(self, rng):
+        """A float lam gives the same lam_ regardless of sample size."""
+        lam = 0.01
         for m in [20, 50, 100]:
             X = rng.standard_normal((m, 5))
-            model = KernCD(RBF(gamma=1.0), reg=reg).fit(X)
-            total_reg = model.lam_ * m
-            assert np.isclose(total_reg, reg)
+            model = KernCD(RBF(gamma=1.0), lam=lam).fit(X)
+            assert np.isclose(model.lam_, lam)
 
     def test_adaptive_lambda_positive(self, X_train):
         """Adaptive regularization should give positive lambda."""
-        model = KernCD(RBF(gamma=1.0), reg="adaptive")
+        model = KernCD(RBF(gamma=1.0), lam="adaptive")
         model.fit(X_train)
         assert model.lam_ > 0
 
     def test_condition_lambda_positive(self, X_train):
         """Condition number regularization should give positive lambda."""
-        model = KernCD(RBF(gamma=1.0), reg="condition")
+        model = KernCD(RBF(gamma=1.0), lam="condition")
         model.fit(X_train)
         assert model.lam_ > 0
 
-    def test_invalid_reg_raises(self, X_train):
-        """Invalid reg parameter should raise ValueError."""
-        model = KernCD(RBF(gamma=1.0), reg="invalid")
-        with pytest.raises(ValueError, match="Unknown regularization"):
+    def test_invalid_lam_raises(self, X_train):
+        """Invalid lam parameter should raise ValueError."""
+        model = KernCD(RBF(gamma=1.0), lam="invalid")
+        with pytest.raises(ValueError, match="Unknown lam strategy"):
             model.fit(X_train)
 
 
@@ -249,9 +253,9 @@ class TestFittableKernelIntegration:
     def test_end_to_end_with_median_gamma(self, X_train, X_test):
         """Full workflow with gamma='median' should work."""
         kernel = RBF(gamma="median")
-        model = KernCD(kernel, reg="adaptive")
+        model = KernCD(kernel, lam="adaptive")
         model.fit(X_train)
-        scores = model.predict(X_test)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
         assert kernel.gamma > 0
@@ -260,9 +264,9 @@ class TestFittableKernelIntegration:
     def test_gaussfft_integration(self, X_signals, X_signals_test):
         """Should work with GaussFFT kernel."""
         kernel = GaussFFT(gamma="median")
-        model = KernCD(kernel, reg="adaptive")
+        model = KernCD(kernel, lam="adaptive")
         model.fit(X_signals)
-        scores = model.predict(X_signals_test)
+        scores = model.score(X_signals_test)
 
         assert scores.shape == (X_signals_test.shape[0],)
         assert np.all(np.isfinite(scores))
@@ -278,32 +282,32 @@ class TestMathematicalProperties:
 
     def test_scores_finite(self, X_train, X_test):
         """Scores should be finite (no NaN or Inf)."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
+        scores = model.score(X_test)
         assert np.all(np.isfinite(scores))
 
     def test_scores_nonnegative(self, X_train, X_test):
         """Scores should be non-negative for PSD kernels."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
+        scores = model.score(X_test)
         # Allow small negative values due to numerical errors
         assert np.all(scores >= -1e-10)
 
     def test_cholesky_factorization_correct(self, X_train):
         """L @ L.T should equal the regularized kernel matrix."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
         reconstructed = model.L @ model.L.T
         assert np.allclose(reconstructed, model.K)
 
     def test_kernel_matrix_symmetric(self, X_train):
         """Stored kernel matrix should be symmetric."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
         assert np.allclose(model.K, model.K.T)
 
     def test_kernel_matrix_positive_definite(self, sample_data_2d, kernel):
         """Kernel matrix should be positive definite after fit."""
         X, _, _ = sample_data_2d
-        model = KernCD(kernel=kernel, reg=0.01).fit(X)
+        model = KernCD(kernel=kernel, lam=0.01).fit(X)
 
         eigenvalues = np.linalg.eigvalsh(model.K)
         assert np.all(eigenvalues > 0), (
@@ -312,9 +316,9 @@ class TestMathematicalProperties:
 
     def test_training_scores_lower_than_outliers(self, X_train, X_outliers):
         """Training points should generally score lower than outliers."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        train_scores = model.predict(X_train)
-        outlier_scores = model.predict(X_outliers)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
+        train_scores = model.score(X_train)
+        outlier_scores = model.score(X_outliers)
 
         # Mean outlier score should be higher
         assert np.mean(outlier_scores) > np.mean(train_scores)
@@ -332,7 +336,7 @@ class TestCholeskyValidity:
         """Verify L @ L.T = K_reg after rank-one update."""
         X, x_new, _ = sample_data_2d
 
-        model = KernCD(kernel=kernel, reg=0.01)
+        model = KernCD(kernel=kernel, lam=0.01)
         model.fit(X)
         model.update(x_new)
 
@@ -349,7 +353,7 @@ class TestCholeskyValidity:
         """Verify L remains lower triangular after update."""
         X, x_new, _ = sample_data_2d
 
-        model = KernCD(kernel=kernel, reg=0.01)
+        model = KernCD(kernel=kernel, lam=0.01)
         model.fit(X)
         model.update(x_new)
 
@@ -361,7 +365,7 @@ class TestCholeskyValidity:
         """Verify L has positive diagonal entries after update."""
         X, x_new, _ = sample_data_2d
 
-        model = KernCD(kernel=kernel, reg=0.01)
+        model = KernCD(kernel=kernel, lam=0.01)
         model.fit(X)
         model.update(x_new)
 
@@ -375,7 +379,7 @@ class TestCholeskyValidity:
         np.random.seed(789)
         X_new = np.random.randn(5, 2)
 
-        model = KernCD(kernel=kernel, reg=0.01)
+        model = KernCD(kernel=kernel, lam=0.01)
         model.fit(X)
 
         for x in X_new:
@@ -400,28 +404,27 @@ class TestUpdateVsRefit:
     """Tests that verify update produces equivalent results to refitting."""
 
     def test_exact_update_matches_refit(self, sample_data_2d, kernel):
-        """Verify exact=True update produces similar results to refitting.
+        """Verify exact=True update produces results matching a full refit.
 
-        Note: With scale-invariant regularization (reg=float), lambda changes
-        with sample size (lam = reg/m), so exact update won't perfectly match
-        refit. We use a tolerance that accounts for this.
+        With a float lam, lam_ is the same constant for both models, and the
+        exact update re-regularizes the existing diagonal to λ(m+1), matching
+        the refit. A modest tolerance covers residual floating-point error.
         """
         X, x_new, X_test = sample_data_2d
 
         # Method 1: Update existing model with exact=True
-        model_update = KernCD(kernel=kernel, reg=0.01)
+        model_update = KernCD(kernel=kernel, lam=0.01)
         model_update.fit(X)
         model_update.update(x_new, exact=True)
-        pred_update = model_update.predict(X_test)
+        pred_update = model_update.score(X_test)
 
         # Method 2: Refit from scratch on augmented data
         X_augmented = np.vstack([X, x_new])
-        model_refit = KernCD(kernel=kernel, reg=0.01)
+        model_refit = KernCD(kernel=kernel, lam=0.01)
         model_refit.fit(X_augmented)
-        pred_refit = model_refit.predict(X_test)
+        pred_refit = model_refit.score(X_test)
 
-        # With scale-invariant reg, lambda differs slightly (reg/m vs reg/(m+1))
-        # so we allow some tolerance
+        # lam_ is identical for both models; allow tolerance for float error
         assert_allclose(
             pred_update,
             pred_refit,
@@ -435,16 +438,16 @@ class TestUpdateVsRefit:
         X, x_new, X_test = sample_data_2d
 
         # Method 1: Approximate update
-        model_update = KernCD(kernel=kernel, reg=0.01)
+        model_update = KernCD(kernel=kernel, lam=0.01)
         model_update.fit(X)
         model_update.update(x_new, exact=False)
-        pred_update = model_update.predict(X_test)
+        pred_update = model_update.score(X_test)
 
         # Method 2: Refit from scratch
         X_augmented = np.vstack([X, x_new])
-        model_refit = KernCD(kernel=kernel, reg=0.01)
+        model_refit = KernCD(kernel=kernel, lam=0.01)
         model_refit.fit(X_augmented)
-        pred_refit = model_refit.predict(X_test)
+        pred_refit = model_refit.score(X_test)
 
         # Allow larger tolerance due to regularization approximation
         assert_allclose(
@@ -459,7 +462,7 @@ class TestUpdateVsRefit:
         """Verify data array is correctly augmented after update."""
         X, x_new, _ = sample_data_2d
 
-        model = KernCD(kernel=kernel, reg=0.01)
+        model = KernCD(kernel=kernel, lam=0.01)
         model.fit(X)
 
         m_before = len(model.data)
@@ -473,16 +476,16 @@ class TestUpdateVsRefit:
 
 
 # =============================================================================
-# Update/Downdate Functionality
+# Update Functionality
 # =============================================================================
 
 
-class TestUpdateDowndate:
-    """Test online update and downdate functionality."""
+class TestUpdate:
+    """Test online update functionality."""
 
     def test_update_increases_data_size(self, X_train, rng):
         """update() should add one point to data."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
         initial_size = len(model.data)
 
         x_new = rng.standard_normal((1, X_train.shape[1]))
@@ -492,7 +495,7 @@ class TestUpdateDowndate:
 
     def test_update_matrices_grow(self, X_train, rng):
         """update() should grow K and L matrices."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
         m = len(X_train)
 
         x_new = rng.standard_normal((1, X_train.shape[1]))
@@ -503,7 +506,7 @@ class TestUpdateDowndate:
 
     def test_update_only_accepts_single_point(self, X_train, rng):
         """update() should reject multiple points."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
 
         X_new = rng.standard_normal((3, X_train.shape[1]))
         with pytest.raises(ValueError, match="single data point"):
@@ -513,7 +516,7 @@ class TestUpdateDowndate:
         """Verify 1D input is handled correctly."""
         X, x_new, _ = sample_data_1d
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01)
+        model = KernCD(RBF(gamma=1.0), lam=0.01)
         model.fit(X)
 
         # Pass as 1D array
@@ -523,7 +526,7 @@ class TestUpdateDowndate:
 
     def test_batch_update(self, X_train, rng):
         """batch_update() should add multiple points."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
         initial_size = len(model.data)
 
         X_new = rng.standard_normal((5, X_train.shape[1]))
@@ -538,17 +541,17 @@ class TestUpdateDowndate:
         X_new = np.random.randn(3, 2)
 
         # Method 1: Batch update
-        model_batch = KernCD(kernel=kernel, reg=0.01)
+        model_batch = KernCD(kernel=kernel, lam=0.01)
         model_batch.fit(X)
         model_batch.batch_update(X_new)
-        pred_batch = model_batch.predict(X_test)
+        pred_batch = model_batch.score(X_test)
 
         # Method 2: Sequential updates
-        model_seq = KernCD(kernel=kernel, reg=0.01)
+        model_seq = KernCD(kernel=kernel, lam=0.01)
         model_seq.fit(X)
         for x in X_new:
             model_seq.update(x.reshape(1, -1))
-        pred_seq = model_seq.predict(X_test)
+        pred_seq = model_seq.score(X_test)
 
         assert_allclose(
             pred_batch,
@@ -557,92 +560,6 @@ class TestUpdateDowndate:
             atol=1e-10,
             err_msg="Batch update differs from sequential updates",
         )
-
-    def test_downdate_decreases_data_size(self, X_train):
-        """downdate() should remove one point from data."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        initial_size = len(model.data)
-
-        model.downdate(0)
-
-        assert len(model.data) == initial_size - 1
-
-    def test_downdate_matrices_shrink(self, X_train):
-        """downdate() should shrink K and L matrices."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        m = len(X_train)
-
-        model.downdate(0)
-
-        assert model.K.shape == (m - 1, m - 1)
-        assert model.L.shape == (m - 1, m - 1)
-
-    def test_downdate_cholesky_validity(self, sample_data_2d, kernel):
-        """Verify Cholesky is valid after downdate."""
-        X, _, _ = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-        model.downdate(5)  # Remove middle point
-
-        K_reconstructed = model.L @ model.L.T
-        assert_allclose(
-            K_reconstructed,
-            model.K,
-            rtol=1e-10,
-            atol=1e-10,
-            err_msg="Cholesky invalid after downdate",
-        )
-
-    def test_downdate_then_update_roundtrip(self, sample_data_2d, kernel):
-        """Test removing then re-adding a point."""
-        X, _, X_test = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-        pred_original = model.predict(X_test)
-
-        # Remove last point
-        x_removed = model.data[-1:].copy()
-        model.downdate(len(model.data) - 1)
-
-        # Re-add with exact update to match original regularization
-        model.update(x_removed, exact=True)
-        pred_roundtrip = model.predict(X_test)
-
-        # Should be close (not exact due to regularization changes)
-        assert_allclose(
-            pred_original,
-            pred_roundtrip,
-            rtol=0.2,
-            atol=0.2,
-            err_msg="Roundtrip update/downdate diverged significantly",
-        )
-
-    def test_downdate_invalid_index_raises(self, X_train):
-        """downdate() with invalid index should raise IndexError."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-
-        with pytest.raises(IndexError):
-            model.downdate(len(X_train))  # out of bounds
-
-    def test_downdate_negative_index_raises(self, sample_data_2d, kernel):
-        """downdate() with negative index should raise IndexError."""
-        X, _, _ = sample_data_2d
-
-        model = KernCD(kernel=kernel, reg=0.01)
-        model.fit(X)
-
-        with pytest.raises(IndexError):
-            model.downdate(-1)
-
-    def test_downdate_single_point_raises(self, rng):
-        """downdate() on single-point model should raise ValueError."""
-        X = rng.standard_normal((1, 5))
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-
-        with pytest.raises(ValueError, match="only one data point"):
-            model.downdate(0)
 
 
 # =============================================================================
@@ -659,7 +576,7 @@ class TestBorderExtensionFormula:
         kernel = RBF(gamma=1.0)
         reg = 0.01
 
-        model = KernCD(kernel=kernel, reg=reg)
+        model = KernCD(kernel=kernel, lam=reg)
         model.fit(X)
 
         m = len(X)
@@ -708,10 +625,10 @@ class TestAnomalyDetection:
         # Outliers: shifted far away
         X_outliers = rng.standard_normal((50, 5)) + 5.0
 
-        model = KernCD(RBF(gamma="median"), reg="adaptive").fit(X_train)
+        model = KernCD(RBF(gamma="median"), lam="adaptive").fit(X_train)
 
-        inlier_scores = model.predict(X_inliers)
-        outlier_scores = model.predict(X_outliers)
+        inlier_scores = model.score(X_inliers)
+        outlier_scores = model.score(X_outliers)
 
         # Outliers should score higher on average
         assert np.mean(outlier_scores) > np.mean(inlier_scores)
@@ -721,13 +638,13 @@ class TestAnomalyDetection:
 
     def test_extreme_outliers_score_very_high(self, X_train):
         """Extreme outliers should have higher scores than training points."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
 
         # Extreme outlier
         x_extreme = np.ones((1, X_train.shape[1])) * 100
 
-        score_extreme = model.predict(x_extreme)[0]
-        train_scores = model.predict(X_train)
+        score_extreme = model.score(x_extreme)[0]
+        train_scores = model.score(X_train)
 
         # Extreme outlier should score higher than all training points
         assert score_extreme > np.max(train_scores)
@@ -746,8 +663,8 @@ class TestEdgeCases:
         X = rng.standard_normal((5, 3))
         X_test = rng.standard_normal((3, 3))
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X)
+        scores = model.score(X_test)
 
         assert scores.shape == (3,)
         assert np.all(np.isfinite(scores))
@@ -757,8 +674,8 @@ class TestEdgeCases:
         X = rng.standard_normal((2, 3))
         X_test = rng.standard_normal((5, 3))
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -767,8 +684,8 @@ class TestEdgeCases:
         X = rng.standard_normal((10, 50))  # m < d
         X_test = rng.standard_normal((5, 50))
 
-        model = KernCD(RBF(gamma=0.01), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=0.01), lam=0.01).fit(X)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -778,8 +695,8 @@ class TestEdgeCases:
         X = np.vstack([X, X[:5]])  # add duplicates
         X_test = rng.standard_normal((10, 5))
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X)
-        scores = model.predict(X_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X)
+        scores = model.score(X_test)
 
         assert np.all(np.isfinite(scores))
 
@@ -787,8 +704,8 @@ class TestEdgeCases:
         """Should work with single test point."""
         x_test = rng.standard_normal((1, X_train.shape[1]))
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01).fit(X_train)
-        scores = model.predict(x_test)
+        model = KernCD(RBF(gamma=1.0), lam=0.01).fit(X_train)
+        scores = model.score(x_test)
 
         assert scores.shape == (1,)
 
@@ -797,7 +714,7 @@ class TestEdgeCases:
         X, x_new, X_test = sample_data_2d
 
         # Very small regularization
-        model = KernCD(RBF(gamma=1.0), reg=1e-6)
+        model = KernCD(RBF(gamma=1.0), lam=1e-6)
         model.fit(X)
         model.update(x_new)
 
@@ -809,12 +726,12 @@ class TestEdgeCases:
         """Test with large regularization parameter."""
         X, x_new, X_test = sample_data_2d
 
-        model = KernCD(RBF(gamma=1.0), reg=1.0)
+        model = KernCD(RBF(gamma=1.0), lam=1.0)
         model.fit(X)
         model.update(x_new)
 
         # Should work fine with large regularization
-        pred = model.predict(X_test)
+        pred = model.score(X_test)
         assert not np.any(np.isnan(pred)), "NaN in predictions"
         assert not np.any(np.isinf(pred)), "Inf in predictions"
 
@@ -822,7 +739,7 @@ class TestEdgeCases:
         """Test update works in high dimensions."""
         X, x_new, X_test = sample_data_high_dim
 
-        model = KernCD(RBF(gamma=0.1), reg=0.01)
+        model = KernCD(RBF(gamma=0.1), lam=0.01)
         model.fit(X)
         model.update(x_new)
 
@@ -841,16 +758,16 @@ class TestNumericalStability:
     def test_no_nan_in_predictions(self, X_train, X_test):
         """Predictions should never contain NaN."""
         for reg in [0.001, 0.01, 0.1, "adaptive", "condition"]:
-            model = KernCD(RBF(gamma=1.0), reg=reg).fit(X_train)
-            scores = model.predict(X_test)
-            assert not np.any(np.isnan(scores)), f"NaN with reg={reg}"
+            model = KernCD(RBF(gamma=1.0), lam=reg).fit(X_train)
+            scores = model.score(X_test)
+            assert not np.any(np.isnan(scores)), f"NaN with lam={reg}"
 
     def test_no_inf_in_predictions(self, X_train, X_test):
         """Predictions should never contain Inf."""
         for reg in [0.001, 0.01, 0.1, "adaptive", "condition"]:
-            model = KernCD(RBF(gamma=1.0), reg=reg).fit(X_train)
-            scores = model.predict(X_test)
-            assert not np.any(np.isinf(scores)), f"Inf with reg={reg}"
+            model = KernCD(RBF(gamma=1.0), lam=reg).fit(X_train)
+            scores = model.score(X_test)
+            assert not np.any(np.isinf(scores)), f"Inf with lam={reg}"
 
     def test_different_data_scales(self, rng):
         """Should work with data at different scales."""
@@ -858,8 +775,8 @@ class TestNumericalStability:
             X = rng.standard_normal((30, 5)) * scale
             X_test = rng.standard_normal((10, 5)) * scale
 
-            model = KernCD(RBF(gamma="median"), reg="adaptive").fit(X)
-            scores = model.predict(X_test)
+            model = KernCD(RBF(gamma="median"), lam="adaptive").fit(X)
+            scores = model.score(X_test)
 
             assert np.all(np.isfinite(scores)), f"Non-finite with scale={scale}"
 
@@ -870,7 +787,7 @@ class TestNumericalStability:
         X = np.vstack([X, X + 1e-10])  # near-duplicates
 
         # Should not raise LinAlgError
-        model = KernCD(RBF(gamma=1.0), reg="adaptive").fit(X)
+        model = KernCD(RBF(gamma=1.0), lam="adaptive").fit(X)
         assert model.L is not None
 
 
@@ -896,7 +813,7 @@ class TestKernelConsistency:
         ]
 
         for kern in kernels:
-            model = KernCD(kernel=kern, reg=0.01)
+            model = KernCD(kernel=kern, lam=0.01)
             model.fit(X)
             model.update(x_new)
 
@@ -923,7 +840,7 @@ class TestStress:
         X, _, X_test = sample_data_2d
         np.random.seed(999)
 
-        model = KernCD(RBF(gamma=1.0), reg=0.01)
+        model = KernCD(RBF(gamma=1.0), lam=0.01)
         model.fit(X)
 
         # Add 50 points sequentially
@@ -943,7 +860,7 @@ class TestStress:
                 )
 
         # Final prediction should not have NaN/Inf
-        pred = model.predict(X_test)
+        pred = model.score(X_test)
         assert not np.any(np.isnan(pred)), "NaN after many updates"
         assert not np.any(np.isinf(pred)), "Inf after many updates"
 
@@ -954,7 +871,7 @@ class TestStress:
         x_new = np.array([[0.0025]])
 
         # Should work with sufficient regularization
-        model = KernCD(RBF(gamma=10.0), reg=0.1)
+        model = KernCD(RBF(gamma=10.0), lam=0.1)
         model.fit(X)
         model.update(x_new)
 
@@ -983,24 +900,257 @@ class TestSklearnCompatibility:
         model = KernCD(RBF(gamma=1.0))
         assert isinstance(model, BaseEstimator)
 
-    def test_reg_attribute_matches_init(self):
-        """reg attribute should match init parameter."""
-        model = KernCD(RBF(gamma=1.0), reg=0.05)
-        assert model.reg == 0.05
+    def test_lam_attribute_matches_init(self):
+        """lam attribute should match init parameter."""
+        model = KernCD(RBF(gamma=1.0), lam=0.05)
+        assert model.lam == 0.05
 
     def test_can_refit(self, X_train, rng):
-        """Should be able to fit multiple times."""
-        model = KernCD(RBF(gamma=1.0), reg=0.01)
+        """Should be able to fit multiple times, re-fitting on the new data."""
+        model = KernCD(RBF(gamma=1.0), lam=0.01)
 
         model.fit(X_train)
-        lam1 = model.lam_
+        assert len(model.data) == len(X_train)
 
         X_train2 = rng.standard_normal((30, 5))
         model.fit(X_train2)
-        lam2 = model.lam_
+        # Refit replaces the stored data; a float lam is used directly.
+        assert len(model.data) == len(X_train2)
+        assert np.isclose(model.lam_, 0.01)
 
-        # Lambda should be different for different data
-        assert lam1 != lam2
+
+# =============================================================================
+# Low-Rank Approximation: rp_cholesky factorization
+# =============================================================================
+
+
+class TestRPCholesky:
+    """Tests for the standalone partial pivoted Cholesky factorization."""
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_shapes_and_pivot_indices(self, X_train, pivot):
+        """F is (m, r'), pivots index into X, and r' <= requested rank."""
+        F, pivots = rp_cholesky(
+            RBF(gamma=1.0), X_train, rank=10, pivot=pivot, rng=np.random.default_rng(0)
+        )
+        assert F.shape[0] == len(X_train)
+        assert F.shape[1] == len(pivots)
+        assert F.shape[1] <= 10
+        assert np.all((pivots >= 0) & (pivots < len(X_train)))
+
+    def test_full_rank_recovers_kernel_matrix(self, X_train):
+        """At full rank, F @ F.T reconstructs K (greedy/rp reach full rank)."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        for pivot in EXACT_PIVOTS:
+            F, _ = rp_cholesky(
+                kernel, X_train, rank=len(X_train), pivot=pivot,
+                rng=np.random.default_rng(0),
+            )
+            assert_allclose(
+                F @ F.T, K, atol=1e-6,
+                err_msg=f"F @ F.T != K at full rank for pivot={pivot}",
+            )
+
+    def test_pivot_rows_are_cholesky_of_pivot_gram(self, X_train):
+        """F[pivots] is lower-triangular and equals chol(K[pivots][:, pivots])."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        F, pivots = rp_cholesky(
+            kernel, X_train, rank=15, pivot="greedy", rng=np.random.default_rng(0)
+        )
+        Lpiv = F[pivots]
+        assert_allclose(Lpiv, np.tril(Lpiv), atol=1e-10)
+        assert_allclose(Lpiv @ Lpiv.T, K[np.ix_(pivots, pivots)], atol=1e-8)
+
+    def test_greedy_residual_monotone_nonincreasing(self, X_train):
+        """Greedy is deterministic; residual trace decreases with rank to ~0."""
+        kernel = RBF(gamma=1.0)
+        K = kernel(X_train)
+        trace_K = np.trace(K)
+        prev = trace_K + 1.0
+        for r in [1, 3, 5, 10, 20, len(X_train)]:
+            F, _ = rp_cholesky(kernel, X_train, rank=r, pivot="greedy")
+            residual = trace_K - np.trace(F @ F.T)
+            assert residual >= -1e-9, f"negative residual {residual} at rank {r}"
+            assert residual <= prev + 1e-9, f"residual increased at rank {r}"
+            prev = residual
+        assert prev < 1e-6, f"residual not driven to ~0 at full rank: {prev}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_reproducible_with_seed(self, X_train, pivot):
+        """Same seed -> identical pivots and factor."""
+        F1, p1 = rp_cholesky(
+            RBF(gamma=1.0), X_train, 10, pivot=pivot, rng=np.random.default_rng(7)
+        )
+        F2, p2 = rp_cholesky(
+            RBF(gamma=1.0), X_train, 10, pivot=pivot, rng=np.random.default_rng(7)
+        )
+        assert np.array_equal(p1, p2)
+        assert_allclose(F1, F2)
+
+    def test_invalid_pivot_raises(self, X_train):
+        with pytest.raises(ValueError, match="Unknown pivot rule"):
+            rp_cholesky(RBF(gamma=1.0), X_train, 10, pivot="bogus")
+
+    def test_rank_deficient_kernel_truncates(self, rng):
+        """A genuinely low-rank kernel (linear, K = X Xᵀ, rank <= d) truncates
+        early but still reproduces K exactly."""
+        X = rng.standard_normal((30, 4))
+        kernel = LinearKernel(c=0.0)
+        F, pivots = rp_cholesky(kernel, X, rank=20, pivot="greedy")
+        assert len(pivots) <= 5  # numerical rank ~ d=4
+        assert_allclose(F @ F.T, kernel(X), atol=1e-6)
+
+    def test_rng_none_runs(self, X_train):
+        """rng=None uses a fresh default generator (no shared-state default-arg)."""
+        F, pivots = rp_cholesky(RBF(gamma=1.0), X_train, rank=10)
+        assert np.all(np.isfinite(F))
+        assert len(pivots) <= 10
+
+
+# =============================================================================
+# Low-Rank Approximation: KernCD low-rank path
+# =============================================================================
+
+
+class TestLowRankKernCD:
+    """Tests for KernCD's pivoted-Cholesky low-rank scoring path."""
+
+    @pytest.mark.parametrize("pivot", EXACT_PIVOTS)
+    def test_full_rank_matches_exact(self, X_train, X_test, pivot):
+        """Low-rank score at full rank reproduces the exact KernCD score.
+
+        Covers RBF (full-rank K) and polynomial/linear (genuinely low-rank K,
+        reproduced exactly at numerical rank < m)."""
+        kernels = [RBF(gamma=1.0), RBF(gamma=0.5), PolynomialKernel(degree=2, c=1.0)]
+        for kern in kernels:
+            exact = KernCD(kern, lam=0.01).fit(X_train)
+            approx = KernCD(
+                kern, lam=0.01, rank=len(X_train), pivot=pivot,
+                rng=np.random.default_rng(0),
+            ).fit(X_train)
+            assert_allclose(
+                approx.score(X_test), exact.score(X_test),
+                rtol=1e-5, atol=1e-6,
+                err_msg=f"{kern.__class__.__name__}/{pivot} != exact at full rank",
+            )
+
+    def test_low_rank_kernel_exact_below_m(self, rng):
+        """For a rank-deficient kernel, even rank < m reproduces the exact score
+        (the approximation is exact at the numerical rank)."""
+        X = rng.standard_normal((40, 5))
+        X_test = rng.standard_normal((10, 5))
+        kernel = LinearKernel(c=0.0)
+        exact = KernCD(kernel, lam=0.01).fit(X)
+        approx = KernCD(kernel, lam=0.01, rank=40, pivot="greedy").fit(X)
+        assert approx.pivots_.shape[0] <= 6  # truncated to ~d=5
+        assert_allclose(approx.score(X_test), exact.score(X_test), rtol=1e-6, atol=1e-8)
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_score_shape_and_finite(self, X_train, X_test, pivot):
+        model = KernCD(
+            RBF(gamma=1.0), lam=0.01, rank=15, pivot=pivot, rng=np.random.default_rng(1)
+        ).fit(X_train)
+        scores = model.score(X_test)
+        assert scores.shape == (len(X_test),)
+        assert np.all(np.isfinite(scores))
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_score_nonnegative(self, X_train, X_test, pivot):
+        model = KernCD(
+            RBF(gamma=1.0), lam=0.01, rank=20, pivot=pivot, rng=np.random.default_rng(2)
+        ).fit(X_train)
+        scores = model.score(X_test)
+        assert np.all(scores >= -1e-8)
+
+    @pytest.mark.parametrize("pivot,min_corr", [("rp", 0.9), ("greedy", 0.85)])
+    def test_moderate_rank_approximates_exact(self, pivot, min_corr, rng):
+        """At half rank, rp/greedy correlate strongly with the exact score on a
+        mix of inliers and outliers."""
+        X = rng.standard_normal((80, 5))
+        X_eval = np.vstack(
+            [rng.standard_normal((30, 5)), rng.standard_normal((30, 5)) + 6.0]
+        )
+        exact = KernCD(RBF(gamma="median"), lam=0.01).fit(X)
+        approx = KernCD(
+            RBF(gamma="median"), lam=0.01, rank=40, pivot=pivot,
+            rng=np.random.default_rng(3),
+        ).fit(X)
+        corr = np.corrcoef(exact.score(X_eval), approx.score(X_eval))[0, 1]
+        assert corr > min_corr, f"{pivot}: corr={corr:.4f} below {min_corr}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_higher_rank_improves_approximation(self, pivot, rng):
+        """Relative error to the exact score shrinks as rank grows."""
+        X = rng.standard_normal((80, 5))
+        X_eval = rng.standard_normal((25, 5))
+        exact_scores = KernCD(RBF(gamma=1.0), lam=0.01).fit(X).score(X_eval)
+        denom = np.mean(np.abs(exact_scores))
+
+        def rel_err(rank):
+            s = KernCD(
+                RBF(gamma=1.0), lam=0.01, rank=rank, pivot=pivot,
+                rng=np.random.default_rng(4),
+            ).fit(X).score(X_eval)
+            return np.mean(np.abs(s - exact_scores)) / denom
+
+        err_low, err_high = rel_err(5), rel_err(60)
+        assert err_high < err_low, f"{pivot}: err(60)={err_high} !< err(5)={err_low}"
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_anomaly_detection(self, pivot, rng):
+        """Low-rank scores still separate outliers from inliers."""
+        X_train = rng.standard_normal((100, 5))
+        X_in = rng.standard_normal((50, 5))
+        X_out = rng.standard_normal((50, 5)) + 5.0
+        model = KernCD(
+            RBF(gamma="median"), lam=0.01, rank=50, pivot=pivot,
+            rng=np.random.default_rng(5),
+        ).fit(X_train)
+        assert np.mean(model.score(X_out)) > np.mean(model.score(X_in))
+
+    def test_attributes_set_after_fit(self, X_train):
+        model = KernCD(
+            RBF(gamma=1.0), lam=0.01, rank=12, pivot="rp", rng=np.random.default_rng(0)
+        ).fit(X_train)
+        assert hasattr(model, "pivots_") and hasattr(model, "Lpiv_")
+        assert hasattr(model, "R_") and hasattr(model, "sigma2_")
+        assert model.pivots_.shape[0] <= 12
+        assert not hasattr(model, "L")  # exact-only attribute must not leak in
+        assert np.isclose(model.lam_, 0.01)
+        assert np.isclose(model.sigma2_, 0.01 * len(X_train))
+
+    @pytest.mark.parametrize("pivot", ALL_PIVOTS)
+    def test_estimator_reproducible_with_seed(self, X_train, X_test, pivot):
+        def run():
+            return KernCD(
+                RBF(gamma=1.0), lam=0.01, rank=15, pivot=pivot,
+                rng=np.random.default_rng(9),
+            ).fit(X_train).score(X_test)
+
+        assert_allclose(run(), run())
+
+    def test_string_reg_with_rank_raises(self, X_train):
+        for reg in ["adaptive", "condition"]:
+            with pytest.raises(ValueError, match="full kernel matrix"):
+                KernCD(RBF(gamma=1.0), lam=reg, rank=10).fit(X_train)
+
+    def test_invalid_pivot_via_estimator_raises(self, X_train):
+        with pytest.raises(ValueError, match="Unknown pivot rule"):
+            KernCD(RBF(gamma=1.0), lam=0.01, rank=10, pivot="nope").fit(X_train)
+
+    def test_update_raises_in_low_rank_mode(self, X_train, rng):
+        model = KernCD(RBF(gamma=1.0), lam=0.01, rank=10).fit(X_train)
+        x_new = rng.standard_normal((1, X_train.shape[1]))
+        with pytest.raises(NotImplementedError, match="exact path"):
+            model.update(x_new)
+        with pytest.raises(NotImplementedError, match="exact path"):
+            model.batch_update(rng.standard_normal((3, X_train.shape[1])))
+
+    def test_rng_none_runs(self, X_train, X_test):
+        model = KernCD(RBF(gamma=1.0), lam=0.01, rank=10, pivot="rp").fit(X_train)
+        assert np.all(np.isfinite(model.score(X_test)))
 
 
 if __name__ == "__main__":

@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
-"""Deployment evaluation with max-conformal calibration (z-score normalization).
-
-For each detector method, fits on training data, computes per-timestep
-score normalization from norm-cal, sets a max-conformal threshold from
-thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
-
-Usage:
-    python -m scripts.deployment_quality --env hopper
-    python -m scripts.deployment_quality --env all
-    python -m scripts.deployment_quality --env hopper --methods fft basis dist
-"""
-
-import argparse
 import gc
+import logging
 import warnings
 
 import numpy as np
+import tyro
 
 warnings.filterwarnings("ignore")
 
@@ -24,23 +13,28 @@ from config.tasks import TASK_CONFIGS
 from data.dataset import failed, stratified_split, survived
 from data.io import load
 from data.processing import normalize_channels
-from utils.cli import add_common_args, parse_envs, parse_methods, setup_logging
 from utils.paths import get_output_dir
 from utils.windows import strided_window_view
+
+ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
+DEFAULT_METHODS = ['rec', 'knn', 'iforest', 'fft', 'sig', 'basis', 'dist']
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
-                   batch_size: int = 50):
+                   batch_size: int = 50, fail: np.ndarray | None = None):
     """Score each episode with sliding window at given stride.
 
-    Windows containing any NaN (post-failure samples per the convention)
-    are skipped; their score slot is NaN. Detector only sees clean windows.
+    A window is scored iff it is in-distribution: its end index is at or
+    before the episode's failure (`end <= fail`); everything past failure is
+    skipped (score slot = NaN). When `fail` is None (survivor/calibration
+    sets), every window is scored. A `~isnan` guard additionally drops windows
+    with non-finite samples.
 
     Returns
     -------
     all_scores : list of ndarray, one per episode (n_windows,) with NaN
-                 where the window contained missing data.
+                 where the window was out-of-distribution or non-finite.
     timesteps : ndarray of window-end positions.
     """
     win = detector.window
@@ -54,6 +48,9 @@ def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
         batch = episodes[start:start + batch_size]
         windows = strided_window_view(batch, win, stride=stride)  # (B, n_win, win, D)
         valid = ~np.isnan(windows).any(axis=(-1, -2))             # (B, n_win)
+        if fail is not None:
+            batch_fail = fail[start:start + batch_size]
+            valid &= timesteps[None, :] <= batch_fail[:, None]
         scores = np.full(valid.shape, np.nan, dtype=np.float64)
         if valid.any():
             scores[valid] = detector.score_samples(windows[valid])
@@ -135,9 +132,11 @@ def evaluate_method(
     q_corrected = min(np.ceil((n_cal + 1) * (1 - alpha)) / n_cal, 1.0)
     threshold = float(np.quantile(per_ep_max, q_corrected))
 
-    # Score test episodes
+    # Score test episodes. Failed episodes carry real post-failure samples, so
+    # mask windows past their failure index; survivors have none to mask.
     survival_scores_raw, _ = score_episodes(detector, X_te_survived, stride=stride)
-    failure_scores_raw, _ = score_episodes(detector, X_te_failed, stride=stride)
+    failure_scores_raw, _ = score_episodes(detector, X_te_failed, stride=stride,
+                                           fail=fail_steps)
     survival_scores = normalize(survival_scores_raw)
     failure_scores = normalize(failure_scores_raw)
 
@@ -172,7 +171,7 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     splits = stratified_split(
         ds,
         {'train': 0.4, 'norm_cal': 0.2, 'thresh_cal': 0.2, 'test': 0.2},
-        survival_only=('train', 'norm_cal', 'thresh_cal'),
+        no_fail={'train', 'norm_cal', 'thresh_cal'},
         seed=seed,
     )
     splits = normalize_channels(splits, fit_on='train')
@@ -286,24 +285,34 @@ def run_env(env_name: str, method_keys: list[str], seed: int,
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Deployment evaluation with max-conformal calibration"
-    )
-    add_common_args(parser)
-    parser.add_argument("--alpha", type=float, default=0.1,
-                        help="Target FPR level (default: 0.1)")
-    parser.add_argument("--stride", type=int, default=5,
-                        help="Scoring stride (default: 5)")
-    args = parser.parse_args()
-    setup_logging(args)
+def main(
+    env: list[str] = ALL_ENVS,
+    methods: list[str] = DEFAULT_METHODS,
+    seed: int = 42,
+    verbose: bool = False,
+    alpha: float = 0.1,
+    stride: int = 5,
+):
+    """Deployment evaluation with max-conformal calibration.
 
-    envs = parse_envs(args)
-    method_keys = parse_methods(args)
+    For each detector method, fits on training data, computes per-timestep
+    score normalization from norm-cal, sets a max-conformal threshold from
+    thresh-cal, and reports episode-level FPR, Detection Rate, and Median TTD.
 
-    for env in envs:
-        run_env(env, method_keys, args.seed, args.alpha, args.stride)
+    Args:
+        env: Environment(s) to run (default: all).
+        methods: Detector method(s) to run.
+        seed: Random seed.
+        verbose: Enable info-level logging.
+        alpha: Target FPR level (default: 0.1).
+        stride: Scoring stride (default: 5).
+    """
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+
+    for env_name in env:
+        run_env(env_name, methods, seed, alpha, stride)
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

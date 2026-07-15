@@ -6,9 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from data.dataset import stratified_split
-from data.io import load
-from data.processing import normalize_channels
+from data.io import load_splits
 from detectors.base import SequenceDetector
 from eval.calibration import fit_znorm, max_conformal_threshold
 from eval.metrics import detection_metrics
@@ -48,35 +46,47 @@ class ExperimentResult:
     cal_scores:      np.ndarray
 
 
-def train_if_needed(detector, train_windows, **fingerprint):
-    """Fit detector on train_windows, caching by a hash of `fingerprint`.
+def _fit_key(detector, windows: np.ndarray) -> str | None:
+    """Content-addressed cache key from the unfit detector and its train windows.
 
-    `fingerprint` should include everything that affects the trained weights
-    (env, W, H, stride, seed, sizes, ...). The unfit detector is pickled and
-    hashed too, so hyperparam changes invalidate the cache automatically.
-
-    If the detector can't be pickled (e.g. JAX or torch internals), caching
-    is silently skipped and the detector is fit fresh.
+    Hashes the pickled detector (hyperparameters) and the exact training
+    windows (data) — including shape and dtype to rule out layout collisions.
+    Returns None if the detector can't be pickled, signalling "don't cache".
     """
     try:
         det_bytes = pickle.dumps(detector)
     except Exception as e:
         print(f"warn: unfit detector not picklable ({e!s}); skipping cache")
-        detector.fit(train_windows)
-        return detector
+        return None
 
     h = hashlib.sha1()
     h.update(det_bytes)
-    h.update(repr(sorted(fingerprint.items())).encode())
-    key = h.hexdigest()[:16]
-    path = CACHE_DIR / f"{key}.pkl"
+    h.update(f"{windows.shape}|{windows.dtype.str}".encode())
+    h.update(windows.tobytes())
+    return h.hexdigest()[:16]
 
+
+def fit_detector(detector, train_split, *, W: int, H: int | float, stride: int):
+    """Fit detector on the split's in-distribution windows, with a model cache.
+
+    The cache key hashes the unfit detector and the exact windows, so any
+    change to the data or hyperparameters yields a fresh fit automatically —
+    no hand-maintained fingerprint. A non-picklable detector is fit fresh.
+    """
+    windows = get_id_windows(train_split, W=W, stride=stride, H=H)
+
+    key = _fit_key(detector, windows)
+    if key is None:
+        detector.fit(windows)
+        return detector
+
+    path = CACHE_DIR / f"{key}.pkl"
     if path.exists():
         with path.open('rb') as f:
             return pickle.load(f)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    detector.fit(train_windows)
+    detector.fit(windows)
     try:
         with path.open('wb') as f:
             pickle.dump(detector, f)
@@ -107,16 +117,11 @@ def run_experiment(
     sizes = sizes or DEFAULT_SPLIT_SIZES
 
     # 1. data
-    ds              = load(env, name=dataset)
-    survival_keys   = ('train', 'norm', 'cal') if survival_only else ('norm', 'cal')
-    splits          = stratified_split(ds, sizes, survival_only=survival_keys, seed=seed)
-    splits          = normalize_channels(splits, fit_on='train')
+    no_fail         = {'train', 'norm', 'cal'} if survival_only else {'norm', 'cal'}
+    splits          = load_splits(f"{env}/{dataset}", sizes, no_fail=no_fail, seed=seed)
 
     # 2. fit on in-distribution training windows (cached)
-    train_windows   = get_id_windows(splits['train'], W=W, stride=stride, H=H)
-    detector        = train_if_needed(detector, train_windows,
-                                      env=env, dataset=dataset, W=W, H=H, stride=stride,
-                                      seed=seed, sizes=sizes, survival_only=survival_only)
+    detector        = fit_detector(detector, splits['train'], W=W, H=H, stride=stride)
 
     # 3. per-step score normalization
     norm_scores     = score_trajectories(detector, splits['norm'], stride)

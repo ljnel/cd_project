@@ -1,22 +1,11 @@
-"""
-Visual exploration of failure modes across environments.
-
-Generates fresh episodes with rendering enabled, captures frames around
-failure events via a rolling buffer, and composes (n_failures, 2) figure
-grids showing "before" and "at failure" frames.
-
-Usage:
-    python -m scripts.explore_failures [--steps_before 10] [--n_failures 5] [--envs hopper ant ...]
-"""
-
 import logging
 import warnings
-from argparse import ArgumentParser
 from collections import deque
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 from data.configs import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
@@ -436,25 +425,31 @@ def compose_figure(frames_data: list, display_name: str, steps_before: int,
     logger.info(f"Saved {output_path.with_suffix('.pdf')}")
 
 
-def main():
-    parser = ArgumentParser(description="Explore failure modes visually across environments")
-    parser.add_argument('--steps_before', type=int, default=None,
-                        help='Number of steps before failure to capture (default: hor from task config)')
-    parser.add_argument('--n_failures', type=int, default=5,
-                        help='Number of failures to collect per env (default: 5)')
-    parser.add_argument('--envs', nargs='+', default=None,
-                        help='Environments to explore (default: all test configs)')
-    parser.add_argument('--seed', type=int, default=123,
-                        help='Random seed (default: 123)')
-    parser.add_argument('--n_jobs', type=int, default=-1,
-                        help='Number of parallel workers for upkie (default: -1 = all cores)')
-    args = parser.parse_args()
+def main(
+    steps_before: int | None = None,
+    n_failures: int = 5,
+    envs: list[str] | None = None,
+    seed: int = 123,
+    n_jobs: int = -1,
+):
+    """Explore failure modes visually across environments.
 
+    Generates fresh episodes with rendering enabled, captures frames around
+    failure events via a rolling buffer, and composes (n_failures, 2) figure
+    grids showing "before" and "at failure" frames.
+
+    Args:
+        steps_before: Number of steps before failure to capture (default: hor from task config).
+        n_failures: Number of failures to collect per env.
+        envs: Environments to explore (default: all test configs).
+        seed: Random seed.
+        n_jobs: Number of parallel workers for upkie (-1 = all cores).
+    """
     # Collect test configs
     test_keys = [k for k in DATASETS if k.endswith('/test')]
-    if args.envs:
+    if envs:
         test_keys = [k for k in test_keys
-                     if k.split('/')[0] in args.envs]
+                     if k.split('/')[0] in envs]
 
     if not test_keys:
         available = [k.split('/')[0] for k in DATASETS if k.endswith('/test')]
@@ -468,16 +463,16 @@ def main():
         env_info = ENV_INFO[cfg.env]
 
         # Use CLI override or fall back to task config horizon
-        steps_before = args.steps_before
-        if steps_before is None:
-            steps_before = TASK_CONFIGS[cfg.env].hor
+        eff_steps_before = steps_before
+        if eff_steps_before is None:
+            eff_steps_before = TASK_CONFIGS[cfg.env].hor
 
-        logger.info(f"=== {env_info.display_name} ({key}, steps_before={steps_before}) ===")
+        logger.info(f"=== {env_info.display_name} ({key}, steps_before={eff_steps_before}) ===")
 
         if cfg.platform == 'mujoco':
-            frames = run_mujoco_failures(cfg, args.n_failures, steps_before, args.seed)
+            frames = run_mujoco_failures(cfg, n_failures, eff_steps_before, seed)
         elif cfg.platform == 'upkie':
-            frames = run_upkie_failures(cfg, args.n_failures, steps_before, args.seed, args.n_jobs)
+            frames = run_upkie_failures(cfg, n_failures, eff_steps_before, seed, n_jobs)
         else:
             logger.warning(f"Unknown platform {cfg.platform} for {key}, skipping")
             continue
@@ -487,7 +482,7 @@ def main():
             continue
 
         logger.info(f"Collected {len(frames)} failures for {cfg.env}")
-        compose_figure(frames, env_info.display_name, steps_before,
+        compose_figure(frames, env_info.display_name, eff_steps_before,
                        output_dir / cfg.env)
 
     logger.info("Done.")
@@ -496,4 +491,4 @@ def main():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     warnings.filterwarnings("ignore", category=UserWarning, module="gymnasium")
-    main()
+    tyro.cli(main)

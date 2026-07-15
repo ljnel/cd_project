@@ -1,20 +1,7 @@
 #!/usr/bin/env python3
-"""
-Kernel Matrix Visualization
-
-Visualizes kernel matrices for different path kernels on test windows,
-with rows/columns ordered by failure label to show how well each kernel
-separates normal from anomalous trajectories.
-
-Usage:
-    python plot_kernel_matrices.py --env hopper
-    python plot_kernel_matrices.py --env hopper --n-windows 50
-"""
-
-import argparse
-
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
@@ -28,28 +15,30 @@ setup_style()
 OUTPUT_DIR = get_output_dir()
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Visualize kernel matrices for path kernels.')
-    parser.add_argument('--env', type=str, default='hopper',
-                        help=f"Environment name. Available: {list(TASK_CONFIGS.keys())}")
-    parser.add_argument('--n-windows', type=int, default=100,
-                        help='Number of test windows to sample (default: 100)')
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Random seed')
-    args = parser.parse_args()
+def main(env: str = 'hopper', n_windows: int = 100, seed: int = 42):
+    """Visualize kernel matrices for path kernels.
 
-    if args.env not in TASK_CONFIGS:
-        raise ValueError(f"Unknown environment: {args.env}\nAvailable: {list(TASK_CONFIGS.keys())}")
+    Visualizes kernel matrices for different path kernels on test windows,
+    with rows/columns ordered by failure label to show how well each kernel
+    separates normal from anomalous trajectories.
 
-    np.random.seed(args.seed)
+    Args:
+        env: Environment name. Available: see TASK_CONFIGS.
+        n_windows: Number of test windows to sample.
+        seed: Random seed.
+    """
+    if env not in TASK_CONFIGS:
+        raise ValueError(f"Unknown environment: {env}\nAvailable: {list(TASK_CONFIGS.keys())}")
+
+    np.random.seed(seed)
 
     # Load data
-    print(f"Loading {args.env} data...")
-    x_train, x_test, y_test, _ = load_experiment(args.env)
+    print(f"Loading {env} data...")
+    x_train, x_test, y_test, _ = load_experiment(env)
 
     # Subsample test windows for visualization
     n_test = len(x_test)
-    n_windows = min(args.n_windows, n_test)
+    n_windows = min(n_windows, n_test)
 
     if n_windows < n_test:
         # Stratified sampling to preserve failure ratio
@@ -106,7 +95,7 @@ def main():
     plt.tight_layout()
 
     # Save figure
-    output_dir = OUTPUT_DIR / args.env
+    output_dir = OUTPUT_DIR / env
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_file = output_dir / f"kernel_matrices_n{len(x_test)}.pdf"
@@ -116,5 +105,5 @@ def main():
     plt.show()
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

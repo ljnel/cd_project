@@ -1,41 +1,11 @@
 #!/usr/bin/env python3
-"""Failure-mode diagnostics across environments.
-
-Investigates why CD/kernel-CD detection achieves near-perfect AUC on
-hopper/humanoid/upkie/inv_pend but fails on ant/half_cheetah.
-
-Three hypotheses (B is the lead):
-
-    A. Horizon — failures happen too early to accumulate evidence.
-    B. Separability — pre-failure obs are statistically indistinguishable
-       from comparable success obs, because the policy was trained without
-       the custom termination criterion (Ant tilt > 40 deg, HalfCheetah
-       front-tip angle > 0.9 rad).
-    C. Local divergence — high local divergence rate on the success
-       attractor widens the training distribution intrinsically.
-
-Outputs to outputs/failure_mode_diagnostics/:
-    horizon.pdf           hypothesis A: violin + cumulative failure curves
-    horizon_linear.pdf    same, with linear x-axis
-    separability.pdf      hypothesis B: MMD z-score vs lookback delta
-    separability_log.pdf  same, with symlog y-axis
-    divergence.pdf        hypothesis C: log-distance vs lag, per env, with slopes
-    data.npz              cached per-env numerics for replotting
-
-Usage:
-    pixi run python -m scripts.failure_mode_diagnostics
-        [--envs ant half_cheetah hopper humanoid inv_pend upkie]
-        [--skip A B C]
-        [--no_cache]
-        [--seed 42]
-"""
-
-import argparse
 import logging
 import warnings
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from sklearn.metrics import pairwise_distances
 from sklearn.neighbors import BallTree
 
@@ -48,7 +18,10 @@ from utils.stats import mmd_squared
 
 logger = logging.getLogger("cd.scripts.failure_mode_diagnostics")
 
-ALL_ENVS = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+Hypothesis = Literal['A', 'B', 'C']
+ALL_ENVS: list[EnvName] = ['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
+NO_SKIP: list[Hypothesis] = []
 UNSTABLE = {'ant', 'half_cheetah'}
 DELTAS_STEPS = tuple(range(5, 101, 5))
 
@@ -536,14 +509,30 @@ def _unflatten_from_npz(d):
 # Main
 # ============================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--envs', nargs='+', default=ALL_ENVS, choices=ALL_ENVS)
-    parser.add_argument('--skip', nargs='+', default=[], choices=['A', 'B', 'C'])
-    parser.add_argument('--no_cache', action='store_true',
-                        help='Recompute even if data.npz exists')
-    parser.add_argument('--seed', type=int, default=42)
-    args = parser.parse_args()
+def main(
+    envs: list[EnvName] = ALL_ENVS,
+    skip: list[Hypothesis] = NO_SKIP,
+    no_cache: bool = False,
+    seed: int = 42,
+):
+    """Failure-mode diagnostics across environments.
+
+    Investigates why CD/kernel-CD detection achieves near-perfect AUC on
+    hopper/humanoid/upkie/inv_pend but fails on ant/half_cheetah, testing three
+    hypotheses (B is the lead): A. Horizon (failures happen too early to
+    accumulate evidence); B. Separability (pre-failure obs are statistically
+    indistinguishable from comparable success obs); C. Local divergence (high
+    local divergence rate on the success attractor widens the training
+    distribution). Writes horizon{,_linear}.pdf, separability{,_log}.pdf,
+    divergence.pdf, and a data.npz cache to outputs/failure_mode_diagnostics/.
+
+    Args:
+        envs: Environments to include.
+        skip: Hypotheses to skip (any of A, B, C).
+        no_cache: Recompute even if data.npz exists.
+        seed: Random seed.
+    """
+    logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
 
     setup_style()
 
@@ -552,46 +541,46 @@ def main():
     cache_path = out_dir / 'data.npz'
 
     payload = {'A': {}, 'B': {}, 'C': {}}
-    if cache_path.exists() and not args.no_cache:
+    if cache_path.exists() and not no_cache:
         logger.info(f"Loading cache from {cache_path}")
         cached = np.load(cache_path, allow_pickle=False)
         payload = _unflatten_from_npz(cached)
 
     # Hypothesis A
-    if 'A' not in args.skip:
-        for env in args.envs:
+    if 'A' not in skip:
+        for env in envs:
             if env in payload['A']:
                 logger.info(f"[A] {env}: from cache")
                 continue
             logger.info(f"[A] {env}: computing")
             payload['A'][env] = compute_horizon(env)
-        plot_horizon({e: payload['A'][e] for e in args.envs if e in payload['A']},
+        plot_horizon({e: payload['A'][e] for e in envs if e in payload['A']},
                      out_dir / 'horizon.pdf')
-        plot_horizon({e: payload['A'][e] for e in args.envs if e in payload['A']},
+        plot_horizon({e: payload['A'][e] for e in envs if e in payload['A']},
                      out_dir / 'horizon_linear.pdf', log_x=False)
 
     # Hypothesis B
-    if 'B' not in args.skip:
-        for env in args.envs:
+    if 'B' not in skip:
+        for env in envs:
             if env in payload['B']:
                 logger.info(f"[B] {env}: from cache")
                 continue
             logger.info(f"[B] {env}: computing MMD across {len(DELTAS_STEPS)} deltas")
-            payload['B'][env] = compute_separability(env, deltas_steps=DELTAS_STEPS, seed=args.seed)
-        plot_separability({e: payload['B'].get(e) for e in args.envs},
+            payload['B'][env] = compute_separability(env, deltas_steps=DELTAS_STEPS, seed=seed)
+        plot_separability({e: payload['B'].get(e) for e in envs},
                           out_dir / 'separability.pdf')
-        plot_separability({e: payload['B'].get(e) for e in args.envs},
+        plot_separability({e: payload['B'].get(e) for e in envs},
                           out_dir / 'separability_log.pdf', log_y=True)
 
     # Hypothesis C
-    if 'C' not in args.skip:
-        for env in args.envs:
+    if 'C' not in skip:
+        for env in envs:
             if env in payload['C']:
                 logger.info(f"[C] {env}: from cache")
                 continue
             logger.info(f"[C] {env}: computing local divergence rate")
-            payload['C'][env] = compute_divergence(env, seed=args.seed)
-        plot_divergence({e: payload['C'].get(e) for e in args.envs},
+            payload['C'][env] = compute_divergence(env, seed=seed)
+        plot_divergence({e: payload['C'].get(e) for e in envs},
                         out_dir / 'divergence.pdf')
 
     # Save cache
@@ -601,5 +590,4 @@ def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
-    main()
+    tyro.cli(main)

@@ -1,7 +1,6 @@
-from argparse import ArgumentParser
-
-#from algs.cd_poly import CDPolynomial   
+#from algs.cd_poly import CDPolynomial
 import numpy as np
+import tyro
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix, precision_recall_curve
 from sklearn.model_selection import train_test_split
@@ -43,27 +42,26 @@ def precision_at_recall(y_true, y_score, recall_level=0.95):
     return precision_vals[idx], threshold_vals[idx]
 
 
-if __name__ == "__main__":
+def main(env: str | None = None, alg: str | None = None):
+    """Benchmark kernelized CD detectors on an environment.
 
-    parser = ArgumentParser()
-    parser.add_argument('--env', type=str)
-    parser.add_argument('--alg', type=str)
-    args = parser.parse_args()
+    Args:
+        env: Environment name.
+        alg: Algorithm to benchmark (fft, sig, pca, kld).
+    """
+    x_tr, x_te, y_true, _ = load_experiment(env)
 
-    x_tr, x_te, y_true, _ = load_experiment(args.env)
-
-    from utils.signals import low_pass
     alpha = 0.8
     x_tr = low_pass(x_tr, alpha)
     x_te = low_pass(x_te, alpha)
 
     # estimate data-dependent window length
     window = estimate_window_length(x_tr)
-    if args.alg == 'fft':
+    if alg == 'fft':
         window = window
-    if args.alg == 'sig':
+    if alg == 'sig':
         window = window // 2
-    if args.alg == 'pca':
+    if alg == 'pca':
         window = window
     # truncate x_te
     assert window <= sm_cfg.win
@@ -76,24 +74,23 @@ if __name__ == "__main__":
         idx = starts[:, None] + np.arange(window)[None, :]
         x_tr_trial = x_tr[np.arange(len(x_tr))[:, None], idx]
         x_tr_trial, x_cal = train_test_split(x_tr_trial, test_size=CAL)
-        perm = np.random.permutation(len(x_tr_trial))
         x_tr_trial = x_tr_trial[:100]  # ?
         x_te_trial = x_te
         print(x_tr_trial.shape, x_cal.shape, x_te.shape)
         #print(x_tr_trial.shape, x_te.shape)
 
-        if args.alg == 'fft':
+        if alg == 'fft':
             model = KernCD(GaussFFT(gamma=.5), reg=1e-3).fit(x_tr_trial)
-        if args.alg == 'sig':
+        if alg == 'sig':
             model = KernCD(SigKernel(gamma=0.001), reg=1e-3).fit(x_tr_trial)
-        if args.alg == 'pca':
+        if alg == 'pca':
             pca = PCA_FFT(k1=0.9, k2=3)
             x_tr_trial = pca.fit_transform(x_tr_trial)
             x_cal = pca.transform(x_cal)
             x_te_trial = pca.transform(x_te_trial)
             print(f'pca-fft output: {x_tr_trial.shape}')
             model = CDPolynomial(x_tr_trial, degree=5, verbose=True)
-        if args.alg == 'kld':
+        if alg == 'kld':
 
             pca = PCA(0.95)
             x_tr_trial = pca.fit_transform(x_tr_trial.reshape((len(x_tr_trial), -1)))
@@ -103,14 +100,14 @@ if __name__ == "__main__":
             print(x_tr_trial.shape)
 
             model = KernCD(RBF(gamma=0.005), reg=1e-5).fit(x_tr_trial)
-            
 
-        q = np.quantile(model.predict(x_cal), q=.95)
+
+        q = np.quantile(model.score(x_cal), q=.95)
         print('Finished training')
-        #y_pred = model.predict(x_te_trial) > q
-        y_pred = model.predict(x_te_trial) > q
+        #y_pred = model.score(x_te_trial) > q
+        y_pred = model.score(x_te_trial) > q
 
-        #y_score = model.predict(x_te_trial)
+        #y_score = model.score(x_te_trial)
         # y_true already set from load_experiment
         #score, q = fpr_at_recall(y_true, y_score)
         #score, thresh = precision_at_recall(y_true, y_score, recall_level=0.9)
@@ -131,3 +128,7 @@ if __name__ == "__main__":
         f" & {scores_mean[i] * 100:.2f} $\\pm$ {scores_std[i] * 100:.2f}" for i in range(4)
     ]) + "\\\\"
     print(output)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

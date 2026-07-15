@@ -1,36 +1,23 @@
 #!/usr/bin/env python3
-"""
-KPCA (Nyström) + temporal kernel + KernCD evaluation.
-
-Pipeline:
-  1. Nyström: raw obs (N, T, D) -> (N, T, m) using composite spatial kernel
-  2. PCA on Nyström features: (N, T, m) -> (N, T, M)  [= KPCA]
-  3. RBF temporal kernel: (N, T, M) -> (N, r, M)
-  4. Flatten + KernCD -> AUROC
-
-Usage:
-    python temp_and_spat_kernel.py --env humanoid
-    python temp_and_spat_kernel.py --env humanoid --n-landmarks 100 --n-spatial 10
-"""
-
-import argparse
 import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import tyro
 from sklearn.decomposition import PCA
 from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
+from data.datasets import load_experiment
+
 from algs.kern_cd import KernCD
 from algs.kernels import RBF
-from algs.reduction.nystrom import NystromFeatures
-from algs.kernels.spatial_kernel import humanoid_composite_kernel, fit_gammas
+from algs.kernels.spatial_kernel import fit_gammas, humanoid_composite_kernel
 from algs.kernels.temporal_kernel import RBFKernel
-from data.datasets import load_experiment
+from algs.reduction.nystrom import NystromFeatures
 from utils.windows import strided_window_view
 
 
@@ -96,7 +83,7 @@ def run(env_name, n_landmarks, n_spatial, temporal_rank, length_scale, seed, nor
 
     # --- KernCD ---
     cd = KernCD(RBF(gamma="median"), reg=1e-5).fit(tr_feat)
-    scores = cd.predict(te_feat)
+    scores = cd.score(te_feat)
     auroc_kpca = roc_auc_score(y_true, scores)
 
     # --- PCA baseline (same data) ---
@@ -110,7 +97,7 @@ def run(env_name, n_landmarks, n_spatial, temporal_rank, length_scale, seed, nor
     tr_pca_feat = temporal.transform(tr_pca).reshape(len(train_windows), -1)
     te_pca_feat = temporal.transform(te_pca).reshape(len(x_test), -1)
     cd_pca = KernCD(RBF(gamma="median"), reg=1e-5).fit(tr_pca_feat)
-    auroc_pca = roc_auc_score(y_true, cd_pca.predict(te_pca_feat))
+    auroc_pca = roc_auc_score(y_true, cd_pca.score(te_pca_feat))
 
     print(f"\nPCA  (M={n_spatial}) + RBF temporal + CD:  AUROC={auroc_pca:.4f}")
     print(f"KPCA (M={n_spatial}) + RBF temporal + CD:  AUROC={auroc_kpca:.4f}")
@@ -168,24 +155,40 @@ def plot_latent_heatmaps(
         print(f"Saved {path}")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="humanoid")
-    parser.add_argument("--n-landmarks", type=int, default=1000)
-    parser.add_argument("--n-spatial", type=int, default=10)
-    parser.add_argument("--temporal-rank", type=int, default=30)
-    parser.add_argument("--length-scale", type=float, default=0.1)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--normalize", action="store_true",
-                        help="Z-score normalize channels (off by default; composite kernel expects raw physical units)")
-    args = parser.parse_args()
+def main(
+    env: str = "humanoid",
+    n_landmarks: int = 1000,
+    n_spatial: int = 10,
+    temporal_rank: int = 30,
+    length_scale: float = 0.1,
+    seed: int = 42,
+    normalize: bool = False,
+):
+    """KPCA (Nyström) + temporal kernel + KernCD evaluation.
 
+    Pipeline: Nyström spatial kernel -> PCA (KPCA) -> RBF temporal kernel ->
+    flatten + KernCD -> AUROC.
+
+    Args:
+        env: Environment to evaluate.
+        n_landmarks: Number of Nyström landmarks.
+        n_spatial: Spatial latent dimension M (PCA components).
+        temporal_rank: Temporal kernel rank r.
+        length_scale: RBF temporal kernel length scale.
+        seed: Random seed.
+        normalize: Z-score normalize channels (off by default; composite kernel
+            expects raw physical units).
+    """
     run(
-        env_name=args.env,
-        n_landmarks=args.n_landmarks,
-        n_spatial=args.n_spatial,
-        temporal_rank=args.temporal_rank,
-        length_scale=args.length_scale,
-        seed=args.seed,
-        normalize=args.normalize,
+        env_name=env,
+        n_landmarks=n_landmarks,
+        n_spatial=n_spatial,
+        temporal_rank=temporal_rank,
+        length_scale=length_scale,
+        seed=seed,
+        normalize=normalize,
     )
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

@@ -53,8 +53,8 @@ def evaluate_all(cd, kern_lap, kern_rbf, kde, xs):
     Xq = xs.reshape(-1, 1)
     return {
         'CD polynomial':   cd(Xq),
-        'KernCD (Laplace)': kern_lap.predict(Xq),
-        'KernCD (RBF)':    kern_rbf.predict(Xq),
+        'KernCD (Laplace)': kern_lap.score(Xq),
+        'KernCD (RBF)':    kern_rbf.score(Xq),
         'KDE (1/density)': 1.0 / (kde(xs) + 1e-12),
     }
 

@@ -28,6 +28,25 @@ no_implicit_optional = true
 warn_return_any = true
 warn_unused_ignores = true
 
+[tool.pyright]
+# src/ layout: first-party modules import as `data.*`, `eval.*`, ... (mirrors mypy_path).
+extraPaths = ["src"]
+typeCheckingMode = "basic"
+
+# src/ (the library) stays fully type-checked. scripts/ is numpy/gym/scipy-heavy
+# glue code where those packages' loose stubs produce false positives, so relax
+# the stub-driven rules there only. ruff still lints scripts/ (see [tool.ruff]).
+[[tool.pyright.executionEnvironments]]
+root = "scripts"
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportCallIssue = "none"
+reportOperatorIssue = "none"
+reportAssignmentType = "none"
+reportReturnType = "none"
+reportIndexIssue = "none"
+reportGeneralTypeIssues = "none"
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore::DeprecationWarning:matplotlib._fontconfig_pattern",

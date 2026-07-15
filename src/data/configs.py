@@ -28,7 +28,7 @@ class DatasetConfig:
     damping_range: tuple[float, float] = (1.0, 1.0)
 
     # Generation parameters
-    n_episodes: int = 2000
+    n_episodes: int = 1000
     ep_len: int = 1000
     seed: int = 42
 
@@ -120,7 +120,7 @@ DATASETS['upkie/survival_only'] = _make_survival_only(
 
 # --- fail_pred (mixed survival/failure; default eval datasets) ---
 # Physical-parameter ranges mirror each env's train/test block above.
-# Defaults from DatasetConfig: n_episodes=2000, ep_len=1000, seed=42,
+# Defaults from DatasetConfig: n_episodes=1000, ep_len=1000, seed=42,
 # survival_only=False (no rejection sampling, mixed survival/failure).
 DATASETS['inv_pend/fail_pred'] = DatasetConfig(
     name='fail_pred', env='inv_pend', platform='mujoco',
@@ -156,21 +156,21 @@ DATASETS['upkie/fail_pred'] = DatasetConfig(
 )
 
 
-# --- base (no domain randomization; mixed survival/failure; 500 episodes) ---
+# --- base (no domain randomization; mixed survival/failure; 1000 episodes) ---
 DATASETS['inv_pend/base'] = DatasetConfig(
     name='base', env='inv_pend', platform='mujoco',
     policy='invertedpendulum-v5-sac-expert.zip',
-    n_episodes=500,
+    n_episodes=1000,
 )
 DATASETS['hopper/base'] = DatasetConfig(
     name='base', env='hopper', platform='mujoco',
     policy='hopper-v5-sac-expert.zip',
-    n_episodes=2000,
+    n_episodes=1000,
 )
 DATASETS['half_cheetah/base'] = DatasetConfig(
     name='base', env='half_cheetah', platform='mujoco',
     policy='halfcheetah-v5-sac-expert.zip',
-    n_episodes=500,
+    n_episodes=1000,
 )
 DATASETS['ant/base'] = DatasetConfig(
     name='base', env='ant', platform='mujoco',
@@ -180,14 +180,14 @@ DATASETS['ant/base'] = DatasetConfig(
 DATASETS['humanoid/base'] = DatasetConfig(
     name='base', env='humanoid', platform='mujoco',
     policy='humanoid-v5-sac-expert.zip',
-    n_episodes=500,
+    n_episodes=1000,
 )
 DATASETS['upkie/base'] = DatasetConfig(
     name='base', env='upkie', platform='upkie',
     policy='ppo_balancer/Upkie-PyBullet-Pendulum.zip',
     balancer='ppo', frequency=200.0,
     disturbance_type='ImpulseForce', disturbance_kwargs={'force_magnitude': 15.0},
-    n_episodes=500,
+    n_episodes=1000,
 )
 
 

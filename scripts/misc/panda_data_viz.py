@@ -1,22 +1,10 @@
 #!/usr/bin/env python3
-"""Panda trajectory data visualization.
-
-Visualizations:
-  1. Basis-CD weight space UMAP (all seeds, per basis type)
-  2. Raw flattened trajectory UMAP (all seeds)
-  3. Single-seed expert vs non-expert UMAP (raw + basis, shared obstacle scene)
-
-Usage:
-    python panda_data_viz.py
-    python panda_data_viz.py --seed 0
-"""
-
-import argparse
 import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import tyro
 import yaml
 from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
@@ -411,12 +399,17 @@ def viz_collision_gmm_bic(nonexp_coll, coll_timesteps, output_dir, max_k=15):
     print(f"  Saved to {out_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Panda trajectory data visualization.")
-    parser.add_argument("--seed", type=int, default=0,
-                        help="Env seed for single-seed comparison (default: 0)")
-    args = parser.parse_args()
+def main(seed: int = 0):
+    """Panda trajectory data visualization.
 
+    Visualizations:
+      1. Basis-CD weight space UMAP (all seeds, per basis type)
+      2. Raw flattened trajectory UMAP (all seeds)
+      3. Single-seed expert vs non-expert UMAP (raw + basis, shared obstacle scene)
+
+    Args:
+        seed: Env seed for single-seed comparison.
+    """
     data_dir = get_root() / "data" / "panda"
     expert_free, nonexp_free, nonexp_coll, coll_timesteps = load_panda_by_env_seed(data_dir)
 
@@ -432,11 +425,11 @@ def main():
     viz_all_seeds(expert_free, nonexp_free, nonexp_coll, scaler, output_dir)
 
     # Single-seed comparison
-    if args.seed not in expert_free or args.seed not in nonexp_free:
-        print(f"\nSeed {args.seed} not available in both expert and non-expert. "
+    if seed not in expert_free or seed not in nonexp_free:
+        print(f"\nSeed {seed} not available in both expert and non-expert. "
               f"Shared seeds: {sorted(set(expert_free) & set(nonexp_free))}")
         return
-    viz_single_seed(args.seed, expert_free, nonexp_free, nonexp_coll, scaler, output_dir)
+    viz_single_seed(seed, expert_free, nonexp_free, nonexp_coll, scaler, output_dir)
 
     # Collision PCA across seeds
     viz_collision_pca(nonexp_coll, coll_timesteps, output_dir)
@@ -446,9 +439,9 @@ def main():
 
     # Trajectory overlay
     print("\nTrajectory overlay")
-    viz_trajectory_overlay(args.seed, expert_free, nonexp_free, nonexp_coll,
+    viz_trajectory_overlay(seed, expert_free, nonexp_free, nonexp_coll,
                            coll_timesteps, scaler, output_dir)
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

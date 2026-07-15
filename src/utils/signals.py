@@ -121,8 +121,6 @@ def low_pass(x: np.ndarray, alpha: float) -> np.ndarray:
     # y[n] = alpha*x[n] + (1-alpha)*y[n-1]
     b = [alpha]
     a = [1, -(1 - alpha)]
-    if x.ndim > 1:
-        y = lfilter(b, a, x, axis=-2)  # channel last
-    else:
-        y = lfilter(b, a, x)
+    # channel last when multi-dimensional
+    y = lfilter(b, a, x, axis=-2) if x.ndim > 1 else lfilter(b, a, x)
     return y

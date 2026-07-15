@@ -197,9 +197,8 @@ class TruncatedSigKernel(Kernel):
         Y_gpu = torch.as_tensor(y, dtype=torch.float32, device=self._device)
 
         raw = np.empty((nx, ny), dtype=np.float32)
-        n_chunks = (nx + c - 1) // c
 
-        for idx, i0 in enumerate(range(0, nx, c)):
+        for i0 in range(0, nx, c):
             i1 = min(i0 + c, nx)
             X_chunk = torch.as_tensor(
                 x[i0:i1], dtype=torch.float32, device=self._device,

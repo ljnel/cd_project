@@ -285,6 +285,60 @@ def plot_hists(
     return fig
 
 
+def plot_detection_curves(leads_by_label, *, ax=None, lead_max=None, min_lead=0,
+                          as_percent=True, event_name="event"):
+    """Cumulative fraction of events caught vs lead time, one curve per label.
+
+    Parameters
+    ----------
+    leads_by_label : dict[str, ndarray]
+        Label -> `(N,)` signed lead-time array (NaN = missed), as returned by
+        `eval.survival.detection_lead_times`.
+    ax : matplotlib Axes, optional
+        Axes to draw on; a new square figure is created if omitted.
+    lead_max : int, optional
+        Largest lead time on the x-axis; defaults to the max lead across labels.
+    min_lead : int
+        Smallest lead time on the x-axis. The default 0 stops the curve at the
+        event step; a negative value extends it past the event to show detections
+        made *after the fact*, which plateau at the total detection rate. A dotted
+        marker is drawn at the event (lead 0) when the curve extends past it.
+    as_percent : bool
+        Plot the y-axis (and legend EDR) as a percentage rather than a fraction.
+    event_name : str
+        Noun for the detected event used in the axis labels (e.g. "collision",
+        "failure"); pluralized with a trailing "s".
+
+    Each curve rises (as the lead shrinks) from ~0 toward the total detection
+    rate, with the value at lead 1 the Early Detection Rate shown in the legend
+    and lead 0 the at-impact rate. Misses (NaN) are excluded. The x-axis is
+    inverted so the event sits on the right. Returns the Axes (save via `save_plot`).
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(COL_WIDTH, COL_WIDTH))
+    if lead_max is None:
+        lead_max = int(max(np.nanmax(v) for v in leads_by_label.values()))
+    grid = np.arange(min_lead, lead_max + 1)
+    pct = r"\%" if plt.rcParams.get("text.usetex", False) else "%"
+    scale = 100 if as_percent else 1
+    for label, leads in leads_by_label.items():
+        incidence = (leads[:, None] >= grid).mean(axis=0)   # fraction caught with lead >= L
+        edr = (leads >= 1).mean()                           # EDR: strictly before the event
+        ax.plot(grid, scale * incidence, label=f"{label} (EDR={scale * edr:.0f}{pct})")
+    if min_lead < 0:
+        ax.axvline(0, color="0.6", lw=0.8, ls=":")          # mark the event
+    plural = f"{event_name.capitalize()}s"
+    ax.set_xlabel(f"Lead time before {event_name} (steps)")
+    ax.set_ylabel(f"{plural} caught ({pct})" if as_percent else f"Fraction of {event_name}s caught")
+    # Pad the y-limits so a curve plateauing at 0% or 100% isn't hidden under
+    # the axis spines (e.g. a perfect detector sitting on the top edge).
+    top, pad = (100, 3) if as_percent else (1.0, 0.03)
+    ax.set_ylim(-pad, top + pad)
+    ax.invert_xaxis()
+    ax.legend(loc="upper left", fontsize="small")
+    return ax
+
+
 def save_plot(path, *, fig=None, dpi=300, bbox_inches="tight") -> Path:
     """Save a figure to `path` (PDF if no extension given), with house settings."""
     fig = fig or plt.gcf()

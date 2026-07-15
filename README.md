@@ -1,111 +1,113 @@
-# Trajectory Anomaly Detection
+# CD Project
 
-Kernel-based anomaly detection methods for trajectory data, with applications to failure prediction in robotic systems.
+Anomaly detection for robot trajectories using the Christoffel-Darboux
+polynomial and its kernelized variant, `KernCD`.
 
-## Installation
+## Setup
 
 ```bash
 pixi install
 pixi shell
 ```
 
-## Quick Start
+Source lives under `src/` (editable install via `pyproject.toml`), so
+`from algs.kern_cd import KernCD` etc. works directly once the pixi
+environment is active.
 
-### Using the FFT-CD Detector
+```bash
+pixi run pytest tests/       # tests
+pixi run ruff check src      # lint
+```
+
+## KernCD
+
+`algs.kern_cd.KernCD` is a kernelized support estimator: its score is the
+regularized squared distance to the support,
+`k(x,x) − kₓᵀ(K + λm·I)⁻¹kₓ` (Rudi et al.) — equivalently a GP posterior
+variance with `σ² = λm`. Higher score = more anomalous. It satisfies the
+`VectorDetector` protocol (`fit(X)` / `score(X)` on `(N, D)` arrays), so it
+drops directly into anything expecting a detector.
 
 ```python
-import logging
 import numpy as np
-from config.detectors import get_detector
+from algs.kern_cd import KernCD
+from algs.kernels import RBF
 
-# Enable diagnostic logging
-logging.basicConfig(level=logging.INFO)
+detector = KernCD(RBF(gamma="median"), lam=1e-5)
 
-# Create the FFT-based kernel detector
-detector = get_detector("fft")
-
-# Load your trajectory data: (n_episodes, episode_length, obs_dim)
-# For example, 100 episodes of 200 timesteps with 3 features:
-X_train = np.random.randn(100, 200, 3)
-
-# Fit the detector
+X_train = np.random.randn(500, 12)   # (m, d) in-distribution states
 detector.fit(X_train)
 
-# Predict on new windows (must be at least detector.window length)
-X_test = np.random.randn(50, detector.window, 3)
-predictions = detector.predict(X_test)  # 0 = normal, 1 = anomaly
-scores = detector.score_samples(X_test)  # higher = more anomalous
+X_test = np.random.randn(20, 12)
+scores = detector.score(X_test)      # (20,), higher = more anomalous
 ```
 
-Example output:
-```
-INFO:cd.detectors: Train/cal split: 70/30 episodes
-INFO:cd.detectors.kernel: Window: 64 (auto-estimated, 1 period(s))
-INFO:cd.algs.kern_cd: λ=1.00e-06 (adaptive), cond=4.52e+02, m=200
-INFO:cd.detectors.kernel: Kernel: fft, γ=0.034
-INFO:cd.detectors: Threshold: 5.67 (scores: 0.12/2.3/8.9 min/med/max, q=0.95)
-```
-
-### Logging Levels
-
-Control verbosity via Python's logging module:
+By default `fit` is the exact `O(m³)` factorization. Passing `rank` swaps in
+a low-rank partial-pivoted-Cholesky approximation (`O(m·r²)` fit,
+`O(m·r)` score) that reproduces the exact score as `r → m`:
 
 ```python
-import logging
-
-# INFO: Key milestones (window, kernel params, threshold)
-logging.basicConfig(level=logging.INFO)
-
-# DEBUG: Additional details (window shapes, frequency estimation)
-logging.basicConfig(level=logging.DEBUG)
-
-# WARNING: Suppress diagnostic output
-logging.getLogger("cd").setLevel(logging.WARNING)
+detector = KernCD(RBF(gamma="median"), lam=1e-5, rank=1024, pivot="rp")
 ```
 
-## Failure Prediction Experiments
+`pivot` is `"rp"` (randomly pivoted, `RPCholesky`), `"greedy"` (largest
+residual diagonal — also supports an `eps` accuracy target instead of a
+fixed `rank`, via `algs.kern_cd.rp_cholesky`), or `"uniform"` (classical
+Nyström).
 
-Run cross-validated failure prediction on the Upkie robot environment:
+### Kernels (`algs.kernels`)
 
-```bash
-cd src
-python scripts/fail_pred_results.py --env upkie --methods fft
-```
+- `RBF`, `Laplace`, `Abel` — stationary kernels over flat state vectors.
+  `gamma` accepts a float or a bandwidth heuristic: `"median"` (global median
+  pairwise distance), `"median_nn"`/`"median_5nn"` (local scale: median
+  distance to the 1st/5th nearest neighbour — better suited to data on a
+  low-dimensional manifold), or `"dimension"`.
+- `Polynomial` — non-stationary, finite-dimensional monomial feature map.
+  With this kernel `KernCD` reduces to the empirical-inverse
+  Christoffel-Darboux support estimator on polynomials of that degree (see
+  `detectors.cd_poly.CDPolyDetector` for the direct, non-kernelized
+  implementation).
+- Sequence/trajectory kernels (`GaussFFT`, `SigKernel`, `ScatteringKernel`,
+  `MiniRocketKernel`, `SpatiotemporalKernel`, ...) for windowed or
+  whole-trajectory inputs — see `algs/kernels/__init__.py` for the full list.
 
-Run all methods on all environments:
+### Adapting to windows and fit-set size (`detectors.base`)
 
-```bash
-python scripts/fail_pred_results.py --env all
-```
+- `as_sequence(detector, seq_len)` — promote a vector-kernel `KernCD` to a
+  `SequenceDetector` over `(N, W, D)` windows by flattening each window.
+- `with_seq_len(detector, seq_len)` — attach `seq_len` to a `KernCD` built
+  with a sequence kernel, which already consumes `(N, W, D)` natively.
+- `subsample(detector, n, seed)` — cap the fit set to `n` rows before
+  fitting (exact `KernCD` is cubic in `m`, so this keeps ad-hoc fits
+  tractable at whatever kernel/rank).
 
-### Available Methods
+## Data and evaluation
 
-| Key | Name | Description |
-|-----|------|-------------|
-| `fft` | FFT-CD | FFT-based kernel with auto window estimation |
-| `sig` | Sig-CD | Signature kernel for path data |
-| `rec` | ConvAE | Convolutional autoencoder (reconstruction) |
-| `lat` | Conv-CD | ConvAE with kernel detector in latent space |
+`data.io.load(env, name)` reads `data/{env}/{name}/data.npz` into a
+`Dataset` (`X`: `(N, T, D)` observations, `fail`: `(N,)` first
+out-of-distribution index per episode, `fail = T` for survivors).
+`data.dataset.stratified_split` builds train/norm/cal/test splits;
+`eval.scoring.score_states`/`score_trajectories` score a fitted detector
+over a `Dataset`, masking out-of-distribution samples by `fail` index; and
+`eval.calibration`/`eval.survival` provide conformal thresholds and
+detection lead times. See `docs/conventions.md` for the full failure-index
+and scoring conventions.
 
-### Available Environments
+## Scripts
 
-| Environment | Description |
-|-------------|-------------|
-| `upkie` | Upkie wheeled biped robot |
-| `hopper` | MuJoCo Hopper |
-| `half_cheetah` | MuJoCo HalfCheetah |
-| `ant` | MuJoCo Ant |
-| `humanoid` | MuJoCo Humanoid |
-| `inv_pend` | Inverted Pendulum |
+Scripts under `scripts/` are one-off experiments/analyses, each a `main()`
+whose typed signature is the CLI (`tyro.cli(main)`), with the experiment and
+args documented in `main`'s docstring. Every script writes its artifacts
+under `outputs/<script-stem>/` via `utils.paths.get_output_dir`. See
+`CLAUDE.md` for the full script/output conventions.
 
-## Core Components
+Representative `KernCD`-based scripts:
 
-### Detectors (`src/detectors/`)
-
-- **KernDetector**: Kernel-based detector using the kernelized Christoffel-Darboux polynomials
-- **ConvAEDetector**: Convolutional autoencoder for reconstruction-based detection
-
-### Algorithms (`src/algs/`)
-
-- **KernCD**: Core kernelized Christoffel-Darboux implementation with online updates
-- **Kernels**: RBF, GaussFFT (for trajectories), SigKernel (signature kernel)
+- `scripts/survival_states_set_approximation.py` — compares `KernCD`
+  (RBF/Abel/Polynomial, exact and low-rank) against `1-NN` and `PolyCD` as
+  one-class failure detectors, evaluated by conformal calibration and
+  detection lead time.
+- `scripts/bandwidth_heuristic_comparison.py` — compares the `"median"` vs
+  `"median_nn"` bandwidth heuristics for `KernCD`'s kernel.
+- `scripts/deployment_quality.py` — evaluates a fitted detector's
+  survival/failure separation on held-out deployment data.

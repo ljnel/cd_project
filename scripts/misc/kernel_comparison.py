@@ -1,7 +1,6 @@
-from argparse import ArgumentParser
-
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 from sklearn.metrics.pairwise import rbf_kernel
 
 from algs.kernels import GaussFFT, SigKernel
@@ -47,14 +46,14 @@ def sample(x, y, n=20):
     return x_sub, y_sub
 
 
-if __name__ == "__main__":
+def main(env: str | None = None, debug: bool = False):
+    """Compare kernel Gram matrices on success/failure windows.
 
-    parser = ArgumentParser()
-    parser.add_argument('--env', type=str)
-    parser.add_argument('--debug', action="store_true")
-    args = parser.parse_args()
-
-    x_tr, x_te, y, _ = load_experiment(args.env)
+    Args:
+        env: Environment name.
+        debug: Enable debug mode.
+    """
+    x_tr, x_te, y, _ = load_experiment(env)
 
     ####
     window = estimate_window_length(x_tr)
@@ -87,3 +86,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

@@ -1,22 +1,10 @@
 #!/usr/bin/env python3
-"""
-Plot per-episode anomaly score curves from deployment_quality.py results.
-
-Loads saved scores from outputs/deployment_quality/{env}/ and plots
-normalized score curves for each method, with conformal thresholds and
-failure timestep markers.
-
-Usage:
-    python -m scripts.eval_score_curves --env hopper
-    python -m scripts.eval_score_curves --env all
-    python -m scripts.eval_score_curves --env hopper --methods sig basis
-"""
-
-import argparse
 import warnings
+from types import SimpleNamespace
 
 import matplotlib
 import numpy as np
+import tyro
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -25,7 +13,7 @@ from matplotlib.ticker import MaxNLocator
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_method_display_name
-from utils.cli import add_common_args, parse_envs, parse_methods
+from utils.cli import ALL_ENVS, parse_envs, parse_methods
 from utils.latex import get_env_display_name
 from utils.paths import get_output_dir, get_root
 from utils.plotting import (
@@ -257,19 +245,26 @@ def plot_giant_grid(envs: list[str], method_keys: list[str]):
     print("Saved giant deployment quality grid.")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Plot score curves from deployment_quality results."
-    )
-    add_common_args(parser, seed=False, verbose=False)
-    args = parser.parse_args()
+def main(
+    env: list[str] | None = None,
+    methods: list[str] | None = None,
+):
+    """Plot per-episode anomaly score curves from deployment_quality results.
 
+    Loads saved scores from outputs/deployment_quality/{env}/ and plots
+    normalized score curves for each method, with conformal thresholds and
+    failure timestep markers.
+
+    Args:
+        env: Environment(s) to plot. If omitted, plots the default GRID_ENVS grid.
+        methods: Method(s) to include (default: all).
+    """
+    args = SimpleNamespace(env=env if env is not None else ALL_ENVS, methods=methods)
     envs = parse_envs(args)
     method_keys = parse_methods(args)
 
     # If --env was not explicitly passed, use GRID_ENVS default order
-    env_was_explicit = args.env != parser.get_default("env")
-    if not env_was_explicit:
+    if env is None:
         plot_giant_grid([e for e in GRID_ENVS if e in envs], method_keys)
         return
 
@@ -278,12 +273,12 @@ def main():
         plot_giant_grid(envs, method_keys)
         return
 
-    for env in envs:
+    for env_name in envs:
         try:
-            plot_env(env, method_keys)
+            plot_env(env_name, method_keys)
         except FileNotFoundError as e:
             print(f"  {e}")
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

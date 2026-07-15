@@ -216,7 +216,7 @@ def fit_and_score(
     reg = lam * len(X_train)
     model = KernCD(kernel=kernel, reg=reg)
     model.fit(X_train)
-    scores = model.predict(X_test)
+    scores = model.score(X_test)
     return scores
 
 
@@ -240,11 +240,11 @@ def compute_classification_accuracy(
     model.fit(X_train)
 
     # Compute threshold from training scores
-    train_scores = model.predict(X_train)
+    train_scores = model.score(X_train)
     threshold = np.percentile(train_scores, THRESHOLD_PERCENTILE)
 
     # Predict on test data
-    test_scores = model.predict(X_test)
+    test_scores = model.score(X_test)
     y_pred = (test_scores >= threshold).astype(float)
 
     # Compute accuracy

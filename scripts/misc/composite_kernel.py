@@ -1,30 +1,8 @@
 #!/usr/bin/env python3
-"""Does a geometry-aware composite kernel separate trajectories that eventually
-fail from those that stay safe, better than a flat RBF on the Humanoid-v5
-observation space?
-
-We measure separation via the unbiased MMD² estimator at each timestep,
-comparing two kernels on the same (N, T, 45) data:
-
-  - Composite: product of four sub-kernels (height RBF, quaternion S³,
-    joint-angle RBF, velocity RBF), each operating on the relevant slice
-    of the observation vector.
-  - Flat RBF: single isotropic Gaussian kernel on all 45 dims.
-
-Both kernels have their bandwidth set via the median heuristic, fit on
-inlier episodes only, so the comparison reflects structural advantage
-rather than tuning differences.
-
-Usage:
-    python composite_kernel.py
-    python composite_kernel.py --downsample 50
-"""
-
-import argparse
-
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import tyro
 
 from data.datasets import load_episodes
 from utils.paths import get_output_dir
@@ -33,11 +11,22 @@ from utils.stats import mmd_kernel_comparison
 RESULTS_DIR = get_output_dir()
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--downsample", type=int, default=30)
-    args = parser.parse_args()
+def main(downsample: int = 30):
+    """Compare a geometry-aware composite kernel against a flat RBF via MMD².
 
+    Does a geometry-aware composite kernel separate trajectories that eventually
+    fail from those that stay safe, better than a flat RBF on the Humanoid-v5
+    observation space? We measure separation via the unbiased MMD² estimator at
+    each timestep, comparing two kernels on the same (N, T, 45) data: a composite
+    product of four sub-kernels (height RBF, quaternion S³, joint-angle RBF,
+    velocity RBF), and a single isotropic Gaussian kernel on all 45 dims. Both
+    kernels have their bandwidth set via the median heuristic, fit on inlier
+    episodes only, so the comparison reflects structural advantage rather than
+    tuning differences.
+
+    Args:
+        downsample: Temporal downsampling factor for the episodes.
+    """
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load data
@@ -46,14 +35,14 @@ def main():
     y = fail > -1
 
     # Downsample time
-    x = x[:, :: args.downsample]
+    x = x[:, :: downsample]
 
     # Run MMD comparison (gammas auto-fit on inliers via median heuristic)
     results = mmd_kernel_comparison(x, y)
 
     # Plot
     T = len(results["composite"])
-    steps = np.arange(T) * args.downsample
+    steps = np.arange(T) * downsample
 
     fig, ax1 = plt.subplots(figsize=(10, 4))
     ax1.plot(steps, results["composite"], label="Composite")
@@ -83,5 +72,5 @@ def main():
     )
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    tyro.cli(main)

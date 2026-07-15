@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""
-Cross-Policy Generalization Test
-
-Evaluate anomaly detectors trained on SAC trajectories against a different
-RL policy (e.g., TQC). Trains on the default fail_pred dataset (SAC) and
-tests on a separate dataset generated with a different policy.
-
-Usage:
-    python cross_policy_eval.py --env humanoid --test-dataset humanoid/tqc_fail_pred
-    python cross_policy_eval.py --env humanoid --test-dataset humanoid/tqc_fail_pred --methods fft,sig
-    python cross_policy_eval.py --env humanoid --test-dataset humanoid/tqc_fail_pred --mixed
-"""
-
-import argparse
 import gc
 import warnings
 
 import numpy as np
+import tyro
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
 
@@ -188,31 +175,33 @@ def print_summary(results: dict[str, dict], env: str, test_key: str,
     print("-" * 68)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description='Cross-policy generalization test for anomaly detectors.')
-    parser.add_argument('--env', type=str, required=True,
-                        help=f"Train environment. Available: {list(TASK_CONFIGS.keys())}")
-    parser.add_argument('--test-dataset', type=str, required=True,
-                        help="Test dataset key (e.g., humanoid/tqc_fail_pred)")
-    parser.add_argument('--methods', type=str, default=None,
-                        help=f"Comma-separated method keys. Default: {DEFAULT_METHODS}")
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--mixed', action='store_true',
-                        help='Train on successes from both policies, '
-                             'test on windows from both datasets')
-    args = parser.parse_args()
+def main(
+    env: str,
+    test_dataset: str,
+    methods: str | None = None,
+    seed: int = 42,
+    mixed: bool = False,
+):
+    """Cross-policy generalization test for anomaly detectors.
 
+    Args:
+        env: Train environment. Available: see TASK_CONFIGS.
+        test_dataset: Test dataset key (e.g., humanoid/tqc_fail_pred).
+        methods: Comma-separated method keys. Default: DEFAULT_METHODS.
+        seed: Random seed.
+        mixed: Train on successes from both policies, test on windows from
+            both datasets.
+    """
     # Validate
-    if args.env not in TASK_CONFIGS:
-        raise ValueError(f"Unknown env: {args.env}. Available: {list(TASK_CONFIGS.keys())}")
-    if args.test_dataset not in DATASETS:
-        raise ValueError(f"Unknown test dataset: {args.test_dataset}. "
+    if env not in TASK_CONFIGS:
+        raise ValueError(f"Unknown env: {env}. Available: {list(TASK_CONFIGS.keys())}")
+    if test_dataset not in DATASETS:
+        raise ValueError(f"Unknown test dataset: {test_dataset}. "
                          f"Available: {list(DATASETS.keys())}")
 
     # Parse methods
-    if args.methods:
-        method_keys = [m.strip() for m in args.methods.split(',')]
+    if methods:
+        method_keys = [m.strip() for m in methods.split(',')]
         for m in method_keys:
             if m not in DETECTOR_CONFIGS:
                 raise ValueError(f"Unknown method: {m}. "
@@ -221,7 +210,11 @@ if __name__ == "__main__":
         method_keys = DEFAULT_METHODS
 
     results = run_cross_policy_eval(
-        args.env, args.test_dataset, method_keys,
-        seed=args.seed, mixed=args.mixed,
+        env, test_dataset, method_keys,
+        seed=seed, mixed=mixed,
     )
-    print_summary(results, args.env, args.test_dataset, mixed=args.mixed)
+    print_summary(results, env, test_dataset, mixed=mixed)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
-from utils.misc import median_heuristic
+from utils.misc import median_distance
 
 from .base import Kernel
 
@@ -101,7 +101,7 @@ class MiniRocketKernel(Kernel):
             return self
 
         if self._gamma_param == "median":
-            self._gamma = median_heuristic(self._train_features)
+            self._gamma = 1.0 / (2.0 * median_distance(self._train_features) ** 2)
         else:
             raise ValueError(f"Unknown gamma heuristic: '{self._gamma_param}'")
 

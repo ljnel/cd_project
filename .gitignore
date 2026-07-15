@@ -30,3 +30,6 @@ outputs/
 results/
 videos/
 /data/
+.cache/
+nbs/working/data/
+notes.md

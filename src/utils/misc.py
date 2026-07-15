@@ -1,7 +1,8 @@
 from time import perf_counter
+from typing import Literal
 
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
+from scipy.spatial.distance import pdist
 
 
 def sample_ball_unif(n_samples, rad, dim=2):
@@ -40,36 +41,65 @@ def time_call(fn, *args, warmup=2, repeat=5):
     return float(np.mean(times))
 
 
-def median_heuristic(X: np.ndarray, n_samples: int = 1000) -> float:
-    """Compute kernel bandwidth using median heuristic.
-
-    Sets gamma = 1 / (2 * median_dist^2) which is standard for RBF kernels.
-
-    Parameters
-    ----------
-    X : ndarray
-        Either a 2D array of shape (n_samples, n_features) from which pairwise
-        distances will be computed, or a 1D array of pre-computed distances.
-    n_samples : int
-        Maximum samples to use (only applies to 2D input).
-
-    Returns
-    -------
-    gamma : float
-        Kernel bandwidth parameter.
-    """
+def median_distance(
+    X: np.ndarray,
+    metric: Literal["euclidean", "cityblock"] = "euclidean",
+    *,
+    max_points: int = 3000,
+    rng: np.random.Generator | int | None = 0,
+) -> float:
     if X.ndim == 1:
-        # Pre-computed distances
-        nonzero_dists = X[X > 0]
+        dists = X  # pre-computed distances (condensed or flat)
     else:
-        # Compute pairwise distances
-        if len(X) > n_samples:
-            idx = np.random.choice(len(X), n_samples, replace=False)
+        if len(X) > max_points:
+            idx = np.random.default_rng(rng).choice(len(X), max_points, replace=False)
             X = X[idx]
-        dists = euclidean_distances(X, X)
-        nonzero_dists = dists[dists > 0]
+        dists = pdist(X, metric=metric)
 
-    if len(nonzero_dists) == 0:
-        return 1.0  # fallback for identical points
-    median_dist = np.median(nonzero_dists)
-    return 1.0 / (2.0 * median_dist ** 2)
+    nonzero = dists[dists > 0]
+    assert len(nonzero) > 0
+    return float(np.median(nonzero))
+
+
+def median_nn_distance(
+    X: np.ndarray,
+    metric: Literal["euclidean", "cityblock"] = "euclidean",
+    *,
+    k: int = 1,
+    max_points: int = 3000,
+    rng: np.random.Generator | int | None = 0,
+) -> float:
+    """Median distance to the `k`-th nearest neighbour.
+
+    Where `median_distance` returns a *global* scale (the median over all pairs,
+    dominated by the extent of the data), this returns a *local* scale: each
+    point's distance to its `k`-th closest other point, then the median over
+    points. For data concentrated on a low-dimensional manifold the two diverge
+    — the NN distance tracks the local sampling density on the manifold rather
+    than its overall spread, which can be a more appropriate kernel bandwidth.
+
+    Larger `k` looks past the single closest point: useful when the closest
+    point is an artefact (e.g. for densely time-sampled trajectories the nearest
+    neighbour is the time-adjacent state, so `k=1` measures the integration step
+    rather than the manifold geometry).
+
+    Self-distances are excluded, and points whose k-th neighbour coincides with
+    them (distance 0) are dropped before taking the median. Like
+    `median_distance`, the point set is subsampled to `max_points` first; note
+    this makes the estimate a function of the sampling density of the set passed
+    in (a uniform subsample of m points has larger NN gaps than the full set).
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    X = np.atleast_2d(X)
+    if len(X) > max_points:
+        idx = np.random.default_rng(rng).choice(len(X), max_points, replace=False)
+        X = X[idx]
+    nn = NearestNeighbors(n_neighbors=k + 1, metric=metric).fit(X)
+    dists, _ = nn.kneighbors(X)  # (n, k+1): column 0 is the self-match (distance 0)
+    knn_dists = dists[:, k]
+
+    nonzero = knn_dists[knn_dists > 0]
+    assert len(nonzero) > 0
+    return float(np.median(nonzero))
+

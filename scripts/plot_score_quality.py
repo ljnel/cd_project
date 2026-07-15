@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""Plot ROC curves from saved score_quality results.
-
-Usage:
-    python -m scripts.plot_score_quality --env hopper
-    python -m scripts.plot_score_quality --env all
-"""
-
-import argparse
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
-from utils.cli import add_env_arg, parse_envs
+from utils.cli import ALL_ENVS, parse_envs
 from utils.paths import get_output_dir, get_root
 from utils.plotting import COL_WIDTH, save_plot, setup_style
 
@@ -56,10 +50,15 @@ def plot_roc_curves(env_name: str):
     print(f"Saved ROC curve for {env_name}")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Plot ROC curves from score_quality results.")
-    add_env_arg(parser)
-    args = parser.parse_args()
+def main(env: list[str] = ALL_ENVS):
+    """Plot ROC curves from saved score_quality results.
 
-    for env_name in parse_envs(args):
+    Args:
+        env: Environment(s) to plot ROC curves for (default: all).
+    """
+    for env_name in parse_envs(SimpleNamespace(env=env)):
         plot_roc_curves(env_name)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)
