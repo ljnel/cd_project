@@ -42,7 +42,7 @@ ENV_INFO = {
     'ant': EnvInfo(
         gym_name="Ant-v5", obs_dim=105, act_dim=8,
         display_name="Ant", ctrl_freq=20, obs_slice=slice(0, 27),
-        term_cond=r"$z \notin [0.2, 1.0]$ or $\alpha > 40\degree$",
+        term_cond=r"$z \notin [0.2, 1.0]$ or $\alpha > 45\degree$",
         term_note=r"$z$: height, $\alpha$: tilt of body up-axis from vertical",
         term_custom=True,
     ),
