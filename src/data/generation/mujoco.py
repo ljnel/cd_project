@@ -58,8 +58,14 @@ def _run_episodes(
     algo: str = 'SAC',
 ) -> dict:
     """Run a batch of episodes. Used by both sequential and parallel paths."""
+    # Disable the env's built-in health-based termination where supported, so
+    # the rollout can keep stepping past failure and record post-failure
+    # observations. The failure index is then derived from
+    # `check_custom_termination` (which reproduces the gym health check for
+    # these envs). HalfCheetah never self-terminates; InvertedPendulum has no
+    # such switch, so it keeps the break-and-NaN-pad path below.
     gym_kwargs = {}
-    if gym_name == 'Ant-v5':
+    if gym_name in ('Hopper-v5', 'Ant-v5', 'Humanoid-v5'):
         gym_kwargs['terminate_when_unhealthy'] = False
     env = gym.make(gym_name, **gym_kwargs)
     policy = _load_policy(algo, policy_path, env)
@@ -88,6 +94,7 @@ def _run_episodes(
 
         obs, _ = env.reset(seed=int(seeds[ep]))
 
+        first_ood = ep_len  # first OOD index; ep_len is the survival sentinel
         for step in range(ep_len):
             X[i, step] = obs
             action, _ = policy.predict(obs, deterministic=True)
@@ -95,18 +102,23 @@ def _run_episodes(
 
             next_obs, _, terminated, truncated, _ = env.step(action)
 
-            if check_custom_termination(gym_name, next_obs):
-                terminated = True
+            # First time the OOD condition trips, record the failure index
+            # (`next_obs` is the first OOD obs; it lands in X[step+1] on the
+            # next iteration). Keep stepping so post-failure observations are
+            # recorded for diagnostics. Edge case: an OOD obs at the final
+            # step isn't storable, so the episode counts as survival.
+            if (first_ood == ep_len and step + 1 < ep_len
+                    and check_custom_termination(gym_name, next_obs)):
+                first_ood = step + 1
 
             if terminated:
-                # `next_obs` is the post-action OOD obs that triggered
-                # termination. Per convention, store it at index step+1
-                # (the first OOD index) and leave actions[step+1] = NaN.
-                # Edge case: if step == ep_len - 1, the OOD obs isn't
-                # storable; the episode is treated as survival (fail = ep_len).
+                # True env termination that can't be disabled (e.g.
+                # InvertedPendulum). The env can't be stepped further, so store
+                # the OOD obs at step+1 and stop; later slots stay NaN.
                 if step + 1 < ep_len:
                     X[i, step + 1] = next_obs
-                    fail[i] = step + 1
+                    if first_ood == ep_len:
+                        first_ood = step + 1
                 break
 
             if truncated:
@@ -118,6 +130,8 @@ def _run_episodes(
                 break
 
             obs = next_obs
+
+        fail[i] = first_ood
 
         if verbose and (i + 1) % 50 == 0:
             logger.info(f"Generated {i + 1}/{n_batch} episodes")

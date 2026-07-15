@@ -11,11 +11,18 @@ For each episode `i`:
 
 - `X[i, 0:fail[i]]` — real ID observations (the safe trajectory).
 - `X[i, fail[i]]` — real OOD observation (the post-action obs that triggered
-  termination), if storable.
-- `X[i, fail[i]+1:]` — `np.nan` (genuinely no data; not synthetic padding).
+  the failure), if storable.
+- `X[i, fail[i]+1:]` — post-failure observations. For environments whose
+  built-in termination is disabled during generation (the rollout keeps
+  stepping past failure), these are **real** OOD observations, kept for
+  diagnostics. Where the environment truly terminates and cannot be stepped
+  further (e.g. InvertedPendulum), they are `np.nan` (genuinely no data).
+  Either way, nothing past `fail[i]` is scored — see *Scoring*.
 
-`actions` follow the same layout, with `actions[i, fail[i]] = np.nan` (no
-action was chosen from the failure state).
+`actions` follow the same layout. In the keep-stepping case `actions[i, fail[i]:]`
+are the real actions taken from the post-failure states; in the true-termination
+case `actions[i, fail[i]:]` are `np.nan` (no action was chosen from the failure
+state).
 
 ## Failure encoding
 
@@ -66,12 +73,21 @@ For survived episodes (`fail = T`), the largest admitted `end` is `T - 1 - H`.
 
 ## Scoring
 
-`score_trajectories` skips any window containing `NaN`. Consequences:
+`score_trajectories`/`score_states` score a window iff it is in-distribution
+by the failure index: `end ≤ fail`. Consequences:
 
 - For failed episodes, windows with `end ≤ fail` are scored (the
-  failure-observation window is included; everything past it is NaN-skipped).
-- For survived episodes, all windows are scored.
+  failure-observation window is included; everything past it is skipped —
+  even when it holds real post-failure data).
+- For survived episodes (`fail = T`), all windows are scored.
+- A `~isnan` guard additionally drops any window with non-finite samples
+  (e.g. post-failure physics blow-ups, or the NaN tail of truly-terminated
+  episodes).
 - The output is ragged: a variable-length score sequence per episode.
+
+Note this `end ≤ fail` scoring rule is laxer than the *In-distribution rule*
+(`end + H < fail`) used to select training/ID windows: scoring admits the
+failure-observation window, training holds out an `H`-step buffer before it.
 
 ## Dataset helpers
 

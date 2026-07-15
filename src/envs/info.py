@@ -30,6 +30,7 @@ ENV_INFO = {
         display_name="Hopper", ctrl_freq=125,
         term_cond=r"$z < 0.7$ or $\lvert\theta\rvert > 11.5\degree$",
         term_note=r"$z$: height, $\theta$: torso angle",
+        term_custom=True,
     ),
     'half_cheetah': EnvInfo(
         gym_name="HalfCheetah-v5", obs_dim=17, act_dim=6,
@@ -58,6 +59,7 @@ ENV_INFO = {
         display_name="Humanoid", ctrl_freq=67, obs_slice=slice(0, 45),
         term_cond=r"$z \notin [1.0, 2.0]\,\mathrm{m}$",
         term_note=r"$z$: height",
+        term_custom=True,
     ),
     'upkie': EnvInfo(
         gym_name="Upkie-PyBullet-Pendulum", obs_dim=4, act_dim=1,

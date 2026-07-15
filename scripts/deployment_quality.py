@@ -22,16 +22,19 @@ DEFAULT_METHODS = ['rec', 'knn', 'iforest', 'fft', 'sig', 'basis', 'dist']
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
-                   batch_size: int = 50):
+                   batch_size: int = 50, fail: np.ndarray | None = None):
     """Score each episode with sliding window at given stride.
 
-    Windows containing any NaN (post-failure samples per the convention)
-    are skipped; their score slot is NaN. Detector only sees clean windows.
+    A window is scored iff it is in-distribution: its end index is at or
+    before the episode's failure (`end <= fail`); everything past failure is
+    skipped (score slot = NaN). When `fail` is None (survivor/calibration
+    sets), every window is scored. A `~isnan` guard additionally drops windows
+    with non-finite samples.
 
     Returns
     -------
     all_scores : list of ndarray, one per episode (n_windows,) with NaN
-                 where the window contained missing data.
+                 where the window was out-of-distribution or non-finite.
     timesteps : ndarray of window-end positions.
     """
     win = detector.window
@@ -45,6 +48,9 @@ def score_episodes(detector, episodes: np.ndarray, stride: int = 5,
         batch = episodes[start:start + batch_size]
         windows = strided_window_view(batch, win, stride=stride)  # (B, n_win, win, D)
         valid = ~np.isnan(windows).any(axis=(-1, -2))             # (B, n_win)
+        if fail is not None:
+            batch_fail = fail[start:start + batch_size]
+            valid &= timesteps[None, :] <= batch_fail[:, None]
         scores = np.full(valid.shape, np.nan, dtype=np.float64)
         if valid.any():
             scores[valid] = detector.score_samples(windows[valid])
@@ -126,9 +132,11 @@ def evaluate_method(
     q_corrected = min(np.ceil((n_cal + 1) * (1 - alpha)) / n_cal, 1.0)
     threshold = float(np.quantile(per_ep_max, q_corrected))
 
-    # Score test episodes
+    # Score test episodes. Failed episodes carry real post-failure samples, so
+    # mask windows past their failure index; survivors have none to mask.
     survival_scores_raw, _ = score_episodes(detector, X_te_survived, stride=stride)
-    failure_scores_raw, _ = score_episodes(detector, X_te_failed, stride=stride)
+    failure_scores_raw, _ = score_episodes(detector, X_te_failed, stride=stride,
+                                           fail=fail_steps)
     survival_scores = normalize(survival_scores_raw)
     failure_scores = normalize(failure_scores_raw)
 
