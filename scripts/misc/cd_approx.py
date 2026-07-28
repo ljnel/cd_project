@@ -1,11 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from algs.cd_pcs import CDApprox
+from cd.algs.cd_pcs import CDApprox
 from scipy.stats import kendalltau, rankdata, spearmanr
 
-from algs.cd_poly import CDPolynomial
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.algs.cd_poly import CDPolynomial
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 
 def ranks_experiment():

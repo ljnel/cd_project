@@ -2,9 +2,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from data.generation.mujoco import _dispatch
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.data.generation.mujoco import _dispatch
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 env_info = ENV_INFO['hopper']
 gym_name = env_info.gym_name

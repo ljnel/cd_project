@@ -4,8 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import eval_chebyt, eval_legendre
 
-from algs.cd_poly import CDPolynomial
-from utils.paths import get_output_dir
+from cd.algs.cd_poly import CDPolynomial
+from cd.utils.paths import get_output_dir
 
 
 def cd_poly_uniform_exact(d: int, x: np.ndarray) -> np.ndarray:

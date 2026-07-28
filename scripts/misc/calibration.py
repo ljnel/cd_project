@@ -5,12 +5,12 @@ import tyro
 
 from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_train_cal_test
-from utils.paths import get_output_dir
-from utils.plotting import (
+from cd.data.datasets import load_train_cal_test
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import (
     FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, save_plot, setup_style,
 )
-from utils.windows import strided_window_view
+from cd.utils.windows import strided_window_view
 
 setup_style()
 

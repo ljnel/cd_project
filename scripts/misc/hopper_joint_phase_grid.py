@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 
-from data.generation.mujoco import _dispatch
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.data.generation.mujoco import _dispatch
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 N_SURVIVED = 500
 EP_LEN = 1000

@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.datasets import make_blobs, make_circles, make_moons
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 
 def _datasets(n: int, seed: int) -> list[tuple[str, np.ndarray]]:

@@ -23,10 +23,10 @@ from __future__ import annotations
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Polynomial
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Polynomial
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 
 def main(

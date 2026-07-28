@@ -10,10 +10,10 @@ import gymnasium as gym
 from joblib import Parallel, delayed
 from stable_baselines3 import SAC
 
-from data.configs import DATASETS
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.data.configs import DATASETS
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 INDICES = [71, 73, 182, 198, 336, 404, 633, 756,
            1234, 1259, 1276, 1373, 1414, 1743, 1991]

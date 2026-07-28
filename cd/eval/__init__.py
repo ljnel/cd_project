@@ -1,0 +1,29 @@
+"""Evaluation pipeline for trajectory anomaly detection.
+
+Glue between `data` (Dataset, splits) and `detectors` (Vector / Sequence).
+Contains windowing, scoring, calibration, and detection metrics.
+"""
+
+from cd.eval.calibration import fit_znorm, max_conformal_threshold
+from cd.eval.metrics import detection_metrics
+from cd.eval.pipeline import ExperimentConfig, ExperimentResult, run_experiment
+from cd.eval.scoring import score_states, score_trajectories, score_windows
+from cd.eval.survival import detection_lead_times
+from cd.eval.volume import (
+    VolumeEstimate,
+    acceptance_volume,
+    acceptance_volume_is,
+    bounding_box,
+    kde_bandwidth,
+)
+from cd.eval.windowing import get_id_states, get_id_windows, is_id, window
+
+__all__ = [
+    'window', 'is_id', 'get_id_windows', 'get_id_states',
+    'score_windows', 'score_trajectories', 'score_states',
+    'fit_znorm', 'max_conformal_threshold',
+    'detection_metrics', 'detection_lead_times',
+    'VolumeEstimate', 'acceptance_volume', 'acceptance_volume_is',
+    'bounding_box', 'kde_bandwidth',
+    'run_experiment', 'ExperimentConfig', 'ExperimentResult',
+]

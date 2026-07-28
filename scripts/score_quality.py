@@ -11,10 +11,10 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_episodes, load_experiment
-from utils.cli import ALL_ENVS, parse_envs, parse_methods, setup_logging
-from utils.latex import compute_avg_ranks, get_env_display_name
-from utils.paths import get_output_dir
+from cd.data.datasets import load_episodes, load_experiment
+from cd.utils.cli import ALL_ENVS, parse_envs, parse_methods, setup_logging
+from cd.utils.latex import compute_avg_ranks, get_env_display_name
+from cd.utils.paths import get_output_dir
 
 
 def run_experiments(

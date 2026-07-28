@@ -1,8 +1,8 @@
 import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 import matplotlib.pyplot as plt
-from algs.cd_poly import CDPolynomial
-from utils.plotting import plot_contours
+from cd.algs.cd_poly import CDPolynomial
+from cd.utils.plotting import plot_contours
 
 d = 1
 N = 4

@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from data.dataset import survived
-from data.io import load
-from utils.paths import get_output_dir
-from utils.plotting import save_plot, setup_style
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot, setup_style
 
 # The 27 observable Ant-v5 dims (qpos[2:] then qvel), matching obs_slice=slice(0, 27).
 ANT_OBS_LABELS = [

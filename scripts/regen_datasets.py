@@ -4,9 +4,9 @@ import traceback
 
 import tyro
 
-from data.configs import DATASETS
-from data.generation import generate
-from data.io import save
+from cd.data.configs import DATASETS
+from cd.data.generation import generate
+from cd.data.io import save
 
 
 def _resolve_keys(keys, env) -> list[str]:

@@ -10,18 +10,18 @@ pixi install
 pixi shell
 ```
 
-Source lives under `src/` (editable install via `pyproject.toml`), so
-`from algs.kern_cd import KernCD` etc. works directly once the pixi
-environment is active.
+Source lives in the `cd/` package at the repo root (editable install via
+`pyproject.toml`), so `from cd.algs.kern_cd import KernCD` etc. works directly
+once the pixi environment is active.
 
 ```bash
 pixi run pytest tests/       # tests
-pixi run ruff check src      # lint
+pixi run ruff check cd       # lint
 ```
 
 ## KernCD
 
-`algs.kern_cd.KernCD` is a kernelized support estimator: its score is the
+`cd.algs.kern_cd.KernCD` is a kernelized support estimator: its score is the
 regularized squared distance to the support,
 `k(x,x) − kₓᵀ(K + λm·I)⁻¹kₓ` (Rudi et al.) — equivalently a GP posterior
 variance with `σ² = λm`. Higher score = more anomalous. It satisfies the
@@ -30,8 +30,8 @@ drops directly into anything expecting a detector.
 
 ```python
 import numpy as np
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
 
 detector = KernCD(RBF(gamma="median"), lam=1e-5)
 
@@ -52,10 +52,10 @@ detector = KernCD(RBF(gamma="median"), lam=1e-5, rank=1024, pivot="rp")
 
 `pivot` is `"rp"` (randomly pivoted, `RPCholesky`), `"greedy"` (largest
 residual diagonal — also supports an `eps` accuracy target instead of a
-fixed `rank`, via `algs.kern_cd.rp_cholesky`), or `"uniform"` (classical
+fixed `rank`, via `cd.algs.kern_cd.rp_cholesky`), or `"uniform"` (classical
 Nyström).
 
-### Kernels (`algs.kernels`)
+### Kernels (`cd.algs.kernels`)
 
 - `RBF`, `Laplace`, `Abel` — stationary kernels over flat state vectors.
   `gamma` accepts a float or a bandwidth heuristic: `"median"` (global median
@@ -65,13 +65,13 @@ Nyström).
 - `Polynomial` — non-stationary, finite-dimensional monomial feature map.
   With this kernel `KernCD` reduces to the empirical-inverse
   Christoffel-Darboux support estimator on polynomials of that degree (see
-  `detectors.cd_poly.CDPolyDetector` for the direct, non-kernelized
+  `cd.detectors.cd_poly.CDPolyDetector` for the direct, non-kernelized
   implementation).
 - Sequence/trajectory kernels (`GaussFFT`, `SigKernel`, `ScatteringKernel`,
   `MiniRocketKernel`, `SpatiotemporalKernel`, ...) for windowed or
   whole-trajectory inputs — see `algs/kernels/__init__.py` for the full list.
 
-### Adapting to windows and fit-set size (`detectors.base`)
+### Adapting to windows and fit-set size (`cd.detectors.base`)
 
 - `as_sequence(detector, seq_len)` — promote a vector-kernel `KernCD` to a
   `SequenceDetector` over `(N, W, D)` windows by flattening each window.
@@ -83,13 +83,13 @@ Nyström).
 
 ## Data and evaluation
 
-`data.io.load(env, name)` reads `data/{env}/{name}/data.npz` into a
+`cd.data.io.load(env, name)` reads `data/{env}/{name}/data.npz` into a
 `Dataset` (`X`: `(N, T, D)` observations, `fail`: `(N,)` first
 out-of-distribution index per episode, `fail = T` for survivors).
-`data.dataset.stratified_split` builds train/norm/cal/test splits;
-`eval.scoring.score_states`/`score_trajectories` score a fitted detector
+`cd.data.dataset.stratified_split` builds train/norm/cal/test splits;
+`cd.eval.scoring.score_states`/`score_trajectories` score a fitted detector
 over a `Dataset`, masking out-of-distribution samples by `fail` index; and
-`eval.calibration`/`eval.survival` provide conformal thresholds and
+`cd.eval.calibration`/`cd.eval.survival` provide conformal thresholds and
 detection lead times. See `docs/conventions.md` for the full failure-index
 and scoring conventions.
 
@@ -98,7 +98,7 @@ and scoring conventions.
 Scripts under `scripts/` are one-off experiments/analyses, each a `main()`
 whose typed signature is the CLI (`tyro.cli(main)`), with the experiment and
 args documented in `main`'s docstring. Every script writes its artifacts
-under `outputs/<script-stem>/` via `utils.paths.get_output_dir`. See
+under `outputs/<script-stem>/` via `cd.utils.paths.get_output_dir`. See
 `CLAUDE.md` for the full script/output conventions.
 
 Representative `KernCD`-based scripts:

@@ -18,10 +18,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from utils.paths import get_output_dir
-from utils.plotting import FULL_WIDTH, setup_style
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import FULL_WIDTH, setup_style
 
 setup_style()
 

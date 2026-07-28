@@ -10,10 +10,10 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_train_cal_test
+from cd.data.datasets import load_train_cal_test
 from scripts.evaluation import evaluate_method, compute_deployment_metrics
-from utils.paths import get_output_dir
-from utils.plotting import (
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import (
     COL_WIDTH,
     FULL_WIDTH,
     setup_style,

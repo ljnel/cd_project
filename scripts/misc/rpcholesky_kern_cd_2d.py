@@ -37,10 +37,10 @@ from sklearn.datasets import make_blobs, make_circles, make_moons
 
 from typing import Literal
 
-from algs.kern_cd import rp_cholesky
-from algs.kernels import RBF, Abel
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.algs.kern_cd import rp_cholesky
+from cd.algs.kernels import RBF, Abel
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 
 def _datasets(n: int, seed: int) -> list[tuple[str, np.ndarray]]:

@@ -8,13 +8,13 @@ from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
-from algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from algs.bases.temporal_basis import GaussianBasis
+from cd.algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.algs.bases.temporal_basis import GaussianBasis
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_experiment
-from utils.windows import strided_window_view
+from cd.data.datasets import load_experiment
+from cd.utils.windows import strided_window_view
 
 STRATEGY_MAP = {
     "space_then_time": OptStrategy.SPACE_THEN_TIME,

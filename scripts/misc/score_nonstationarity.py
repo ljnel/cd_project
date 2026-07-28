@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from config.detectors import get_detector
-from data.datasets import load_episodes, normalize_channels
-from utils.paths import get_output_dir
-from utils.plotting import FULL_WIDTH, setup_style
-from utils.windows import strided_window_view
+from cd.data.datasets import load_episodes, normalize_channels
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import FULL_WIDTH, setup_style
+from cd.utils.windows import strided_window_view
 
 setup_style()
 

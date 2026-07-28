@@ -8,13 +8,13 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from algs.kern_cd import KernCD
-from algs.kernels import Laplace
-from data.processing import normalize_channels
-from detectors.base import subsample
-from detectors.gaussian import GaussianDetector
-from utils.paths import get_output_dir, get_root
-from utils.plotting import COL_WIDTH, save_plot, setup_style
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import Laplace
+from cd.data.processing import normalize_channels
+from cd.detectors.base import subsample
+from cd.detectors.gaussian import GaussianDetector
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import COL_WIDTH, save_plot, setup_style
 
 # Reuse the pipeline from the sibling script (put the repo root on the path so
 # the `scripts` package resolves when running this file directly).

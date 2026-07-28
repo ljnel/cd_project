@@ -1,6 +1,6 @@
 import numpy as np
 
-from algs.cd_smoothing import (
+from cd.algs.cd_smoothing import (
     ball_moment,
     ball_moment_numeric,
     gaussian_moment,

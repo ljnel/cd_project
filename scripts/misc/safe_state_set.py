@@ -2,15 +2,15 @@
 import numpy as np
 import tyro
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Laplace
-from data.dataset import stratified_split
-from data.io import load
-from data.processing import normalize_channels
-from eval.calibration import fit_znorm, max_conformal_threshold
-from eval.metrics import detection_metrics
-from eval.scoring import score_states
-from utils.paths import get_output_dir
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Laplace
+from cd.data.dataset import stratified_split
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.eval.calibration import fit_znorm, max_conformal_threshold
+from cd.eval.metrics import detection_metrics
+from cd.eval.scoring import score_states
+from cd.utils.paths import get_output_dir
 
 SIZES = {'train': 0.4, 'norm': 0.2, 'cal': 0.2, 'test': 0.2}
 NO_FAIL = {'train', 'norm', 'cal'}  # survival_only=True

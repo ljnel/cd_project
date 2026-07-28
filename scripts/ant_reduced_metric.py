@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from data.dataset import failed, survived
-from data.io import load
-from utils.paths import get_output_dir
-from utils.plotting import save_plot, setup_style
+from cd.data.dataset import failed, survived
+from cd.data.io import load
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot, setup_style
 
 # Indices into the 27-dim Ant observation (qpos[2:] then qvel).
 Z_IDX = 0          # torso height

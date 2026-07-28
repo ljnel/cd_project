@@ -11,14 +11,14 @@ from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
-from data.datasets import load_experiment
+from cd.data.datasets import load_experiment
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from algs.kernels.spatial_kernel import fit_gammas, humanoid_composite_kernel
-from algs.kernels.temporal_kernel import RBFKernel
-from algs.reduction.nystrom import NystromFeatures
-from utils.windows import strided_window_view
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.algs.kernels.spatial_kernel import fit_gammas, humanoid_composite_kernel
+from cd.algs.kernels.temporal_kernel import RBFKernel
+from cd.algs.reduction.nystrom import NystromFeatures
+from cd.utils.windows import strided_window_view
 
 
 def run(env_name, n_landmarks, n_spatial, temporal_rank, length_scale, seed, normalize=False):
@@ -115,7 +115,7 @@ def plot_latent_heatmaps(
     n_examples=5,
 ):
     """Plot heatmaps of latent matrices (after spatial + temporal dim reduction)."""
-    from utils.paths import get_output_dir
+    from cd.utils.paths import get_output_dir
 
     out_dir = get_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)

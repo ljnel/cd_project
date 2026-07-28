@@ -5,8 +5,8 @@ import tyro
 from scipy.stats import linregress
 from sktime.dists_kernels import SignatureKernel
 
-from utils.paths import get_output_dir
-from utils.plotting import COL_WIDTH, FULL_WIDTH, setup_style
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import COL_WIDTH, FULL_WIDTH, setup_style
 
 # Tol bright palette
 COLORS = ["#4477AA", "#EE7733", "#228833", "#CC3311", "#66CCEE", "#AA3377", "#BBBBBB"]

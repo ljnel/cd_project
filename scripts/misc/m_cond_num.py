@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from algs.cd_cheb import CDPolyCheb
+from cd.algs.cd_cheb import CDPolyCheb
 from sklearn.preprocessing import MinMaxScaler
 
-from algs.cd_poly import CDPolynomial
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.algs.cd_poly import CDPolynomial
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 runs = 1
 

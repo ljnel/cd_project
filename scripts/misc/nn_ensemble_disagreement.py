@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-from utils.paths import get_output_dir
+from cd.utils.paths import get_output_dir
 
 torch.set_default_dtype(torch.float32)
 

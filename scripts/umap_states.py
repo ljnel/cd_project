@@ -14,11 +14,11 @@ import phate
 import umap
 from sklearn.manifold import TSNE
 
-from data.dataset import failed
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir
-from utils.plotting import FULL_WIDTH, setup_style
+from cd.data.dataset import failed
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import FULL_WIDTH, setup_style
 
 logger = logging.getLogger("cd.scripts.umap_states")
 

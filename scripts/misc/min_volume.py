@@ -5,24 +5,24 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Abel
-from data.dataset import Dataset, failed, stratified_split, survived
-from data.io import load
-from data.processing import normalize_channels
-from detectors.cd_poly import CDPolyDetector
-from detectors.knn import KNNDetector
-from eval.calibration import max_conformal_threshold
-from eval.metrics import detection_metrics
-from eval.scoring import score_states
-from eval.volume import (
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Abel
+from cd.data.dataset import Dataset, failed, stratified_split, survived
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.detectors.cd_poly import CDPolyDetector
+from cd.detectors.knn import KNNDetector
+from cd.eval.calibration import max_conformal_threshold
+from cd.eval.metrics import detection_metrics
+from cd.eval.scoring import score_states
+from cd.eval.volume import (
     acceptance_volume,
     acceptance_volume_is,
     bounding_box,
     kde_bandwidth,
 )
-from utils.paths import get_output_dir
-from utils.plotting import save_plot
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot
 
 SIZES = {'train': 0.4, 'cal': 0.3, 'test': 0.3}
 NO_FAIL = {'train', 'cal'}  # one-class: train/cal are survivors only
@@ -160,7 +160,7 @@ def main(
     """
     methods = ('uniform', 'is') if volume_method == 'both' else (volume_method,)
 
-    from envs.info import ENV_INFO
+    from cd.envs.info import ENV_INFO
     freq = ENV_INFO[env].ctrl_freq
 
     # --- data: load, truncate, split (one-class train/cal), normalize ---

@@ -9,16 +9,16 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Abel, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
-from detectors.base import as_sequence, subsample, with_seq_len
-from detectors.cd_poly import CDPolyDetector
-from detectors.conv_ae import ConvAEDetector
-from detectors.gaussian import GaussianDetector
-from detectors.knn import KNNDetector
-from envs.info import ENV_INFO
-from eval import run_experiment
-from utils.paths import get_output_dir
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Abel, GaussFFT, MiniRocketKernel, ScatteringKernel, SigKernel
+from cd.detectors.base import as_sequence, subsample, with_seq_len
+from cd.detectors.cd_poly import CDPolyDetector
+from cd.detectors.conv_ae import ConvAEDetector
+from cd.detectors.gaussian import GaussianDetector
+from cd.detectors.knn import KNNDetector
+from cd.envs.info import ENV_INFO
+from cd.eval import run_experiment
+from cd.utils.paths import get_output_dir
 
 # ── Method registry ─────────────────────────────────────────────────────────
 

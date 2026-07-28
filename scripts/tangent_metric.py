@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from data.dataset import survived
-from data.io import load
-from utils.paths import get_output_dir
-from utils.plotting import save_plot, setup_style
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot, setup_style
 
 # Per-env observation labels (underscore-free so they render under usetex) and
 # the number of leading qpos dims (the rest are qvel), for the block divider.

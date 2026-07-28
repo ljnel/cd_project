@@ -11,7 +11,7 @@ from sklearn.model_selection import cross_val_score
 from scipy.spatial.distance import pdist
 import umap
 
-from utils.paths import get_output_dir
+from cd.utils.paths import get_output_dir
 
 d = np.load("data/hopper/fail_pred/data.npz")
 fail_all = d["fail"]

@@ -9,12 +9,12 @@ from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 
-from data.configs import DATASETS
+from cd.data.configs import DATASETS
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_dataset as _load_raw
-from data.datasets import trim_transient
-from utils.windows import sample_test_windows
+from cd.data.datasets import load_dataset as _load_raw
+from cd.data.datasets import trim_transient
+from cd.utils.windows import sample_test_windows
 
 
 def load_dataset(key: str, trim: int = 0) -> tuple[np.ndarray, np.ndarray]:

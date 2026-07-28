@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 
-from algs.cd_poly import CDPolynomial
-from data.generation.mujoco import _dispatch
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.algs.cd_poly import CDPolynomial
+from cd.data.generation.mujoco import _dispatch
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 MASS_SCALES = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00, 1.05]
 N_SURVIVED = 500

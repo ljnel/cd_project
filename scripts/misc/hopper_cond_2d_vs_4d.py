@@ -2,7 +2,7 @@
 when using (theta, z) vs (theta, z, theta_dot, z_dot)."""
 import numpy as np
 
-from algs.cd_poly import CDPolynomial
+from cd.algs.cd_poly import CDPolynomial
 
 # Hopper-v5 obs layout: 0=z, 1=theta, 2-4=joint angles, 5=xdot, 6=zdot,
 # 7=theta_dot, 8-10=joint angular velocities.

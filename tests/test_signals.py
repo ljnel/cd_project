@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from utils.windows import estimate_window
+from cd.utils.windows import estimate_window
 
 
 def generate_sine_wave(batch, steps, channels, period_length):

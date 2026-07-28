@@ -11,8 +11,8 @@ from scipy.stats import iqr as compute_iqr
 
 from config.detectors import DEFAULT_METHODS, DETECTOR_CONFIGS, get_detector
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_tune_data
-from utils.paths import get_output_dir
+from cd.data.datasets import load_tune_data
+from cd.utils.paths import get_output_dir
 
 logger = logging.getLogger("cd.tune")
 

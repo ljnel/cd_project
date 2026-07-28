@@ -14,15 +14,15 @@ warnings.filterwarnings("ignore")
 
 from sklearn.metrics import roc_auc_score
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Laplace
-from data.dataset import Dataset
-from data.processing import normalize_channels
-from detectors.gaussian import GaussianDetector
-from detectors.knn import KNNDetector
-from eval.scoring import score_states
-from utils.paths import get_output_dir, get_root
-from utils.plotting import COL_WIDTH, save_plot, setup_style
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Laplace
+from cd.data.dataset import Dataset
+from cd.data.processing import normalize_channels
+from cd.detectors.gaussian import GaussianDetector
+from cd.detectors.knn import KNNDetector
+from cd.eval.scoring import score_states
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import COL_WIDTH, save_plot, setup_style
 
 setup_style()
 log = logging.getLogger("panda_auroc")

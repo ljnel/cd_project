@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from algs.bases.temporal_basis import SineBasis
+from cd.algs.bases.temporal_basis import SineBasis
 
 
 class TestSineBasis:

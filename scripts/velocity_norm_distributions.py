@@ -8,11 +8,11 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from data.dataset import survived
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir
-from utils.plotting import SURVIVAL_COLOR, save_plot, setup_style
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import SURVIVAL_COLOR, save_plot, setup_style
 
 setup_style()
 log = logging.getLogger("velocity_norm_distributions")

@@ -7,17 +7,17 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from data.dataset import Dataset, failed, stratified_split, survived
-from data.io import load
-from data.processing import normalize_channels
-from detectors.base import subsample
-from eval.calibration import max_conformal_threshold
-from eval.scoring import score_states
-from eval.survival import detection_lead_times
-from utils.paths import get_output_dir
-from utils.plotting import plot_detection_curves, save_plot, setup_style
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.data.dataset import Dataset, failed, stratified_split, survived
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.detectors.base import subsample
+from cd.eval.calibration import max_conformal_threshold
+from cd.eval.scoring import score_states
+from cd.eval.survival import detection_lead_times
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import plot_detection_curves, save_plot, setup_style
 
 setup_style()
 log = logging.getLogger("whitened_rbf_test")

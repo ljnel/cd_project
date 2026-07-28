@@ -4,9 +4,9 @@ import numpy as np
 import seaborn as sns
 import tyro
 
-from data.datasets import load_episodes
-from utils.paths import get_output_dir
-from utils.stats import mmd_kernel_comparison
+from cd.data.datasets import load_episodes
+from cd.utils.paths import get_output_dir
+from cd.utils.stats import mmd_kernel_comparison
 
 RESULTS_DIR = get_output_dir()
 

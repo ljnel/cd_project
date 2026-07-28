@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 
-from data.io import load
-from data.dataset import survived
-from algs.cd_poly import CDPolynomial
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir
+from cd.data.io import load
+from cd.data.dataset import survived
+from cd.algs.cd_poly import CDPolynomial
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir
 
 T_START = 200
 DEGREE = 6

@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
-from algs.bases.temporal_basis import GaussianBasis
-from algs.kernels.temporal_kernel import RBFKernel
+from cd.algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
+from cd.algs.bases.temporal_basis import GaussianBasis
+from cd.algs.kernels.temporal_kernel import RBFKernel
 
 # ---------------------------------------------------------------------------
 # Fixtures

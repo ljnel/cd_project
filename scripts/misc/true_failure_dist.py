@@ -12,11 +12,11 @@ import gymnasium as gym
 from joblib import Parallel, delayed
 from stable_baselines3 import SAC
 
-from data.configs import DATASETS
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
-from utils.plotting import save_plot, setup_style
+from cd.data.configs import DATASETS
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import save_plot, setup_style
 
 # |qvel| at/above this is clipped in the Hopper obs, so obs -> sim state is not
 # faithfully reconstructable for those rows (matches scripts/coverage_holes.py).

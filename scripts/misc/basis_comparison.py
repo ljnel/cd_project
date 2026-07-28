@@ -7,8 +7,8 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
-from algs.bases.temporal_basis import (
+from cd.algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
+from cd.algs.bases.temporal_basis import (
     BSplineBasis,
     FourierBasis,
     GaussianBasis,
@@ -16,8 +16,8 @@ from algs.bases.temporal_basis import (
     VonMisesBasis,
 )
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_experiment
-from utils.windows import strided_window_view
+from cd.data.datasets import load_experiment
+from cd.utils.windows import strided_window_view
 
 DEFAULT_ENVS = list(TASK_CONFIGS.keys())
 

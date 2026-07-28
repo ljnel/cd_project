@@ -5,12 +5,12 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix, precision_recall_curve
 from sklearn.model_selection import train_test_split
 
-from algs.reduction.dim_red import PCA_FFT
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, GaussFFT, SigKernel
+from cd.algs.reduction.dim_red import PCA_FFT
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, GaussFFT, SigKernel
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_experiment
-from utils.signals import estimate_freq, low_pass
+from cd.data.datasets import load_experiment
+from cd.utils.signals import estimate_freq, low_pass
 
 CAL = 0.3  # calibration set size
 N_PERIOD = 1

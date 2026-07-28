@@ -7,12 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from data.configs import DATASETS, DatasetConfig
+from cd.data.configs import DATASETS, DatasetConfig
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
-from envs.mujoco.termination import check_custom_termination
-from utils.paths import get_output_dir, get_root
-from utils.plotting import FULL_WIDTH, setup_style
+from cd.envs.mujoco.termination import check_custom_termination
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import FULL_WIDTH, setup_style
 
 setup_style()
 
@@ -161,8 +161,8 @@ def _upkie_find_failures(
     import gymnasium as gym
     import upkie.envs
 
-    from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters, _restore_parameters
+    from cd.envs.upkie.disturbances import clear_external_forces
+    from cd.envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters, _restore_parameters
 
     upkie.envs.register()
 
@@ -188,7 +188,7 @@ def _upkie_find_failures(
 
     disturbance = None
     if disturbance_type is not None:
-        from envs.upkie import disturbances as dist_mod
+        from cd.envs.upkie import disturbances as dist_mod
         disturbance = getattr(dist_mod, disturbance_type)(**disturbance_kwargs)
 
     rng = np.random.default_rng()
@@ -249,8 +249,8 @@ def _upkie_render_failure(
     import gymnasium as gym
     import upkie.envs
 
-    from envs.upkie.disturbances import clear_external_forces
-    from envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters
+    from cd.envs.upkie.disturbances import clear_external_forces
+    from cd.envs.upkie.gen_data import _apply_parameter_scales, _get_base_parameters
 
     upkie.envs.register()
 
@@ -276,7 +276,7 @@ def _upkie_render_failure(
 
     disturbance = None
     if disturbance_type is not None:
-        from envs.upkie import disturbances as dist_mod
+        from cd.envs.upkie import disturbances as dist_mod
         disturbance = getattr(dist_mod, disturbance_type)(**disturbance_kwargs)
 
     rng = np.random.default_rng()

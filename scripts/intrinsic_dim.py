@@ -9,12 +9,12 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from data.dataset import survived
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir
-from utils.plotting import FULL_WIDTH, setup_style
-from utils.stats import twonn
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import FULL_WIDTH, setup_style
+from cd.utils.stats import twonn
 
 logger = logging.getLogger("cd.scripts.intrinsic_dim")
 

@@ -21,8 +21,8 @@ from torchvision import datasets, transforms
 
 from models.mnist.ae_cd import AE_CD
 from models.mnist.contrastive_dl import make_contrastive_loader
-from utils.paths import get_output_dir, get_root
-from utils.plotting import save_plot
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import save_plot
 
 test_ds = datasets.MNIST(root=str(get_root() / "data"), 
                          train=False, download=True, transform=transforms.ToTensor())

@@ -7,12 +7,12 @@ import numpy as np
 import time
 from itertools import product
 
-from data.datasets import load_experiment
-from utils.windows import strided_window_view
-from utils.stats import mmd_squared
-from algs.kernels.spatial_kernel import fit_gammas, humanoid_composite_kernel
-from algs.kernels.trajectory_kernels import spatiotemporal_kernel
-from algs.kernels.temporal_kernel import RBFKernel, PeriodicKernel
+from cd.data.datasets import load_experiment
+from cd.utils.windows import strided_window_view
+from cd.utils.stats import mmd_squared
+from cd.algs.kernels.spatial_kernel import fit_gammas, humanoid_composite_kernel
+from cd.algs.kernels.trajectory_kernels import spatiotemporal_kernel
+from cd.algs.kernels.temporal_kernel import RBFKernel, PeriodicKernel
 
 # Load data
 win = 30

@@ -14,11 +14,11 @@ from survival_states_set_approximation import (
     run_method,
 )
 
-from data.dataset import stratified_split
-from data.io import load
-from data.processing import normalize_channels
-from utils.paths import get_output_dir
-from utils.plotting import plot_detection_curves, save_plot, setup_style
+from cd.data.dataset import stratified_split
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import plot_detection_curves, save_plot, setup_style
 
 setup_style()
 

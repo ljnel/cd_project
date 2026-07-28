@@ -10,11 +10,11 @@ warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from data.dataset import failed, stratified_split, survived
-from data.io import load
-from data.processing import normalize_channels
-from utils.paths import get_output_dir
-from utils.windows import strided_window_view
+from cd.data.dataset import failed, stratified_split, survived
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.utils.paths import get_output_dir
+from cd.utils.windows import strided_window_view
 
 ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
 DEFAULT_METHODS = ['rec', 'knn', 'iforest', 'fft', 'sig', 'basis', 'dist']

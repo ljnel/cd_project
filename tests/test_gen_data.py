@@ -250,7 +250,7 @@ class TestPlottingUtilities:
         import matplotlib
         matplotlib.use('Agg')  # Non-interactive backend
 
-        from data.generation.upkie import compare_plots
+        from cd.data.generation.upkie import compare_plots
 
         # Should not raise
         compare_plots(synthetic_gen_data_output, num_samples=2, title="Test")
@@ -260,7 +260,7 @@ class TestPlottingUtilities:
         import matplotlib
         matplotlib.use('Agg')
 
-        from data.generation.upkie import compare_plots
+        from cd.data.generation.upkie import compare_plots
 
         compare_plots(synthetic_gen_data_output, num_samples=1, title="Single")
 
@@ -269,7 +269,7 @@ class TestPlottingUtilities:
         import matplotlib
         matplotlib.use('Agg')
 
-        from data.generation.upkie import compare_plots
+        from cd.data.generation.upkie import compare_plots
 
         # Ensure we have some failures
         data = synthetic_gen_data_output.copy()
@@ -331,17 +331,17 @@ class TestConstants:
 
     def test_obs_dim_constant(self):
         """Test OBS_DIM constant value."""
-        from data.generation.upkie import OBS_DIM
+        from cd.data.generation.upkie import OBS_DIM
         assert OBS_DIM == 4
 
     def test_action_dim_constant(self):
         """Test ACTION_DIM constant value."""
-        from data.generation.upkie import ACTION_DIM
+        from cd.data.generation.upkie import ACTION_DIM
         assert ACTION_DIM == 1
 
     def test_obs_history_constant(self):
         """Test OBS_HISTORY constant value."""
-        from data.generation.upkie import OBS_HISTORY
+        from cd.data.generation.upkie import OBS_HISTORY
         assert OBS_HISTORY == 10
 
 

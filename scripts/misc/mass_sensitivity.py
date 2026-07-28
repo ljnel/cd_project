@@ -12,11 +12,11 @@ from scipy.stats import binned_statistic
 
 warnings.filterwarnings("ignore")
 
-from data.configs import DATASETS, DatasetConfig
+from cd.data.configs import DATASETS, DatasetConfig
 from config.detectors import DEFAULT_METHODS, get_detector, get_method_display_name
 from config.tasks import TASK_CONFIGS
-from utils.paths import get_output_dir
-from utils.plotting import COL_WIDTH, setup_style
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import COL_WIDTH, setup_style
 
 setup_style()
 
@@ -69,9 +69,9 @@ def _get_base_config(env_name: str) -> DatasetConfig:
 def _gen_data(cfg: DatasetConfig) -> dict:
     """Dispatch to the right gen_data based on platform."""
     if cfg.platform == "upkie":
-        from envs.upkie.gen_data import gen_data
+        from cd.envs.upkie.gen_data import gen_data
     else:
-        from envs.mujoco.gen_data import gen_data
+        from cd.envs.mujoco.gen_data import gen_data
     return gen_data(cfg, n_jobs=-1)
 
 

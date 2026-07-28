@@ -1,7 +1,7 @@
 from sklearn.metrics import confusion_matrix
 
-from data.datasets import load_experiment
-from detectors.kernel import KernDetector
+from cd.data.datasets import load_experiment
+from cd.detectors.kernel import KernDetector
 
 x_tr, x_te, y_true, _ = load_experiment('hopper')
 

@@ -11,10 +11,10 @@ from sklearn.neighbors import BallTree
 
 warnings.filterwarnings("ignore")
 
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
-from utils.plotting import FULL_WIDTH, setup_style
-from utils.stats import mmd_squared
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import FULL_WIDTH, setup_style
+from cd.utils.stats import mmd_squared
 
 logger = logging.getLogger("cd.scripts.failure_mode_diagnostics")
 

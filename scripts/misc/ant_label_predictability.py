@@ -17,10 +17,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-from data.io import load
-from data.dataset import survived
-from algs.cd_poly import CDPolynomial
-from utils.paths import get_output_dir
+from cd.data.io import load
+from cd.data.dataset import survived
+from cd.algs.cd_poly import CDPolynomial
+from cd.utils.paths import get_output_dir
 
 # Config
 T_START = 50

@@ -11,13 +11,13 @@ import gymnasium as gym
 from sklearn.preprocessing import StandardScaler
 from stable_baselines3 import SAC
 
-from data.configs import DATASETS
-from data.dataset import survived
-from data.io import load
-from detectors.cd_poly import CDPolyDetector
-from envs.info import ENV_INFO
-from eval.calibration import max_conformal_threshold
-from utils.paths import get_output_dir, get_root
+from cd.data.configs import DATASETS
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.detectors.cd_poly import CDPolyDetector
+from cd.envs.info import ENV_INFO
+from cd.eval.calibration import max_conformal_threshold
+from cd.utils.paths import get_output_dir, get_root
 
 EnvName = Literal['ant', 'half_cheetah', 'hopper', 'humanoid', 'inv_pend', 'upkie']
 

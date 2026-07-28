@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from utils.paths import get_output_dir
+from cd.utils.paths import get_output_dir
 
 # Hopper-v5 obs layout (see scripts/misc/hopper_cond_2d_vs_4d.py).
 HOPPER_OBS = [

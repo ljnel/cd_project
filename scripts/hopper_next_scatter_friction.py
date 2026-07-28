@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from data.generation.mujoco import _dispatch
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.data.generation.mujoco import _dispatch
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 # Hopper-v5 obs layout (see scripts/misc/hopper_cond_2d_vs_4d.py).
 HOPPER_OBS = [

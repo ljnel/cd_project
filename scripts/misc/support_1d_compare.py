@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from sklearn.metrics.pairwise import laplacian_kernel
 
-from algs.cd_poly import CDPolynomial
-from algs.kern_cd import KernCD
-from algs.kernels import RBF
-from algs.kernels.base import Kernel
-from utils.paths import get_output_dir
+from cd.algs.cd_poly import CDPolynomial
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF
+from cd.algs.kernels.base import Kernel
+from cd.utils.paths import get_output_dir
 
 
 class Laplace(Kernel):

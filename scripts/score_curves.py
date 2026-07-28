@@ -12,15 +12,15 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
-from data.configs import DATASETS
+from cd.data.configs import DATASETS
 from config.detectors import get_detector
 from config.envs import ENV_INFO
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_episodes, normalize_channels
-from envs.mujoco.termination import check_custom_termination
-from utils.paths import get_output_dir, get_root
-from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
-from utils.windows import strided_window_view
+from cd.data.datasets import load_episodes, normalize_channels
+from cd.envs.mujoco.termination import check_custom_termination
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
+from cd.utils.windows import strided_window_view
 
 setup_style()
 
@@ -143,7 +143,7 @@ def run_env(env_name: str, n_episodes: int, seed: int,
     import gymnasium as gym
     import mujoco
 
-    from envs.mujoco.gen_data import _load_policy
+    from cd.envs.mujoco.gen_data import _load_policy
 
     task_cfg = TASK_CONFIGS[env_name]
     dataset_key = f"{env_name}/test"

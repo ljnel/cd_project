@@ -5,15 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cd_project"
 version = "0.1.0"
+dependencies = ["numpy", "scipy", "scikit-learn"]
 
-[tool.setuptools]
-package-dir = { "" = "src" }
-
+# Flat layout: the importable package is `cd/` at the repo root.
+# `include` is essential — without it, packages.find (namespaces = true by
+# default) would also collect scripts/, tests/, nbs/ and ship them in the wheel.
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["cd*"]
 
 [tool.ruff]
-src = ["src"]
+src = ["."]
 line-length = 120
 
 [tool.ruff.lint]
@@ -21,7 +22,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501", "E402", "E741"]
 
 [tool.mypy]
-mypy_path = "src"
 ignore_missing_imports = true
 check_untyped_defs = true
 no_implicit_optional = true
@@ -29,11 +29,10 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pyright]
-# src/ layout: first-party modules import as `data.*`, `eval.*`, ... (mirrors mypy_path).
-extraPaths = ["src"]
+# Flat layout: first-party modules import as `cd.algs.*`, `cd.utils.*`, ...
 typeCheckingMode = "basic"
 
-# src/ (the library) stays fully type-checked. scripts/ is numpy/gym/scipy-heavy
+# cd/ (the library) stays fully type-checked. scripts/ is numpy/gym/scipy-heavy
 # glue code where those packages' loose stubs produce false positives, so relax
 # the stub-driven rules there only. ruff still lints scripts/ (see [tool.ruff]).
 [[tool.pyright.executionEnvironments]]

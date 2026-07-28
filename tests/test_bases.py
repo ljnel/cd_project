@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from sklearn.preprocessing import PolynomialFeatures
 
-from algs.bases.poly_basis import BasisSpec, ChebyshevBasis, MonomialBasis
+from cd.algs.bases.poly_basis import BasisSpec, ChebyshevBasis, MonomialBasis
 
 
 def test_shape():

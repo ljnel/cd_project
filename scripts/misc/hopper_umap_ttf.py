@@ -13,11 +13,11 @@ import umap
 from joblib import Parallel, delayed
 from stable_baselines3 import SAC
 
-from data.configs import DATASETS
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
-from utils.plotting import save_plot, setup_style
+from cd.data.configs import DATASETS
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import save_plot, setup_style
 
 
 def _rollout_obs(start_obs, vel_start, mass, fric, damp, seeds,

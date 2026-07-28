@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from utils.cli import ALL_ENVS, parse_envs
-from utils.paths import get_output_dir, get_root
-from utils.plotting import COL_WIDTH, save_plot, setup_style
+from cd.utils.cli import ALL_ENVS, parse_envs
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import COL_WIDTH, save_plot, setup_style
 
 setup_style()
 

@@ -14,7 +14,7 @@ from umap import UMAP
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_detector
-from utils.paths import get_output_dir, get_root
+from cd.utils.paths import get_output_dir, get_root
 
 
 def _extract_coll_timesteps(offline_dataset_path):

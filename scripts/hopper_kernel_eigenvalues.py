@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from algs.kern_cd import rp_cholesky
-from algs.kernels import RBF, Laplace
-from data.dataset import survived
-from data.io import load
-from data.processing import normalize_channels
-from utils.paths import get_output_dir
-from utils.plotting import save_plot, setup_style
+from cd.algs.kern_cd import rp_cholesky
+from cd.algs.kernels import RBF, Laplace
+from cd.data.dataset import survived
+from cd.data.io import load
+from cd.data.processing import normalize_channels
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import save_plot, setup_style
 
 
 def main(

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from algs.kern_cd import KernCD, rp_cholesky
-from algs.kernels import RBF, GaussFFT
+from cd.algs.kern_cd import KernCD, rp_cholesky
+from cd.algs.kernels import RBF, GaussFFT
 
 # Pivot rules. rp/greedy never re-select a pivot (its residual is driven to 0),
 # so they reach full rank and reproduce the exact score; uniform samples with

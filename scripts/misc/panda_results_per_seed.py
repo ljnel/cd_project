@@ -17,7 +17,7 @@ from config.detectors import (
     get_method_display_name,
 )
 from scripts.panda_data_viz import load_panda_by_env_seed
-from utils.paths import get_output_dir, get_root
+from cd.utils.paths import get_output_dir, get_root
 
 
 def run_per_seed(

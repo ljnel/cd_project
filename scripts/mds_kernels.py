@@ -7,20 +7,20 @@ import numpy as np
 import tyro
 from sklearn.manifold import MDS
 
-from algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
-from algs.reduction.downsampling import downsample_regular
-from algs.kernels import GaussFFT, RBF, SigKernel
-from algs.kernels.spatial_kernel import fit_rbf_gamma
-from algs.bases.temporal_basis import (
+from cd.algs.reduction.bilinear import BilinearTrajectoryEncoder, OptStrategy
+from cd.algs.reduction.downsampling import downsample_regular
+from cd.algs.kernels import GaussFFT, RBF, SigKernel
+from cd.algs.kernels.spatial_kernel import fit_rbf_gamma
+from cd.algs.bases.temporal_basis import (
     BSplineBasis, FourierBasis, GaussianBasis, SineBasis, VonMisesBasis,
 )
-from algs.kernels.trajectory_kernels import RFFMeanKernel
+from cd.algs.kernels.trajectory_kernels import RFFMeanKernel
 from config.detectors import DETECTOR_CONFIGS
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_experiment
-from utils.paths import get_output_dir, get_root
-from utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
-from utils.signals import low_pass
+from cd.data.datasets import load_experiment
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import FAILURE_COLOR, FULL_WIDTH, SURVIVAL_COLOR, setup_style
+from cd.utils.signals import low_pass
 
 ALL_ENVS = ['inv_pend', 'hopper', 'half_cheetah', 'ant', 'humanoid', 'upkie']
 

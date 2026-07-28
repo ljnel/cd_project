@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from algs.kernels import RBF, GaussFFT, PolyFFT
+from cd.algs.kernels import RBF, GaussFFT, PolyFFT
 
 # =============================================================================
 # Fixtures

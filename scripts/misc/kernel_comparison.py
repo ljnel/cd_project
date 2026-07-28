@@ -3,10 +3,10 @@ import numpy as np
 import tyro
 from sklearn.metrics.pairwise import rbf_kernel
 
-from algs.kernels import GaussFFT, SigKernel
-from data.datasets import load_experiment
-from utils.plotting import plot_gram
-from utils.signals import estimate_freq, spectral_entropy
+from cd.algs.kernels import GaussFFT, SigKernel
+from cd.data.datasets import load_experiment
+from cd.utils.plotting import plot_gram
+from cd.utils.signals import estimate_freq, spectral_entropy
 
 N_PERIOD = 2
 WIN = 200

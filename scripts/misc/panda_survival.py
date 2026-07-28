@@ -11,18 +11,18 @@ import tyro
 
 warnings.filterwarnings("ignore")
 
-from algs.kern_cd import KernCD
-from algs.kernels import RBF, Abel, Laplace
-from data.dataset import Dataset
-from data.processing import normalize_channels
-from detectors.base import subsample
-from detectors.gaussian import GaussianDetector
-from detectors.knn import KNNDetector
-from eval.calibration import max_conformal_threshold
-from eval.scoring import score_states
-from eval.survival import detection_lead_times
-from utils.paths import get_output_dir, get_root
-from utils.plotting import plot_detection_curves, save_plot, setup_style
+from cd.algs.kern_cd import KernCD
+from cd.algs.kernels import RBF, Abel, Laplace
+from cd.data.dataset import Dataset
+from cd.data.processing import normalize_channels
+from cd.detectors.base import subsample
+from cd.detectors.gaussian import GaussianDetector
+from cd.detectors.knn import KNNDetector
+from cd.eval.calibration import max_conformal_threshold
+from cd.eval.scoring import score_states
+from cd.eval.survival import detection_lead_times
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import plot_detection_curves, save_plot, setup_style
 
 setup_style()
 log = logging.getLogger("panda_survival")

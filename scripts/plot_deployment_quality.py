@@ -13,10 +13,10 @@ from matplotlib.ticker import MaxNLocator
 warnings.filterwarnings("ignore")
 
 from config.detectors import get_method_display_name
-from utils.cli import ALL_ENVS, parse_envs, parse_methods
-from utils.latex import get_env_display_name
-from utils.paths import get_output_dir, get_root
-from utils.plotting import (
+from cd.utils.cli import ALL_ENVS, parse_envs, parse_methods
+from cd.utils.latex import get_env_display_name
+from cd.utils.paths import get_output_dir, get_root
+from cd.utils.plotting import (
     COL_WIDTH,
     FAILURE_COLOR,
     FULL_WIDTH,

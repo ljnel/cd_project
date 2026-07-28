@@ -3,11 +3,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tyro
 
-from algs.kernels import GaussFFT, ScatteringKernel, SigKernel
+from cd.algs.kernels import GaussFFT, ScatteringKernel, SigKernel
 from config.tasks import TASK_CONFIGS
-from data.datasets import load_experiment
-from utils.paths import get_output_dir
-from utils.plotting import FULL_WIDTH, plot_gram, setup_style
+from cd.data.datasets import load_experiment
+from cd.utils.paths import get_output_dir
+from cd.utils.plotting import FULL_WIDTH, plot_gram, setup_style
 
 setup_style()
 

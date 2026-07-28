@@ -11,9 +11,9 @@ warnings.filterwarnings("ignore")
 import plotly.graph_objects as go
 import umap
 
-from data.io import load
-from envs.info import ENV_INFO
-from utils.paths import get_output_dir, get_root
+from cd.data.io import load
+from cd.envs.info import ENV_INFO
+from cd.utils.paths import get_output_dir, get_root
 
 
 def render_video(env, dataset, video, fps, dpi, ttf_vmax,
