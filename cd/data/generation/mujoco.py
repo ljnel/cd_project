@@ -32,8 +32,8 @@ from cd.utils.paths import get_root
 logger = logging.getLogger("cd.envs.mujoco.gen_data")
 
 # policies
-from stable_baselines3 import SAC
 from sb3_contrib import TQC
+from stable_baselines3 import SAC
 
 
 def _load_policy(algo: str, policy_path: str, env):

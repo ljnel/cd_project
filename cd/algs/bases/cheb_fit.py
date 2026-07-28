@@ -5,7 +5,7 @@ from numpy import ndarray
 from numpy.polynomial.chebyshev import chebval
 from scipy.fft import dct
 
-from cd.utils.paths import closest_indices
+from cd.utils.misc import closest_indices
 
 
 def chebyshev_nodes(a, b, n):

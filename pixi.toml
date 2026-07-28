@@ -49,14 +49,8 @@ pacmap = ">=0.7, <0.8"
 phate = ">=1.0, <2"
 
 [tasks]
-gen_data = "python -m cd.data.datasets --overwrite"
-gen_train = "python -m cd.data.datasets --keys inv_pend/train hopper/train half_cheetah/train ant/train humanoid/train upkie/train --overwrite"
-gen_test = "python -m cd.data.datasets --keys inv_pend/test hopper/test half_cheetah/test ant/test humanoid/test upkie/test --overwrite"
-gen_tune = "python -m cd.data.datasets --keys inv_pend/tune hopper/tune half_cheetah/tune ant/tune humanoid/tune upkie/tune --overwrite"
+gen_data = "python scripts/regen_datasets.py"
 tune = "rm -rf results/tuned && python scripts/tune.py --env all"
-# NOTE: scripts/fail_pred_results.py does not exist (removed in an earlier
-# restructure); this task was already broken before the flat-layout move.
-fail_pred = "python scripts/fail_pred_results.py --env all --tr-ep 500"
 
 [target.linux-64.dependencies]
 cuda-nvcc = ">=12.6.3"
