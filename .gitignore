@@ -35,3 +35,4 @@ videos/
 .cache/
 nbs/working/data/
 notes.md
+.vscode

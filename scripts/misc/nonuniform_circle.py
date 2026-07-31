@@ -1,5 +1,5 @@
 r"""
-Level sets of three support estimators on a NON-UNIFORM circle.
+Level sets of four support estimators on a NON-UNIFORM circle.
 
 The data lie on the unit circle with a dense right arc (~85% of points) and a
 sparse left arc; the true support is the whole circle. The point of the figure
@@ -8,7 +8,8 @@ their decision boundary:
 
     a) KernCD with an RBF kernel,
     b) KernCD with a polynomial kernel (degree 3),
-    c) k-nearest-neighbour distance (distance to the k-th neighbour).
+    c) CDPolynomial with a finite polynomial basis (degree 3),
+    d) k-nearest-neighbour distance (distance to the k-th neighbour).
 
 Each boundary is calibrated by SPLIT CONFORMAL on a held-out calibration set to
 a target on-support coverage of 1 - alpha: tau is the k-th smallest calibration
@@ -23,6 +24,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+from cd.algs.cd_poly import CDPolynomial
 from cd.algs.kern_cd import KernCD
 from cd.algs.kernels import RBF, Polynomial
 from cd.utils.paths import get_output_dir
@@ -40,8 +42,8 @@ def main(
     grid_res: int = 260,
     seed: int = 0,
 ):
-    """Plot calibrated level sets of KernCD (RBF), KernCD (polynomial) and k-NN
-    on a non-uniform circle.
+    """Plot calibrated level sets of two KernCD variants, CDPolynomial, and
+    k-NN on a non-uniform circle.
 
     Args:
         n_train: points used to fit each detector.
@@ -49,8 +51,8 @@ def main(
         n_test: held-out points used to report empirical coverage.
         alpha: target miscoverage; boundary aims for 1 - alpha on-support coverage.
         k: number of neighbours for the k-NN detector (uses the k-th distance).
-        poly_degree: degree of the polynomial kernel for KernCD.
-        lam: KernCD regularization λ (ridge λm on the kernel matrix).
+        poly_degree: degree of the polynomial kernel and finite polynomial basis.
+        lam: regularization for KernCD and the CDPolynomial moment matrix.
         grid_res: resolution of the evaluation grid per axis.
         seed: RNG seed.
     """
@@ -76,6 +78,12 @@ def main(
     # ------------------------------------------------------------------ #
     kcd_rbf = KernCD(kernel=RBF(gamma="median"), lam=lam).fit(Xtr)
     kcd_poly = KernCD(kernel=Polynomial(degree=poly_degree), lam=lam).fit(Xtr)
+    cd_poly = CDPolynomial(
+        Xtr,
+        degree=poly_degree,
+        method="chol",
+        eps=lam,
+    )
 
     nn = NearestNeighbors(n_neighbors=k).fit(Xtr)
 
@@ -86,6 +94,7 @@ def main(
     panels = [
         ("KernCD — RBF kernel", kcd_rbf.score),
         (f"KernCD — polynomial kernel (deg {poly_degree})", kcd_poly.score),
+        (f"CDPolynomial — finite basis (deg {poly_degree})", cd_poly.predict),
         (f"{k}-NN distance", knn_score),
     ]
 
@@ -100,20 +109,21 @@ def main(
         return np.sort(scores_cal)[idx - 1]
 
     thresholds = {name: conformal_tau(score(Xcal)) for name, score in panels}
+    print("thresholds:", thresholds)
 
     # evaluation grid
     g = np.linspace(-1.8, 1.8, grid_res)
     GX, GY = np.meshgrid(g, g)
     Xg = np.c_[GX.ravel(), GY.ravel()]
 
-    import matplotlib
-    matplotlib.use("Agg")
+    #import matplotlib
+    #matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
     cell_area = (g[1] - g[0]) ** 2  # area of one grid cell, for the "volume" measure
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5.2), sharex=True, sharey=True)
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5.2), sharex=True, sharey=True)
     for ax, (name, score) in zip(axes, panels):
         Z = score(Xg).reshape(GX.shape)
         tau = thresholds[name]
@@ -137,6 +147,7 @@ def main(
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     out = save_plot(get_output_dir() / "levelsets.pdf", fig=fig)
     print(f"saved {out}\n")
+    plt.show(block=True)
 
     # ------------------------------------------------------------------ #
     # Empirical coverage on the TEST set (should be ~ 1 - alpha), plus
