@@ -35,8 +35,9 @@ from cd.utils.plotting import save_plot
 EstimatorKind = Literal["kernelized", "polynomial"]
 SubsetMethod = Literal["bottom-k", "sdp"]
 ScoreFunction = Callable[[np.ndarray], np.ndarray]
+ExperimentName = Literal["disk", "nonuniform_circle"]
 
-RELAX_CONSTANT = 10.0  # Relaxation constant for Step 2 of the SDP design.
+RELAX_CONSTANT = 0.0  # Relaxation constant for Step 2 of the SDP design.
 
 def approximate_rank(matrix):
     eigenvalues = np.linalg.eigvalsh(matrix)[::-1]
@@ -46,7 +47,8 @@ def approximate_rank(matrix):
 
     ratios = eigenvalues[:threshold_rank - 1] / eigenvalues[1:threshold_rank]
     large_gaps = np.flatnonzero(ratios >= 20)
-    return int(large_gaps[-1] + 1) if large_gaps.size else threshold_rank
+    rank = int(large_gaps[-1] + 1) if large_gaps.size else threshold_rank
+    return rank, eigenvalues
 
 def sample_nonuniform_circle(
     rng: np.random.Generator,
@@ -93,9 +95,6 @@ def fit_estimator(
         )
         return model.predict, model.M
 
-    raise ValueError(f"Unknown estimator kind: {kind!r}")
-
-
 def conformal_threshold(scores: np.ndarray, alpha: float) -> float:
     """Return the split-conformal threshold for target coverage ``1 - alpha``."""
     rank = int(np.ceil((len(scores) + 1) * (1.0 - alpha)))
@@ -118,6 +117,7 @@ def select_sdp(
     """Placeholder for the future two-stage SDP subset design."""
     import numpy as np
     import cvxpy as cp
+    from scipy.linalg import cholesky, solve_triangular
     from itertools import product
 
     def get_multi_indices(dim, degree):
@@ -153,7 +153,7 @@ def select_sdp(
             return tuple(a + b for a, b in zip(idx1, idx2))
 
         # 1. Determine rank k (number of points)
-        k = approximate_rank(Mr_val)
+        k, _ = approximate_rank(Mr_val)
         _, U = np.linalg.eigh(Mr_val)
         U = U[:, ::-1]
         print(f"Detected {k} support points.")
@@ -210,12 +210,13 @@ def select_sdp(
             row = []
             for beta in basis_rn:
                 shift = tuple(a + b for a, b in zip(alpha, beta))
-                shifted_matrix = build_moment_matrix(
-                    moment_variable, multi_indices, n, shift=shift
-                )
+                shifted_indices = [
+                    idx_map[tuple(a + s for a, s in zip(idx, shift))]
+                    for idx in cd_multi_indices
+                ]
                 row.append(
                     (gamma + relax) * moment_variable[idx_map[shift]]
-                    - cp.trace(M_fix @ shifted_matrix)
+                    - cd_coefficients @ moment_variable[shifted_indices]
                 )
             support_rows.append(cp.hstack(row))
 
@@ -267,7 +268,7 @@ def select_sdp(
 
         epsilon = 1e-2
         constraints2 = [
-            cp.norm(y[:num_fixed] - y_star[:num_fixed]) <= epsilon, # Moment matching constraint
+            cp.norm(y[:num_fixed] - y_star[:num_fixed], p='inf') <= epsilon, # Moment matching constraint
             Mr >> 0, #epsilon * np.eye(Mr.shape[0]),                   # New moment matrix must be PSD
             L_g1 >> 0, #epsilon * np.eye(L_g1.shape[0]),             # Support constraint 1
             L_g2 >> 0, #epsilon * np.eye(L_g2.shape[0]),             # Support constraint 2
@@ -289,12 +290,21 @@ def select_sdp(
         flat_extension = False
         if Mr.value is not None:
 
-            rank_Mr = approximate_rank(Mr.value)
+            rank_Mr, eigs_Mr = approximate_rank(Mr.value)
             subblock = len(L_g2.value)
-            rank_Mn = approximate_rank(Mr.value[:subblock, :subblock])
+            rank_Mn, eigs_Mn = approximate_rank(Mr.value[:subblock, :subblock])
             print(f"Rank of Mr: {rank_Mr}, Rank of M_(r-nu): {rank_Mn}")
+            with np.printoptions(formatter={"float_kind": "{:.3e}".format}):
+                if rank_Mr > 3:
+                    #print(eigs_Mr)
+                    print("eigenvalue split Mr:", eigs_Mr[:rank_Mr][-3:], end=" // ")
+                    print(eigs_Mr[rank_Mr:][:3])
+                if rank_Mn > 3:
+                    #print(eigs_Mn)
+                    print("eigenvalue split M_(r-nu):", eigs_Mn[:rank_Mn][-3:], end=" // ")
+                    print(eigs_Mn[rank_Mn:][:3])
             if rank_Mr != rank_Mn:
-                print("Warning: Flat extension condition failed. The extracted measure may not be atomic.")
+                print("Warning: Flat extension condition failed. ")
             else:
                 flat_extension = True
         else:
@@ -306,7 +316,7 @@ def select_sdp(
         if Mn_star is None: 
             print(f"Warning: First-step SDP solver failed for r={r}.")
             return None
-        print("Sanity check, is measure concentrated on boundary? (should be small negative:)", np.trace(Mn_star[:M_fix.shape[0], :M_fix.shape[1]] @ M_fix) - gamma)
+        print("Sanity check, is measure concentrated on boundary? (should be small negative:)", cd_coefficients @ y_star[:len(cd_coefficients)] - gamma)
 
         for r in range(n, n+5):
             Mr_star, flat_extension = solve_optimal_design_step2(n, r+1, d, y_star)
@@ -330,7 +340,35 @@ def select_sdp(
     r = n  # Relaxation degree
     radius = 2.0 # conservatie radius of ball that contais all points.
 
-    M_fix = np.linalg.inv(np.asarray(M))
+
+    M_array = np.asarray(M)
+    basis_n = get_multi_indices(d, n)
+    cd_multi_indices = get_multi_indices(d, 2 * n)
+    cd_idx_map = {idx: i for i, idx in enumerate(cd_multi_indices)}
+    summed_basis_indices = np.fromiter(
+        (
+            cd_idx_map[tuple(a + b for a, b in zip(alpha, beta))]
+            for alpha in basis_n
+            for beta in basis_n
+        ),
+        dtype=np.intp,
+    )
+
+    M_cholesky = cholesky(M_array, lower=True, check_finite=False)
+    transformed_basis = solve_triangular(
+        M_cholesky,
+        np.eye(M_array.shape[0], dtype=M_array.dtype),
+        lower=True,
+        overwrite_b=True,
+        check_finite=False,
+    )
+    cd_coefficients = np.zeros(len(cd_multi_indices), dtype=M_array.dtype)
+    for polynomial in transformed_basis:
+        cd_coefficients += np.bincount(
+            summed_basis_indices,
+            weights=np.outer(polynomial, polynomial).ravel(),
+            minlength=len(cd_multi_indices),
+        )
     optimal_points = solve_optimal_design(n=n, r=r, d=d)
 
     # some sanity checks:
@@ -375,6 +413,8 @@ def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
 def main(
     estimator: EstimatorKind = "polynomial",
     subset_method: SubsetMethod = "sdp",
+    experiment_name: ExperimentName = "disk",
+    # experiment_name: ExperimentName = "nonuniform_circle",
     n_train: int = 500,
     n_cal: int = 500,
     n_test: int = 400,
@@ -390,7 +430,9 @@ def main(
     Args:
         estimator: ``kernelized`` for RBF KernCD or ``polynomial`` for
             CDPolynomial.
-        subset_method: ``bottom-k`` is implemented; ``sdp`` is a placeholder.
+        subset_method: ``bottom-k`` is heuristic; ``sdp`` is optimal.
+        experiment_name: ``disk`` is uniform disk, ``nonuniform_circle`` is 
+            a non-uniformly sampled circle.
         n_train: Number of points used to fit the full estimator.
         n_cal: Held-out points used to calibrate both support thresholds.
         n_test: Held-out points used to report empirical coverage.
@@ -415,7 +457,11 @@ def main(
         raise ValueError("grid_res must be at least 2")
 
     rng = np.random.default_rng(seed)
-    train = sample_disk(rng, n_train)
+
+    if experiment_name == "disk":
+        train = sample_disk(rng, n_train)
+    elif experiment_name == "nonuniform_circle":
+        train = sample_nonuniform_circle(rng, n_train)
 
     full_score, M = fit_estimator(
         train,
@@ -445,19 +491,19 @@ def main(
         poly_degree=poly_degree,
         lam=lam,
     )
-    subset_tau = full_tau #conformal_threshold(subset_score(calibration), alpha)
+    subset_tau = conformal_threshold(subset_score(selected), alpha)
 
-    plot_dist(axes[1], grid, train, full_score, full_tau)
     plot_dist(axes[1], grid, selected, subset_score, subset_tau, color="#0DCEE7")
     axes[1].set_title(f"optimal data ({len(scores)} points)", fontsize=11)
     fig.suptitle(
-        "Non-uniform circle: full and reduced support estimates ",
+        f"{experiment_name}: full and reduced support estimates ",
         fontsize=13,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-    save_plot(get_output_dir() / "optimal_design.pdf", fig=fig)
+    fname = get_output_dir() / f"optimal_design_{experiment_name}.pdf"
+    save_plot(fname, fig=fig)
+    print(f"saved as {fname}")
     plt.show(block=True)
-    print("done")
 
 if __name__ == "__main__":
     import tyro
