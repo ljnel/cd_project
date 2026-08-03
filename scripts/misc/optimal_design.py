@@ -24,6 +24,7 @@ from collections.abc import Callable
 from typing import Literal
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from cd.algs.cd_poly import CDPolynomial
 from cd.algs.kern_cd import KernCD
@@ -35,6 +36,17 @@ EstimatorKind = Literal["kernelized", "polynomial"]
 SubsetMethod = Literal["bottom-k", "sdp"]
 ScoreFunction = Callable[[np.ndarray], np.ndarray]
 
+RELAX_CONSTANT = 10.0  # Relaxation constant for Step 2 of the SDP design.
+
+def approximate_rank(matrix):
+    eigenvalues = np.linalg.eigvalsh(matrix)[::-1]
+    threshold_rank = int(np.count_nonzero(eigenvalues > 1e-5))
+    if threshold_rank < 2:
+        return threshold_rank
+
+    ratios = eigenvalues[:threshold_rank - 1] / eigenvalues[1:threshold_rank]
+    large_gaps = np.flatnonzero(ratios >= 20)
+    return int(large_gaps[-1] + 1) if large_gaps.size else threshold_rank
 
 def sample_nonuniform_circle(
     rng: np.random.Generator,
@@ -48,6 +60,15 @@ def sample_nonuniform_circle(
     )
     points = 0.9 * np.c_[np.cos(theta), np.sin(theta)]
     return points + 0.02 * rng.standard_normal((n_samples, 2))
+
+def sample_disk(
+    rng: np.random.Generator,
+    n_samples: int,
+) -> np.ndarray:
+    # TODO: sample points uniformly from a disk of radius 0.9
+    r = 0.9 * np.sqrt(rng.random(n_samples))  # radius
+    theta = rng.uniform(0, 2 * np.pi, n_samples)  # angle
+    return np.c_[r * np.cos(theta), r * np.sin(theta)]
 
 
 def fit_estimator(
@@ -131,9 +152,10 @@ def select_sdp(
             """Safely adds two multi-index tuples component-wise."""
             return tuple(a + b for a, b in zip(idx1, idx2))
 
-        # 1. Determine rank k (number of points) via SVD
-        U, S, _ = np.linalg.svd(Mr_val)
-        k = np.sum(S > 1e-5) 
+        # 1. Determine rank k (number of points)
+        k = approximate_rank(Mr_val)
+        _, U = np.linalg.eigh(Mr_val)
+        U = U[:, ::-1]
         print(f"Detected {k} support points.")
         
         # 2. Get basis for the range space
@@ -236,48 +258,70 @@ def select_sdp(
         multi_indices = get_multi_indices(d, 2 * r)
         idx_map = {idx: i for i, idx in enumerate(multi_indices)}
 
-        y2 = cp.Variable(len(multi_indices))
-        Mr2, L_g1_2, L_g2_2 = build_relaxation_matrices(y2, multi_indices, idx_map, r, relax=3.0)
+        y = cp.Variable(len(multi_indices))
+        Mr, L_g1, L_g2 = build_relaxation_matrices(y, multi_indices, idx_map, r, relax=RELAX_CONSTANT)
 
         # 4. Define constraints for Step 2
         # Fix the moments up to degree 2n to the optimal values found in Step 1
         num_fixed = len(get_multi_indices(d, 2 * n))
 
-        epsilon = 1e-4
+        epsilon = 1e-2
         constraints2 = [
-            cp.norm(y2[:num_fixed] - y_star[:num_fixed]) <= epsilon, # Moment matching constraint
-            Mr2 >> 0, #epsilon * np.eye(Mr2.shape[0]),                   # New moment matrix must be PSD
-            L_g1_2 >> 0, #epsilon * np.eye(L_g1_2.shape[0]),             # Support constraint 1
-            L_g2_2 >> 0, #epsilon * np.eye(L_g2_2.shape[0]),             # Support constraint 2
+            cp.norm(y[:num_fixed] - y_star[:num_fixed]) <= epsilon, # Moment matching constraint
+            Mr >> 0, #epsilon * np.eye(Mr.shape[0]),                   # New moment matrix must be PSD
+            L_g1 >> 0, #epsilon * np.eye(L_g1.shape[0]),             # Support constraint 1
+            L_g2 >> 0, #epsilon * np.eye(L_g2.shape[0]),             # Support constraint 2
         ]
 
         # 5. Objective: Minimize trace to find a sparse, low-rank solution
-        prob2 = cp.Problem(cp.Minimize(cp.trace(Mr2)), constraints2)
+        prob2 = cp.Problem(cp.Minimize(cp.trace(Mr)), constraints2)
         prob2.solve(
             solver=cp.MOSEK, 
             mosek_params={
-                'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-9,
-                'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-9,
-                'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-9
+                'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-5,
+                'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-5,
+                'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-5
             }
         )
         print(prob2.status)
-        return Mr2.value
+
+        # flat-extension check
+        flat_extension = False
+        if Mr.value is not None:
+
+            rank_Mr = approximate_rank(Mr.value)
+            subblock = len(L_g2.value)
+            rank_Mn = approximate_rank(Mr.value[:subblock, :subblock])
+            print(f"Rank of Mr: {rank_Mr}, Rank of M_(r-nu): {rank_Mn}")
+            if rank_Mr != rank_Mn:
+                print("Warning: Flat extension condition failed. The extracted measure may not be atomic.")
+            else:
+                flat_extension = True
+        else:
+            print("Warning: Mr.value is None. The SDP solver may have failed.")
+        return Mr.value, flat_extension
 
     def solve_optimal_design(n, r, d):
-        for r in range(n, n+2):
-            y_star, Mn_star = solve_optimal_design_step1(n, r, d)
-            print("Sanity check, is measure concentrated on boundary?", np.trace(Mn_star[:M_fix.shape[0], :M_fix.shape[1]] @ M_fix) - gamma)
-            Mr_star = solve_optimal_design_step2(n, r+1, d, y_star)
+        y_star, Mn_star = solve_optimal_design_step1(n, r, d)
+        if Mn_star is None: 
+            print(f"Warning: First-step SDP solver failed for r={r}.")
+            return None
+        print("Sanity check, is measure concentrated on boundary? (should be small negative:)", np.trace(Mn_star[:M_fix.shape[0], :M_fix.shape[1]] @ M_fix) - gamma)
+
+        for r in range(n, n+5):
+            Mr_star, flat_extension = solve_optimal_design_step2(n, r+1, d, y_star)
             if Mr_star is None:
-                print(f"Warning: SDP solver failed for r={r+1}. Trying next r.")
+                print(f"Warning: Second-step SDP solver failed for r={r+1}. Trying next r.")
                 continue
 
+            if flat_extension is False:
+                print(f"Warning: Flat extension condition failed for r={r+1}. Trying next r.")
+                continue
             # --- STEP 3: Return the optial points ---
             multi_indices = get_multi_indices(d, 2 * (r+1))
             points = extract_support_points(Mr_star, multi_indices, r+1)
-            if points is None:
-                continue
+            if points is not None:
+                break
         return points
 
     """Implements the two-stage SDP design to pick optimal points."""
@@ -291,6 +335,41 @@ def select_sdp(
 
     # some sanity checks:
     return optimal_points
+
+
+def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
+    grid_x, grid_y = np.meshgrid(grid, grid)
+    grid_points = np.c_[grid_x.ravel(), grid_y.ravel()]
+    grid_scores = score_func(grid_points).reshape(grid_x.shape)
+    ax.contourf(grid_x, grid_y, grid_scores, levels=30, cmap="viridis")
+    ax.scatter(
+        points[:, 0],
+        points[:, 1],
+        s=10,
+        c="white",
+        linewidths=0,
+    )
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    ax.contour(
+        grid_x,
+        grid_y,
+        grid_scores,
+        levels=[full_tau],
+        colors=color,
+        linewidths=2.5,
+    )
+    ax.contour(
+        grid_x,
+        grid_y,
+        grid_scores,
+        levels=[full_tau + RELAX_CONSTANT],
+        colors=color,
+        alpha=0.5,
+        linewidths=1.5,
+    )
 
 
 def main(
@@ -336,9 +415,7 @@ def main(
         raise ValueError("grid_res must be at least 2")
 
     rng = np.random.default_rng(seed)
-    train = sample_nonuniform_circle(rng, n_train)
-    calibration = sample_nonuniform_circle(rng, n_cal)
-    test = sample_nonuniform_circle(rng, n_test)
+    train = sample_disk(rng, n_train)
 
     full_score, M = fit_estimator(
         train,
@@ -347,6 +424,12 @@ def main(
         lam=lam,
     )
     full_tau = conformal_threshold(full_score(train), alpha)
+
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 5.2), sharex=True, sharey=True)
+    grid = np.linspace(-1.8, 1.8, grid_res)
+    plot_dist(axes[0], grid, train, full_score, full_tau)
+    axes[0].set_title(f"full data ({n_train} points)", fontsize=11)
+    plt.show(block=False)
 
     if subset_method == "bottom-k":
         selected_indices = select_bottom_k(full_score, train, n_select)
@@ -364,143 +447,17 @@ def main(
     )
     subset_tau = full_tau #conformal_threshold(subset_score(calibration), alpha)
 
-    grid = np.linspace(-1.8, 1.8, grid_res)
-    grid_x, grid_y = np.meshgrid(grid, grid)
-    grid_points = np.c_[grid_x.ravel(), grid_y.ravel()]
-    full_grid_scores = full_score(grid_points).reshape(grid_x.shape)
-    subset_grid_scores = subset_score(grid_points).reshape(grid_x.shape)
-
-    # import matplotlib
-    #matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-
-    cell_area = (grid[1] - grid[0]) ** 2
-    full_area = float(np.sum(full_grid_scores <= full_tau) * cell_area)
-    subset_area = float(np.sum(subset_grid_scores <= subset_tau) * cell_area)
-
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 5.2), sharex=True, sharey=True)
-    for ax in axes:
-        ax.contourf(grid_x, grid_y, full_grid_scores, levels=30, cmap="viridis")
-        ax.scatter(
-            train[:, 0],
-            train[:, 1],
-            s=3,
-            c="white",
-            alpha=0.30,
-            linewidths=0,
-        )
-        ax.scatter(
-            calibration[:, 0],
-            calibration[:, 1],
-            s=4,
-            c="orange",
-            alpha=0.35,
-            linewidths=0,
-        )
-        ax.set_aspect("equal")
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-    axes[0].contour(
-        grid_x,
-        grid_y,
-        full_grid_scores,
-        levels=[full_tau],
-        colors="white",
-        linewidths=2.5,
-    )
-    axes[0].set_title(f"full data ({n_train} points)", fontsize=11)
-    axes[0].legend(
-        handles=[
-            Line2D([], [], color="white", lw=2.5, label=f"full area = {full_area:.3f}"),
-        ],
-        loc="lower right",
-        fontsize=9,
-        facecolor="black",
-        framealpha=0.4,
-        labelcolor="white",
-    )
-
-    axes[1].contour(
-        grid_x,
-        grid_y,
-        full_grid_scores,
-        levels=[full_tau],
-        colors="white",
-        linewidths=2.5,
-    )
-    axes[1].contour(
-        grid_x,
-        grid_y,
-        full_grid_scores,
-        levels=[full_tau + 3.0],
-        colors="white",
-        linewidths=2.5,
-    )
-    axes[1].contour(
-        grid_x,
-        grid_y,
-        subset_grid_scores,
-        levels=[subset_tau],
-        colors="#00D7FF",
-        linewidths=2.5,
-    )
-    axes[1].scatter(
-        selected[:, 0],
-        selected[:, 1],
-        s=28,
-        c="#FF4D6D",
-        edgecolors="black",
-        linewidths=0.35,
-        zorder=5,
-    )
-    axes[1].set_title(
-        f"{subset_method} subset ({selected.shape[0]} of {n_train} points)",
-        fontsize=11,
-    )
-    axes[1].legend(
-        handles=[
-            Line2D([], [], color="white", lw=2.5, label=f"full area = {full_area:.3f}"),
-            Line2D([], [], color="#00D7FF", lw=2.5, label=f"subset area = {subset_area:.3f}"),
-            Line2D(
-                [],
-                [],
-                marker="o",
-                linestyle="none",
-                markerfacecolor="#FF4D6D",
-                markeredgecolor="black",
-                label="selected points",
-            ),
-        ],
-        loc="lower right",
-        fontsize=9,
-        facecolor="black",
-        framealpha=0.4,
-        labelcolor="white",
-    )
-
+    plot_dist(axes[1], grid, train, full_score, full_tau)
+    plot_dist(axes[1], grid, selected, subset_score, subset_tau, color="#0DCEE7")
+    axes[1].set_title(f"optimal data ({len(scores)} points)", fontsize=11)
     fig.suptitle(
-        "Non-uniform circle: full and reduced support estimates "
-        f"(target coverage {1 - alpha:.0%}); orange=calibration points",
+        "Non-uniform circle: full and reduced support estimates ",
         fontsize=13,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-    output = save_plot(get_output_dir() / "optimal_design.pdf", fig=fig)
+    save_plot(get_output_dir() / "optimal_design.pdf", fig=fig)
     plt.show(block=True)
-
-    full_coverage = float(np.mean(full_score(test) <= full_tau))
-    subset_coverage = float(np.mean(subset_score(test) <= subset_tau))
-    print(f"saved {output}")
-    print(
-        f"full:   tau={full_tau:.6g}, area={full_area:.4f}, "
-        f"test coverage={full_coverage:.1%}"
-    )
-    print(
-        f"subset: tau={subset_tau:.6g}, area={subset_area:.4f}, "
-        f"test coverage={subset_coverage:.1%}"
-    )
-
+    print("done")
 
 if __name__ == "__main__":
     import tyro
