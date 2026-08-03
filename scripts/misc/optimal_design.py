@@ -38,6 +38,9 @@ ScoreFunction = Callable[[np.ndarray], np.ndarray]
 ExperimentName = Literal["disk", "nonuniform_circle"]
 
 RELAX_CONSTANT = 0.0  # Relaxation constant for Step 2 of the SDP design.
+EPSILON_MOMENTS = 1e-4  # Tolerance for moment matching in Step 2 of the SDP design.
+TOL_STEP1 = 1e-11  # Tolerance for Step 1 of the SDP design.
+TOL_STEP2 = 1e-9  # Tolerance for Step 2 of
 
 def approximate_rank(matrix):
     eigenvalues = np.linalg.eigvalsh(matrix)[::-1]
@@ -243,14 +246,18 @@ def select_sdp(
             L_g2 >> 0
         ]
         prob1 = cp.Problem(cp.Maximize(cp.log_det(Mn)), constraints1)
-        prob1.solve(
-            solver=cp.MOSEK,
-            mosek_params={
-                'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-11,
-                'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-11,
-                'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-11
-        }
-        )
+        try:
+            prob1.solve(
+                solver=cp.MOSEK,
+                mosek_params={
+                    'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': TOL_STEP1,
+                    'MSK_DPAR_INTPNT_CO_TOL_PFEAS': TOL_STEP1,
+                    'MSK_DPAR_INTPNT_CO_TOL_DFEAS': TOL_STEP1 
+            }
+            )
+        except cp.SolverError as e:
+            print(f"Error occurred while solving the first-step SDP: {e}")
+            return None, None
         return y.value, Mr.value
 
 
@@ -266,9 +273,8 @@ def select_sdp(
         # Fix the moments up to degree 2n to the optimal values found in Step 1
         num_fixed = len(get_multi_indices(d, 2 * n))
 
-        epsilon = 1e-2
         constraints2 = [
-            cp.norm(y[:num_fixed] - y_star[:num_fixed], p='inf') <= epsilon, # Moment matching constraint
+            cp.norm(y[:num_fixed] - y_star[:num_fixed], p='inf') <= EPSILON_MOMENTS, # Moment matching constraint
             Mr >> 0, #epsilon * np.eye(Mr.shape[0]),                   # New moment matrix must be PSD
             L_g1 >> 0, #epsilon * np.eye(L_g1.shape[0]),             # Support constraint 1
             L_g2 >> 0, #epsilon * np.eye(L_g2.shape[0]),             # Support constraint 2
@@ -279,9 +285,9 @@ def select_sdp(
         prob2.solve(
             solver=cp.MOSEK, 
             mosek_params={
-                'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-5,
-                'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-5,
-                'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-5
+                'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': TOL_STEP2,
+                'MSK_DPAR_INTPNT_CO_TOL_PFEAS': TOL_STEP2,
+                'MSK_DPAR_INTPNT_CO_TOL_DFEAS': TOL_STEP2
             }
         )
         print(prob2.status)
@@ -312,26 +318,32 @@ def select_sdp(
         return Mr.value, flat_extension
 
     def solve_optimal_design(n, r, d):
-        y_star, Mn_star = solve_optimal_design_step1(n, r, d)
-        if Mn_star is None: 
-            print(f"Warning: First-step SDP solver failed for r={r}.")
-            return None
-        print("Sanity check, is measure concentrated on boundary? (should be small negative:)", cd_coefficients @ y_star[:len(cd_coefficients)] - gamma)
-
-        for r in range(n, n+5):
-            Mr_star, flat_extension = solve_optimal_design_step2(n, r+1, d, y_star)
-            if Mr_star is None:
-                print(f"Warning: Second-step SDP solver failed for r={r+1}. Trying next r.")
-                continue
-
-            if flat_extension is False:
-                print(f"Warning: Flat extension condition failed for r={r+1}. Trying next r.")
-                continue
-            # --- STEP 3: Return the optial points ---
-            multi_indices = get_multi_indices(d, 2 * (r+1))
-            points = extract_support_points(Mr_star, multi_indices, r+1)
-            if points is not None:
+        for r in range(n, n+4):
+            y_star, Mn_star = solve_optimal_design_step1(n, r, d)
+            if Mn_star is None: 
+                print(f"Warning: First-step SDP solver failed for r={r}.")
+                #continue
                 break
+            y_valid = y_star
+            Mn_valid = Mn_star
+            print("Sanity check, is measure concentrated on boundary? (should be small negative:)", cd_coefficients @ y_valid[:len(cd_coefficients)] - gamma)
+            print("Eigenvalues:", np.linalg.eigvalsh(Mn_valid))
+
+        for r in range(n+1, n+8):
+            Mr_star, flat_extension = solve_optimal_design_step2(n, r, d, y_valid)
+            if Mr_star is None:
+                print(f"Warning: Second-step SDP solver failed for r={r}. Trying next r.")
+                continue
+
+            if flat_extension is False and r < n + 7:
+                print(f"Warning: Flat extension condition failed for r={r}. Trying next r.")
+                continue
+            elif flat_extension is False and r == n + 7:
+                print(f"Warning: Flat extension condition failed for r={r}. Extracting points for inexact solution.")
+            # --- STEP 3: Return the optial points ---
+            multi_indices = get_multi_indices(d, 2 * (r))
+            points = extract_support_points(Mr_star, multi_indices, r)
+            break
         return points
 
     """Implements the two-stage SDP design to pick optimal points."""
@@ -413,8 +425,8 @@ def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
 def main(
     estimator: EstimatorKind = "polynomial",
     subset_method: SubsetMethod = "sdp",
-    experiment_name: ExperimentName = "disk",
-    # experiment_name: ExperimentName = "nonuniform_circle",
+    # experiment_name: ExperimentName = "disk",
+    experiment_name: ExperimentName = "nonuniform_circle",
     n_train: int = 500,
     n_cal: int = 500,
     n_test: int = 400,
@@ -470,6 +482,15 @@ def main(
         lam=lam,
     )
     full_tau = conformal_threshold(full_score(train), alpha)
+    print("threshold based on max:", full_tau)
+    print("mean:", np.mean(full_score(train)))
+
+    import math
+    n_min = int(math.comb(train.shape[1] + poly_degree, train.shape[1])) 
+    n_max = int(math.comb(train.shape[1] + 2 * poly_degree, train.shape[1])) 
+    print("Optimal number of points will be between", n_min, "and", n_max)
+    print("Original determinant:", np.linalg.det(M))
+    print("CD value at optimal points should be", n_min)
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 5.2), sharex=True, sharey=True)
     grid = np.linspace(-1.8, 1.8, grid_res)
@@ -485,13 +506,14 @@ def main(
         scores = full_score(selected)
         print(f"Should be close to {M.shape[0]}:", scores)
 
-    subset_score, __ = fit_estimator(
+    subset_score, M_new = fit_estimator(
         selected,
         estimator,
         poly_degree=poly_degree,
         lam=lam,
     )
     subset_tau = conformal_threshold(subset_score(selected), alpha)
+    print("Optimized determinant:", np.linalg.det(M_new))
 
     plot_dist(axes[1], grid, selected, subset_score, subset_tau, color="#0DCEE7")
     axes[1].set_title(f"optimal data ({len(scores)} points)", fontsize=11)
@@ -504,6 +526,8 @@ def main(
     save_plot(fname, fig=fig)
     print(f"saved as {fname}")
     plt.show(block=True)
+
+
 
 if __name__ == "__main__":
     import tyro
