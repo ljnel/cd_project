@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Literal
+import math
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -82,10 +83,11 @@ def fit_estimator(
     *,
     poly_degree: int,
     lam: float,
+    weights = None
 ) -> tuple[str, ScoreFunction]:
     """Fit the selected CD estimator and return its display name and scorer."""
     if kind == "kernelized":
-        model = KernCD(kernel=RBF(gamma="median"), lam=lam).fit(points)
+        model = KernCD(kernel=RBF(gamma="median"), lam=lam).fit(points, weights)
         return model.score, None
 
     if kind == "polynomial":
@@ -95,6 +97,7 @@ def fit_estimator(
             degree=poly_degree,
             method="chol",
             eps=lam,
+            weights=weights
         )
         return model.predict, model.M
 
@@ -117,12 +120,6 @@ def select_sdp(
     M: np.ndarray,
     gamma: float = 0.0,
 ) -> np.ndarray:
-    """Placeholder for the future two-stage SDP subset design."""
-    import numpy as np
-    import cvxpy as cp
-    from scipy.linalg import cholesky, solve_triangular
-    from itertools import product
-
     def get_multi_indices(dim, degree):
         """Generates all multi-indices s.t. sum(alpha) <= degree."""
         indices = [p for p in product(range(degree + 1), repeat=dim) if sum(p) <= degree]
@@ -317,6 +314,41 @@ def select_sdp(
             print("Warning: Mr.value is None. The SDP solver may have failed.")
         return Mr.value, flat_extension
 
+    def calculate_weights(extracted_points, y_star, multi_indices_2n):
+        """
+        Calculates weights w_i such that sum(w_i * x_i^alpha) = y_star_alpha.
+        
+        Args:
+            extracted_points: (N, d) array of extracted coordinates (the red dots).
+            y_star: (s(2n),) array of optimal moments from Step 1.
+            multi_indices_2n: List of tuples representing alpha for degree <= 2n.
+            
+        Returns:
+            weights: (N,) array of non-negative weights.
+        """
+        num_points = len(extracted_points)
+        num_moments = len(y_star)
+        
+        # 1. Build the Vandermonde-like matrix A
+        # A[j, i] = (extracted_points[i])^alpha_j
+        A = np.zeros((num_moments, num_points))
+        
+        for i, x in enumerate(extracted_points):
+            # Evaluate the monomial basis vector v_2n(x)
+            v_2n_x = np.array([np.prod(x**alpha) for alpha in multi_indices_2n])
+            A[:, i] = v_2n_x
+            
+        # 2. Solve the linear system A @ weights = y_star
+        # Use least squares (lstsq) for numerical robustness
+        weights, residuals, rank, s = np.linalg.lstsq(A, y_star, rcond=None)
+        
+        # 3. Sanity Checks
+        # Weights should be non-negative and sum to 1.0 (y_0)
+        weights = np.maximum(weights, 0) # Zero out tiny negative noise
+        weights /= np.sum(weights)      # Ensure they sum exactly to 1.0
+        
+        return weights
+
     def solve_optimal_design(n, r, d):
         for r in range(n, n+4):
             y_star, Mn_star = solve_optimal_design_step1(n, r, d)
@@ -344,7 +376,16 @@ def select_sdp(
             multi_indices = get_multi_indices(d, 2 * (r))
             points = extract_support_points(Mr_star, multi_indices, r)
             break
-        return points
+
+        # Example usage for n=3, d=2 (s(2n)=28 moments):
+        num = math.comb(d+2*n, d)
+        weights = calculate_weights(points, y_valid[:num], multi_indices[:num])
+        return points, weights
+
+    import numpy as np
+    import cvxpy as cp
+    from scipy.linalg import cholesky, solve_triangular
+    from itertools import product
 
     """Implements the two-stage SDP design to pick optimal points."""
     n = 3 
@@ -381,10 +422,10 @@ def select_sdp(
             weights=np.outer(polynomial, polynomial).ravel(),
             minlength=len(cd_multi_indices),
         )
-    optimal_points = solve_optimal_design(n=n, r=r, d=d)
+    optimal_points, optimal_weights = solve_optimal_design(n=n, r=r, d=d)
+    return optimal_points, optimal_weights
 
-    # some sanity checks:
-    return optimal_points
+
 
 
 def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
@@ -501,22 +542,22 @@ def main(
     if subset_method == "bottom-k":
         selected_indices = select_bottom_k(full_score, train, n_select)
         selected = train[selected_indices]
+        weights = None
     elif subset_method == "sdp":
-        selected = select_sdp(train, M, full_tau)
-        scores = full_score(selected)
-        print(f"Should be close to {M.shape[0]}:", scores)
+        selected, weights = select_sdp(train, M, full_tau)
 
     subset_score, M_new = fit_estimator(
         selected,
         estimator,
         poly_degree=poly_degree,
         lam=lam,
+        weights=weights
     )
     subset_tau = conformal_threshold(subset_score(selected), alpha)
     print("Optimized determinant:", np.linalg.det(M_new))
 
     plot_dist(axes[1], grid, selected, subset_score, subset_tau, color="#0DCEE7")
-    axes[1].set_title(f"optimal data ({len(scores)} points)", fontsize=11)
+    axes[1].set_title(f"optimal data ({len(selected)} points)", fontsize=11)
     fig.suptitle(
         f"{experiment_name}: full and reduced support estimates ",
         fontsize=13,

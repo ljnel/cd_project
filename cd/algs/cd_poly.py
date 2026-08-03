@@ -15,6 +15,7 @@ class CDPolynomial:
         method: str = "qr",
         eps: float = 0.0,
         verbose: bool = False,
+        weights: np.ndarray | None = None,
     ):
         data = np.asarray(data)
         self.n_data, self.n_vars = data.shape
@@ -23,6 +24,7 @@ class CDPolynomial:
 
         assert method in ["chol", "lstsq", "solve", "qr"]
         self.method = method
+        self.weights = np.asarray(weights) if weights is not None else None
 
         bs = BasisSpec(n_vars=self.n_vars, degree=self.deg)
         if basis == "mon":
@@ -42,9 +44,13 @@ class CDPolynomial:
         else:
             raise AssertionError("Invalid basis.")
 
+        self.V = np.asarray(self.V)
         self.n_terms = self.V.shape[1]
 
-        self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
+        if self.weights is not None:
+            self.M = (self.V.T @ (self.weights[:, None] * self.V)) / self.n_data + eps * np.eye(self.n_terms)
+        else:
+            self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
 
         if self.method == "chol":
             self.L = np.linalg.cholesky(self.M)
@@ -60,7 +66,7 @@ class CDPolynomial:
 
     def __call__(self, z: np.ndarray) -> np.ndarray:
         "Evaluate the CD polynomial at an array of points."
-        v = self.basis.transform(z)  # (B, n_terms)
+        v = np.asarray(self.basis.transform(z))  # (B, n_terms)
 
         if self.method == "chol":
             y = solve_triangular(self.L, v.T, lower=True).T  # (B, n_terms)
