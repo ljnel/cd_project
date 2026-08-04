@@ -21,25 +21,29 @@ semidefinite program to verify that CVXPY and an SDP-capable solver work.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal
+from itertools import product
 import math
+from typing import Literal
 
 import numpy as np
 import matplotlib.pyplot as plt
+import cvxpy as cp
+from scipy.linalg import cholesky, solve_triangular
 
 from cd.algs.cd_poly import CDPolynomial
 from cd.algs.kern_cd import KernCD
-from cd.algs.kernels import RBF
+from cd.algs.kernels import RBF, Polynomial
 from cd.utils.paths import get_output_dir
 from cd.utils.plotting import save_plot
 
 EstimatorKind = Literal["kernelized", "polynomial"]
-SubsetMethod = Literal["bottom-k", "sdp"]
+SubsetMethod = Literal["bottom-k", "sdp", "kernelized", "weights"]
 ScoreFunction = Callable[[np.ndarray], np.ndarray]
 ExperimentName = Literal["disk", "nonuniform_circle"]
 
 RELAX_CONSTANT = 0.0  # Relaxation constant for Step 2 of the SDP design.
 EPSILON_MOMENTS = 1e-4  # Tolerance for moment matching in Step 2 of the SDP design.
+EPSILON_WEIGHTS = 1e-5  # Tolerance for weights in the kernelized selection.
 TOL_STEP1 = 1e-11  # Tolerance for Step 1 of the SDP design.
 TOL_STEP2 = 1e-9  # Tolerance for Step 2 of
 
@@ -87,8 +91,9 @@ def fit_estimator(
 ) -> tuple[str, ScoreFunction]:
     """Fit the selected CD estimator and return its display name and scorer."""
     if kind == "kernelized":
-        model = KernCD(kernel=RBF(gamma="median"), lam=lam).fit(points, weights)
-        return model.score, None
+        kernel = Polynomial(degree=poly_degree)
+        model = KernCD(kernel=kernel, lam=lam).fit(points)
+        return model.score, model.K
 
     if kind == "polynomial":
         # Cholesky uses ``eps`` to regularize the polynomial moment matrix.
@@ -114,16 +119,73 @@ def select_bottom_k(score: ScoreFunction, points: np.ndarray, k: int) -> np.ndar
     # Stable sorting makes equal-score selections reproducible.
     return np.argsort(scores, kind="stable")[:k]
 
+def select_weights(
+        points: np.ndarray,
+        M: np.ndarray,
+        gamma: float = 0.0,
+)  -> np.ndarray:
+    """ Selects points using the same approach as "kernelized", but without the kernelization step."""
+    weights = cp.Variable(points.shape[0], nonneg=True)
+    # evaluate polynomial basis at the points.
+    dim = points.shape[1]
+    degree = 3
+    V = np.array([np.prod(points**alpha, axis=1) for alpha in get_multi_indices(dim, degree)]).T
+    objective = cp.Maximize(cp.log_det(V.T @ cp.diag(weights) @ V))
+    constraints = [cp.sum(weights) == 1]
+    prob = cp.Problem(objective, constraints)
+    prob.solve(solver=cp.MOSEK, mosek_params={
+        'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-9,
+        'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-9,
+        'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-9
+    })
+    return  points[weights.value > EPSILON_WEIGHTS], weights[weights.value > EPSILON_WEIGHTS].value
+
+
+def select_kernelized(
+        points: np.ndarray, 
+        M: np.ndarray, 
+        gamma: float = 0.0
+) -> np.ndarray:
+    """Selects points using a kernelized approach."""
+    # TODO(FD): Below is a heuristic. I found that the solver crashed for 500 points. I assume with 100 it might still be fine. 
+    if points.shape[0] > 100: 
+        raise ValueError("Too many points for kernelized selection. Please reduce the number of points to 100 or fewer.")
+
+    # calculate the kernel matrix K from features centered at the points
+    # use a polynomial kernel (1 + x'y)^d or a Gaussian kernel exp(-||x - y||^2 / (2 * sigma^2))
+    # Gaussian kernel
+    sigma = 0.1
+    K = np.exp(-np.sum((points[:, np.newaxis, :] - points[np.newaxis, :, :]) ** 2 / sigma ** 2, axis=-1))
+    # Polynomial kernel
+    poly_degree = 3
+    K = (1 + points @ points.T) ** poly_degree  # degree 3 polynomial kernel 
+
+    if np.linalg.matrix_rank(K) < K.shape[0]:
+        print("Warning: Kernel matrix is not full rank. Regularizing...")
+        K += 1e-6 * np.eye(K.shape[0])  # Regularization to ensure positive definiteness
+
+    # Solve the optimization problem to find the optimal weights
+    weigths = cp.Variable(points.shape[0], nonneg=True)
+    objective = cp.Maximize(cp.log_det(K @ cp.diag(weigths)))
+    constraints = [cp.sum(weigths) == 1]
+    prob = cp.Problem(objective, constraints)
+    prob.solve(solver=cp.MOSEK, mosek_params={
+        'MSK_DPAR_INTPNT_CO_TOL_REL_GAP': 1e-9,
+        'MSK_DPAR_INTPNT_CO_TOL_PFEAS': 1e-9,
+        'MSK_DPAR_INTPNT_CO_TOL_DFEAS': 1e-9
+    })
+    return  points[weigths.value > EPSILON_WEIGHTS], weigths[weigths.value > EPSILON_WEIGHTS].value
+
+def get_multi_indices(dim, degree):
+    """Generates all multi-indices s.t. sum(alpha) <= degree."""
+    indices = [p for p in product(range(degree + 1), repeat=dim) if sum(p) <= degree]
+    return sorted(indices, key=lambda x: (sum(x), x)) # Graded Lex order
 
 def select_sdp(
     points: np.ndarray,
     M: np.ndarray,
     gamma: float = 0.0,
 ) -> np.ndarray:
-    def get_multi_indices(dim, degree):
-        """Generates all multi-indices s.t. sum(alpha) <= degree."""
-        indices = [p for p in product(range(degree + 1), repeat=dim) if sum(p) <= degree]
-        return sorted(indices, key=lambda x: (sum(x), x)) # Graded Lex order
 
     def build_moment_matrix(y, multi_indices, matrix_degree, shift=None):
         """
@@ -235,6 +297,7 @@ def select_sdp(
         y = cp.Variable(len(multi_indices))
         Mr, L_g1, L_g2 = build_relaxation_matrices(y, multi_indices, idx_map, r)
         Mn = Mr if n >= r else build_moment_matrix(y, multi_indices, n)
+        print("Step 1: Matrix has size", Mr.shape)
 
         constraints1 = [
             y[0] == 1, 
@@ -278,6 +341,8 @@ def select_sdp(
         ]
 
         # 5. Objective: Minimize trace to find a sparse, low-rank solution
+
+        print("Step 2: Matrix has size", Mr.shape)
         prob2 = cp.Problem(cp.Minimize(cp.trace(Mr)), constraints2)
         prob2.solve(
             solver=cp.MOSEK, 
@@ -287,7 +352,7 @@ def select_sdp(
                 'MSK_DPAR_INTPNT_CO_TOL_DFEAS': TOL_STEP2
             }
         )
-        print(prob2.status)
+        print("Status:", prob2.status)
 
         # flat-extension check
         flat_extension = False
@@ -382,11 +447,6 @@ def select_sdp(
         weights = calculate_weights(points, y_valid[:num], multi_indices[:num])
         return points, weights
 
-    import numpy as np
-    import cvxpy as cp
-    from scipy.linalg import cholesky, solve_triangular
-    from itertools import product
-
     """Implements the two-stage SDP design to pick optimal points."""
     n = 3 
     d = points.shape[1]
@@ -433,16 +493,6 @@ def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
     grid_points = np.c_[grid_x.ravel(), grid_y.ravel()]
     grid_scores = score_func(grid_points).reshape(grid_x.shape)
     ax.contourf(grid_x, grid_y, grid_scores, levels=30, cmap="viridis")
-    ax.scatter(
-        points[:, 0],
-        points[:, 1],
-        s=10,
-        c="white",
-        linewidths=0,
-    )
-    ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
 
     ax.contour(
         grid_x,
@@ -452,20 +502,31 @@ def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
         colors=color,
         linewidths=2.5,
     )
-    ax.contour(
-        grid_x,
-        grid_y,
-        grid_scores,
-        levels=[full_tau + RELAX_CONSTANT],
-        colors=color,
-        alpha=0.5,
-        linewidths=1.5,
+    if RELAX_CONSTANT > 0.0:
+        ax.contour(
+            grid_x,
+            grid_y,
+            grid_scores,
+            levels=[full_tau + RELAX_CONSTANT],
+            colors=color,
+            alpha=0.5,
+            linewidths=1.5,
+        )
+    ax.scatter(
+        points[:, 0],
+        points[:, 1],
+        s=50,
+        c="white",
+        linewidths=0,
     )
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 def main(
     estimator: EstimatorKind = "polynomial",
-    subset_method: SubsetMethod = "sdp",
+    subset_method: SubsetMethod = "weights",
     # experiment_name: ExperimentName = "disk",
     experiment_name: ExperimentName = "nonuniform_circle",
     n_train: int = 500,
@@ -483,7 +544,8 @@ def main(
     Args:
         estimator: ``kernelized`` for RBF KernCD or ``polynomial`` for
             CDPolynomial.
-        subset_method: ``bottom-k`` is heuristic; ``sdp`` is optimal.
+        subset_method: ``bottom-k`` is heuristic; ``sdp`` is optimalm ``weighted`` 
+            is a cheaper alternative to ``sdp``
         experiment_name: ``disk`` is uniform disk, ``nonuniform_circle`` is 
             a non-uniformly sampled circle.
         n_train: Number of points used to fit the full estimator.
@@ -545,6 +607,12 @@ def main(
         weights = None
     elif subset_method == "sdp":
         selected, weights = select_sdp(train, M, full_tau)
+    elif subset_method == "kernelized":
+        selected, weights = select_kernelized(train, M, full_tau)
+    elif subset_method == "weights":
+        selected, weights = select_weights(train, M, full_tau)
+    else:
+        raise ValueError(f"Unknown subset_method: {subset_method}")
 
     subset_score, M_new = fit_estimator(
         selected,
@@ -563,10 +631,9 @@ def main(
         fontsize=13,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-    fname = get_output_dir() / f"optimal_design_{experiment_name}.pdf"
+    fname = get_output_dir() / f"{experiment_name.replace("_", "-")}_{subset_method.replace("_", "-")}.pdf"
     save_plot(fname, fig=fig)
     print(f"saved as {fname}")
-    plt.show(block=True)
 
 
 
