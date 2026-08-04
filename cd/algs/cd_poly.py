@@ -48,7 +48,7 @@ class CDPolynomial:
         self.n_terms = self.V.shape[1]
 
         if self.weights is not None:
-            self.M = (self.V.T @ (self.weights[:, None] * self.V)) / self.n_data + eps * np.eye(self.n_terms)
+            self.M = (self.V.T @ (self.weights[:, None] * self.V))  + eps * np.eye(self.n_terms)
         else:
             self.M = (self.V.T @ self.V) / self.n_data + eps * np.eye(self.n_terms)
 

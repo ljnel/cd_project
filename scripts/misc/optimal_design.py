@@ -36,6 +36,14 @@ from cd.algs.kernels import RBF, Polynomial
 from cd.utils.paths import get_output_dir
 from cd.utils.plotting import save_plot
 
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"(?:Objective|Constraint #\d+) contains too many subexpressions\..*",
+    category=UserWarning,
+)
+
 EstimatorKind = Literal["kernelized", "polynomial"]
 SubsetMethod = Literal["bottom-k", "sdp", "kernelized", "weights"]
 ScoreFunction = Callable[[np.ndarray], np.ndarray]
@@ -101,7 +109,7 @@ def fit_estimator(
             points,
             degree=poly_degree,
             method="chol",
-            eps=lam,
+            eps=0.0, #lam,
             weights=weights
         )
         return model.predict, model.M
@@ -218,7 +226,6 @@ def select_sdp(
         k, _ = approximate_rank(Mr_val)
         _, U = np.linalg.eigh(Mr_val)
         U = U[:, ::-1]
-        print(f"Detected {k} support points.")
         
         # 2. Get basis for the range space
         V = U[:, :k]
@@ -316,7 +323,7 @@ def select_sdp(
             }
             )
         except cp.SolverError as e:
-            print(f"Error occurred while solving the first-step SDP: {e}")
+            print(f"Step 1: Error occurred while solving the SDP")
             return None, None
         return y.value, Mr.value
 
@@ -352,8 +359,6 @@ def select_sdp(
                 'MSK_DPAR_INTPNT_CO_TOL_DFEAS': TOL_STEP2
             }
         )
-        print("Status:", prob2.status)
-
         # flat-extension check
         flat_extension = False
         if Mr.value is not None:
@@ -361,19 +366,20 @@ def select_sdp(
             rank_Mr, eigs_Mr = approximate_rank(Mr.value)
             subblock = len(L_g2.value)
             rank_Mn, eigs_Mn = approximate_rank(Mr.value[:subblock, :subblock])
-            print(f"Rank of Mr: {rank_Mr}, Rank of M_(r-nu): {rank_Mn}")
+            print(f"Step 2: flat extension check - Rank of Mr: {rank_Mr}, Rank of M_(r-nu): {rank_Mn}")
             with np.printoptions(formatter={"float_kind": "{:.3e}".format}):
                 if rank_Mr > 3:
                     #print(eigs_Mr)
-                    print("eigenvalue split Mr:", eigs_Mr[:rank_Mr][-3:], end=" // ")
+                    print("   eigenvalue split Mr:", eigs_Mr[:rank_Mr][-3:], end=" // ")
                     print(eigs_Mr[rank_Mr:][:3])
                 if rank_Mn > 3:
                     #print(eigs_Mn)
-                    print("eigenvalue split M_(r-nu):", eigs_Mn[:rank_Mn][-3:], end=" // ")
+                    print("   eigenvalue split M_(r-nu):", eigs_Mn[:rank_Mn][-3:], end=" // ")
                     print(eigs_Mn[rank_Mn:][:3])
             if rank_Mr != rank_Mn:
-                print("Warning: Flat extension condition failed. ")
+                print("Step 2: Flat extension condition failed. ")
             else:
+                print("Step 2: Flat extension condition satisfied. ")
                 flat_extension = True
         else:
             print("Warning: Mr.value is None. The SDP solver may have failed.")
@@ -418,25 +424,24 @@ def select_sdp(
         for r in range(n, n+4):
             y_star, Mn_star = solve_optimal_design_step1(n, r, d)
             if Mn_star is None: 
-                print(f"Warning: First-step SDP solver failed for r={r}.")
+                print(f"Step 1: Warning; SDP solver failed for r={r}.")
                 #continue
                 break
             y_valid = y_star
             Mn_valid = Mn_star
-            print("Sanity check, is measure concentrated on boundary? (should be small negative:)", cd_coefficients @ y_valid[:len(cd_coefficients)] - gamma)
-            print("Eigenvalues:", np.linalg.eigvalsh(Mn_valid))
+            print("Step 1: Valid solution found.")
+            print("Step 1: Sanity check, is measure concentrated on boundary? (should be small negative:)", cd_coefficients @ y_valid[:len(cd_coefficients)] - gamma)
 
         for r in range(n+1, n+8):
             Mr_star, flat_extension = solve_optimal_design_step2(n, r, d, y_valid)
             if Mr_star is None:
-                print(f"Warning: Second-step SDP solver failed for r={r}. Trying next r.")
+                print(f"Step 2: Warning; SDP solver failed for r={r}. Trying next r.")
                 continue
 
             if flat_extension is False and r < n + 7:
-                print(f"Warning: Flat extension condition failed for r={r}. Trying next r.")
                 continue
             elif flat_extension is False and r == n + 7:
-                print(f"Warning: Flat extension condition failed for r={r}. Extracting points for inexact solution.")
+                print(f"Step 2: Warning; flat extension condition failed for r={r}. Extracting points for inexact solution.")
             # --- STEP 3: Return the optial points ---
             multi_indices = get_multi_indices(d, 2 * (r))
             points = extract_support_points(Mr_star, multi_indices, r)
@@ -526,7 +531,7 @@ def plot_dist(ax, grid, points, score_func, full_tau, color="#FF7F0E"):
 
 def main(
     estimator: EstimatorKind = "polynomial",
-    subset_method: SubsetMethod = "weights",
+    subset_method: SubsetMethod = "sdp",
     # experiment_name: ExperimentName = "disk",
     experiment_name: ExperimentName = "nonuniform_circle",
     n_train: int = 500,
@@ -585,15 +590,13 @@ def main(
         lam=lam,
     )
     full_tau = conformal_threshold(full_score(train), alpha)
-    print("threshold based on max:", full_tau)
-    print("mean:", np.mean(full_score(train)))
+    print("Setup: threshold based on max:", full_tau)
 
     import math
     n_min = int(math.comb(train.shape[1] + poly_degree, train.shape[1])) 
     n_max = int(math.comb(train.shape[1] + 2 * poly_degree, train.shape[1])) 
-    print("Optimal number of points will be between", n_min, "and", n_max)
-    print("Original determinant:", np.linalg.det(M))
-    print("CD value at optimal points should be", n_min)
+    print("Main: Optimal number of points will be between", n_min, "and", n_max)
+    print("Main: CD value at optimal points should be", n_min)
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 5.2), sharex=True, sharey=True)
     grid = np.linspace(-1.8, 1.8, grid_res)
@@ -614,6 +617,8 @@ def main(
     else:
         raise ValueError(f"Unknown subset_method: {subset_method}")
 
+    print(f"Main: Selected {selected.shape[0]} points.")
+    print("Main: full CD value at selected points  ", full_score(selected).round(2))
     subset_score, M_new = fit_estimator(
         selected,
         estimator,
@@ -622,7 +627,8 @@ def main(
         weights=weights
     )
     subset_tau = conformal_threshold(subset_score(selected), alpha)
-    print("Optimized determinant:", np.linalg.det(M_new))
+    print("Main: subset CD value at selected points", subset_score(selected).round(2))
+    print("Main: corresponding weights             ", weights.round(2) if weights is not None else "None")
 
     plot_dist(axes[1], grid, selected, subset_score, subset_tau, color="#0DCEE7")
     axes[1].set_title(f"optimal data ({len(selected)} points)", fontsize=11)
@@ -633,9 +639,7 @@ def main(
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     fname = get_output_dir() / f"{experiment_name.replace("_", "-")}_{subset_method.replace("_", "-")}.pdf"
     save_plot(fname, fig=fig)
-    print(f"saved as {fname}")
-
-
+    print("Main: Saved plot as", fname)
 
 if __name__ == "__main__":
     import tyro
